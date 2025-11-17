@@ -1,2 +1,148 @@
 @import "tailwindcss";
 
+/* ===================================
+   THEME - Premium HealthTech Palette
+   =================================== */
+
+@theme {
+  /* Primary – Clinical Blue */
+  --color-primary-50: #eaf3ff;
+  --color-primary-100: #d6e7ff;
+  --color-primary-200: #aecfff;
+  --color-primary-300: #85b7ff;
+  --color-primary-400: #5d9fff;
+  --color-primary-500: #3587ff;    /* main brand */
+  --color-primary-600: #0a6cff;    /* strong clinical blue */
+  --color-primary-700: #0856cc;
+  --color-primary-800: #064199;
+  --color-primary-900: #042b66;
+
+  /* Secondary – Medical Teal */
+  --color-secondary-50: #e6faf9;
+  --color-secondary-100: #c0f3ef;
+  --color-secondary-200: #99ece6;
+  --color-secondary-300: #66e0d8;
+  --color-secondary-400: #33d6cb;
+  --color-secondary-500: #0fcabd;  /* main accent */
+  --color-secondary-600: #0aa59b;
+  --color-secondary-700: #087f76;
+  --color-secondary-800: #055a52;
+  --color-secondary-900: #033532;
+
+  /* Neutral Grays – UI Friendly */
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+
+  /* Radius & Fonts */
+  --radius-lg: 0.75rem;
+  --font-sans: 'Inter', sans-serif;
+}
+
+/* ===================================
+   BASE
+   =================================== */
+
+@layer base {
+  * {
+    border-color: var(--color-gray-200);
+  }
+
+  body {
+    background: var(--color-gray-50);
+    color: var(--color-gray-900);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a {
+    color: var(--color-primary-600);
+  }
+
+  a:hover {
+    color: var(--color-primary-700);
+  }
+}
+
+/* ===================================
+   COMPONENTS
+   =================================== */
+
+@layer components {
+  .card {
+    border-radius: var(--radius-lg);
+    background: white;
+    border: 1px solid var(--color-gray-200);
+  }
+
+  .card-header,
+  .card-body,
+  .card-footer {
+    padding: 1rem 1.5rem;
+  }
+
+  .card-footer {
+    background: var(--color-gray-50);
+  }
+
+  .btn {
+    display: inline-flex;
+    gap: 0.5rem;
+    align-items: center;
+    border-radius: var(--radius-lg);
+  }
+
+  .input {
+    width: 100%;
+    border-radius: var(--radius-lg);
+  }
+}
+
+/* ===================================
+   UTILITIES
+   =================================== */
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .glass {
+    backdrop-filter: blur(4px);
+    background: rgba(255, 255, 255, 0.8);
+  }
+}
+
+/* Animations */
+@keyframes gradient {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-20px); }
+}
+
+@keyframes scroll {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(12px); opacity: 0; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-gradient { background-size: 200% 200%; animation: gradient 5s ease infinite; }
+.animate-float { animation: float 3s ease-in-out infinite; }
+.animate-scroll { animation: scroll 2s ease-in-out infinite; }
+.animate-spin-slow { animation: spin-slow 20s linear infinite; }
+.animation-delay-2000 { animation-delay: 2s; }
