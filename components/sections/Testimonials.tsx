@@ -97,7 +97,7 @@ export function Testimonials() {
 
           {/* Dots Indicator */}
           <div className="flex justify-center gap-2 mt-8">
-            {testimonials.map((_, index) => (
+            {testimonials.slice(0,6).map((_, index) => (
               <button
                 key={index}
                 onClick={() => {
