@@ -1,12 +1,14 @@
 // app/(public)/page.tsx
-import { Hero } from '@/components/sections/Hero';
+import { Hero, ProgramsOverview, WhyChooseUs, Testimonials } from '@/components/sections';
 
 export default function HomePage() {
   return (
-    <>
+    <main>
       <Hero />
-      {/* Add more sections here later */}
-    </>
+      <ProgramsOverview />
+      <WhyChooseUs />
+      <Testimonials />
+    </main>
   );
 }
 
