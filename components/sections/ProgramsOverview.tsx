@@ -18,7 +18,7 @@ export function ProgramsOverview() {
         />
 
         <div className="mt-16 grid sm:grid-cols-2 lg:grid-cols-3 gap-8">
-          {programs.map((program) => (
+          {programs.slice(0, 6).map((program) => (
             <ProgramCard key={program.id} {...program} />
           ))}
         </div>
