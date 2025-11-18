@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { ArrowRight, Clock, Users, Award } from 'lucide-react';
 
 interface ProgramCardProps {
@@ -12,6 +13,7 @@ interface ProgramCardProps {
   image: string;
   href: string;
   featured?: boolean;
+  onSelect: () => void;
 }
 
 export function ProgramCard({
@@ -22,17 +24,21 @@ export function ProgramCard({
   level,
   image,
   href,
-  featured = false
+  featured = false,
+  onSelect
 }: ProgramCardProps) {
   return (
-    <div className={`group relative bg-white rounded-2xl overflow-hidden border transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 ${
+    <div 
+      onClick={onSelect}
+      className={`group relative cursor-pointer bg-white rounded-2xl overflow-hidden border transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 ${
       featured ? 'border-primary-200 shadow-lg' : 'border-gray-200 shadow-md'
     }`}>
       {/* Image */}
       <div className="relative h-56 overflow-hidden bg-gradient-to-br from-primary-100 to-secondary-100">
-        <img 
+        <Image 
           src={image} 
           alt={title}
+          fill
           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
         />
         {featured && (
@@ -70,11 +76,12 @@ export function ProgramCard({
         </div>
 
         {/* CTA */}
-        <Link 
-          href={href}
+        <Link
+          href={href ?? "#"}
+          onClick={onSelect}
           className="inline-flex items-center gap-2 text-primary-600 font-semibold text-sm group-hover:gap-3 transition-all"
         >
-          <span>Learn More</span>
+          <span>View Program</span>
           <ArrowRight className="w-4 h-4" />
         </Link>
       </div>
