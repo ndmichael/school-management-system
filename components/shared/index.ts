@@ -5,3 +5,6 @@ export { ProgramCard } from './ProgramCard';
 export { ProgramModal } from './ProgramModal';
 export { FeatureCard } from './FeatureCard';
 export {TestimonialCard} from './TestimonialCard';
+export { Input } from './Input';
+export { Textarea } from './Textarea';
+export { Select } from './Select';
