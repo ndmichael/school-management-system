@@ -127,13 +127,13 @@ export function Navbar() {
           {/* CTA BUTTONS */}
           <div className="hidden lg:flex items-center gap-4">
             <Link
-              href="/auth/login"
+              href="/login"
               className="px-5 py-2 rounded-lg font-medium text-sm border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
             >
               Login
             </Link>
             <Link
-              href="/auth/register"
+              href="/apply"
               className="relative px-6 py-2 rounded-lg font-medium text-sm bg-primary-600 text-white overflow-hidden group"
             >
               <span className="relative z-10">Get Started</span>
@@ -200,7 +200,7 @@ export function Navbar() {
                 Login
               </Link>
               <Link
-                href="/auth/register"
+                href="/apply"
                 className="block w-full text-center px-4 py-3 rounded-lg font-medium bg-primary-600 text-white hover:bg-primary-700"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
