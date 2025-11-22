@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { Search, Filter, Plus, Edit, Trash2, Eye, Download, Mail, Phone, MoreVertical } from 'lucide-react';
+import { Search, Filter, Plus, Edit, Trash2, Eye, Download } from 'lucide-react';
 import { studentsData, type Student } from '@/data/admin';
+import { AddStudentModal } from '@/components/modals';
 
 export default function StudentsPage() {
   const [students, setStudents] = useState<Student[]>(studentsData);
@@ -28,6 +29,10 @@ export default function StudentsPage() {
     }
   };
 
+  const handleAddStudent = (newStudent: Student) => {
+    setStudents([...students, newStudent]);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -41,7 +46,7 @@ export default function StudentsPage() {
           className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
         >
           <Plus className="w-5 h-5" />
-          <span>Add Student</span>
+          Add Student
         </button>
       </div>
 
@@ -68,7 +73,6 @@ export default function StudentsPage() {
       {/* Filters & Search */}
       <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
         <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-          {/* Search */}
           <div className="flex-1 relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
@@ -81,7 +85,6 @@ export default function StudentsPage() {
           </div>
 
           <div className="flex gap-3">
-            {/* Status Filter */}
             <div className="flex-1 sm:flex-none flex items-center gap-2">
               <Filter className="w-5 h-5 text-gray-600 flex-shrink-0" />
               <select
@@ -96,7 +99,6 @@ export default function StudentsPage() {
               </select>
             </div>
 
-            {/* Export */}
             <button className="inline-flex items-center gap-2 px-4 sm:px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-medium transition-colors text-sm whitespace-nowrap">
               <Download className="w-5 h-5" />
               <span className="hidden sm:inline">Export</span>
@@ -150,7 +152,7 @@ export default function StudentsPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`px-3 py-1 text-xs font-semibold rounded-full whitespace-nowrap ${
+                    <span className={`px-3 py-1 text-xs font-semibold rounded-full ${
                       student.status === 'active' ? 'bg-green-100 text-green-700' :
                       student.status === 'suspended' ? 'bg-orange-100 text-orange-700' :
                       'bg-gray-100 text-gray-700'
@@ -181,7 +183,6 @@ export default function StudentsPage() {
           </table>
         </div>
 
-        {/* Empty State */}
         {filteredStudents.length === 0 && (
           <div className="text-center py-12">
             <p className="text-gray-600">No students found</p>
@@ -252,7 +253,6 @@ export default function StudentsPage() {
           </div>
         ))}
 
-        {/* Empty State */}
         {filteredStudents.length === 0 && (
           <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
             <p className="text-gray-600">No students found</p>
@@ -280,6 +280,13 @@ export default function StudentsPage() {
           </button>
         </div>
       </div>
+
+      {/* Add Student Modal */}
+      <AddStudentModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSubmit={handleAddStudent}
+      />
     </div>
   );
 }
