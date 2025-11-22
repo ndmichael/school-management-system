@@ -2,13 +2,15 @@
 
 import { useState } from 'react';
 import Image from 'next/image';
-import { Search, Filter, Plus, Edit, Trash2, Eye, Download, Mail, Phone } from 'lucide-react';
+import { Search, Filter, Plus, Edit, Trash2, Eye, Download } from 'lucide-react';
 import { staffData, type Staff } from '@/data/admin';
+import { AddStaffModal } from '@/components/modals';
 
 export default function StaffPage() {
   const [staff, setStaff] = useState<Staff[]>(staffData);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRole, setFilterRole] = useState<string>('all');
+  const [showAddModal, setShowAddModal] = useState(false);
 
   const filteredStaff = staff.filter(member => {
     const matchesSearch = 
@@ -27,6 +29,10 @@ export default function StaffPage() {
     }
   };
 
+  const handleAddStaff = (newStaff: Staff) => {
+    setStaff([...staff, newStaff]);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -35,7 +41,10 @@ export default function StaffPage() {
           <h2 className="text-2xl font-bold text-gray-900">Staff Management</h2>
           <p className="text-gray-600 mt-1">Manage all staff members</p>
         </div>
-        <button className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors">
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
+        >
           <Plus className="w-5 h-5" />
           <span>Add Staff</span>
         </button>
@@ -247,6 +256,13 @@ export default function StaffPage() {
           </div>
         )}
       </div>
+
+      {/* Add Staff Modal */}
+      <AddStaffModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSubmit={handleAddStaff}
+      />
     </div>
   );
 }
