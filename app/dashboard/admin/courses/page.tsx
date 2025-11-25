@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import { Search, Filter, Plus, Edit, Trash2, Eye, Download, BookOpen, Users } from 'lucide-react';
 import { coursesData, type Course } from '@/data/admin';
+import { AddCourseModal } from '@/components/modals';
 
 export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>(coursesData);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterProgram, setFilterProgram] = useState<string>('all');
+  const [showAddModal, setShowAddModal] = useState(false);
 
   const programs = ['all', ...Array.from(new Set(courses.map(c => c.program)))];
 
@@ -28,6 +30,10 @@ export default function CoursesPage() {
     }
   };
 
+  const handleAddCourse = (newCourse: Course) => {
+    setCourses([...courses, newCourse]);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -36,7 +42,10 @@ export default function CoursesPage() {
           <h2 className="text-2xl font-bold text-gray-900">Courses Management</h2>
           <p className="text-gray-600 mt-1">Manage all courses and curriculum</p>
         </div>
-        <button className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors">
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
+        >
           <Plus className="w-5 h-5" />
           <span>Add Course</span>
         </button>
@@ -248,6 +257,13 @@ export default function CoursesPage() {
           </div>
         )}
       </div>
+
+      {/* Add Course Modal */}
+      <AddCourseModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSubmit={handleAddCourse}
+      />
     </div>
   );
 }
