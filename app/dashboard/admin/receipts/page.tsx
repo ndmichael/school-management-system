@@ -3,11 +3,13 @@
 import { useState } from 'react';
 import { Search, Filter, Plus, Eye, Download, Receipt, CheckCircle2, Clock, XCircle } from 'lucide-react';
 import { receiptsData, type Receipt } from '@/data/admin';
+import { AddReceiptModal } from '@/components/modals/AddReceiptModal';
 
 export default function ReceiptsPage() {
   const [receipts, setReceipts] = useState<Receipt[]>(receiptsData);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
   const filteredReceipts = receipts.filter(receipt => {
     const matchesSearch = 
@@ -19,6 +21,11 @@ export default function ReceiptsPage() {
     
     return matchesSearch && matchesStatus;
   });
+
+  const handleAddReceipt = (newReceipt: Receipt) => {
+    setReceipts([newReceipt, ...receipts]);
+    console.log('New receipt added:', newReceipt);
+  };
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-NG', {
@@ -37,7 +44,8 @@ export default function ReceiptsPage() {
   };
 
   const totalRevenue = receipts.reduce((acc, r) => acc + r.amount, 0);
-  const verifiedRevenue = receipts.filter(r => r.status === 'verified').reduce((acc, r) => acc + r.amount, 0);
+  const verifiedCount = receipts.filter(r => r.status === 'verified').length;
+  const pendingCount = receipts.filter(r => r.status === 'pending').length;
 
   return (
     <div className="space-y-6">
@@ -47,29 +55,55 @@ export default function ReceiptsPage() {
           <h2 className="text-2xl font-bold text-gray-900">Payment Receipts</h2>
           <p className="text-gray-600 mt-1">Track and manage all payment receipts</p>
         </div>
-        <button className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors">
+        <button 
+          onClick={() => setIsAddModalOpen(true)}
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors shadow-lg shadow-red-600/20"
+        >
           <Plus className="w-5 h-5" />
-          <span>New Receipt</span>
+          <span>Generate Receipt</span>
         </button>
       </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-          <p className="text-gray-600 text-xs sm:text-sm mb-1">Total Receipts</p>
+        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200 hover:border-gray-300 transition-colors">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
+              <Receipt className="w-5 h-5 text-gray-600" />
+            </div>
+            <p className="text-gray-600 text-xs sm:text-sm font-medium">Total Receipts</p>
+          </div>
           <p className="text-2xl sm:text-3xl font-bold text-gray-900">{receipts.length}</p>
         </div>
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-          <p className="text-gray-600 text-xs sm:text-sm mb-1">Total Revenue</p>
+
+        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200 hover:border-green-300 transition-colors">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+              <CheckCircle2 className="w-5 h-5 text-green-600" />
+            </div>
+            <p className="text-gray-600 text-xs sm:text-sm font-medium">Total Revenue</p>
+          </div>
           <p className="text-xl sm:text-2xl font-bold text-green-600">{formatCurrency(totalRevenue)}</p>
         </div>
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-          <p className="text-gray-600 text-xs sm:text-sm mb-1">Verified</p>
-          <p className="text-2xl sm:text-3xl font-bold text-blue-600">{receipts.filter(r => r.status === 'verified').length}</p>
+
+        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200 hover:border-blue-300 transition-colors">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+              <CheckCircle2 className="w-5 h-5 text-blue-600" />
+            </div>
+            <p className="text-gray-600 text-xs sm:text-sm font-medium">Verified</p>
+          </div>
+          <p className="text-2xl sm:text-3xl font-bold text-blue-600">{verifiedCount}</p>
         </div>
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-          <p className="text-gray-600 text-xs sm:text-sm mb-1">Pending</p>
-          <p className="text-2xl sm:text-3xl font-bold text-orange-600">{receipts.filter(r => r.status === 'pending').length}</p>
+
+        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200 hover:border-orange-300 transition-colors">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+              <Clock className="w-5 h-5 text-orange-600" />
+            </div>
+            <p className="text-gray-600 text-xs sm:text-sm font-medium">Pending</p>
+          </div>
+          <p className="text-2xl sm:text-3xl font-bold text-orange-600">{pendingCount}</p>
         </div>
       </div>
 
@@ -80,7 +114,7 @@ export default function ReceiptsPage() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search receipts..."
+              placeholder="Search by receipt no, student name or ID..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm"
@@ -108,6 +142,35 @@ export default function ReceiptsPage() {
             </button>
           </div>
         </div>
+
+        {/* Active Filters Display */}
+        {(searchQuery || filterStatus !== 'all') && (
+          <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-200">
+            <span className="text-sm text-gray-600">Active filters:</span>
+            {searchQuery && (
+              <span className="px-3 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full flex items-center gap-1">
+                Search: {searchQuery}
+                <button 
+                  onClick={() => setSearchQuery('')}
+                  className="hover:bg-red-200 rounded-full p-0.5"
+                >
+                  <XCircle className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {filterStatus !== 'all' && (
+              <span className="px-3 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-full flex items-center gap-1">
+                Status: {filterStatus}
+                <button 
+                  onClick={() => setFilterStatus('all')}
+                  className="hover:bg-blue-200 rounded-full p-0.5"
+                >
+                  <XCircle className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Desktop Table */}
@@ -116,21 +179,21 @@ export default function ReceiptsPage() {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[140px]">Receipt No.</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[200px]">Student</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[140px]">Amount</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[150px]">Payment Type</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[140px]">Method</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[120px]">Date</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[120px]">Status</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[100px]">Actions</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Receipt No.</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Student</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Amount</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Payment Type</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Method</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Date</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Status</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {filteredReceipts.map((receipt) => (
                 <tr key={receipt.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4">
-                    <span className="font-mono text-sm font-semibold text-gray-900">{receipt.receiptNo}</span>
+                    <span className="font-mono text-sm font-semibold text-red-600">{receipt.receiptNo}</span>
                   </td>
                   <td className="px-6 py-4">
                     <div>
@@ -151,21 +214,30 @@ export default function ReceiptsPage() {
                     <p className="text-sm text-gray-600">{formatDate(receipt.date)}</p>
                   </td>
                   <td className="px-6 py-4">
-                    <span className={`px-3 py-1 text-xs font-semibold rounded-full whitespace-nowrap ${
+                    <span className={`px-3 py-1 text-xs font-semibold rounded-full whitespace-nowrap inline-flex items-center gap-1 ${
                       receipt.status === 'verified' ? 'bg-green-100 text-green-700' :
                       receipt.status === 'pending' ? 'bg-orange-100 text-orange-700' :
                       'bg-red-100 text-red-700'
                     }`}>
+                      {receipt.status === 'verified' && <CheckCircle2 className="w-3 h-3" />}
+                      {receipt.status === 'pending' && <Clock className="w-3 h-3" />}
+                      {receipt.status === 'rejected' && <XCircle className="w-3 h-3" />}
                       {receipt.status}
                     </span>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="View">
-                        <Eye className="w-4 h-4 text-gray-600" />
+                      <button 
+                        className="p-2 hover:bg-blue-50 rounded-lg transition-colors group" 
+                        title="View Receipt"
+                      >
+                        <Eye className="w-4 h-4 text-gray-600 group-hover:text-blue-600" />
                       </button>
-                      <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors" title="Download">
-                        <Download className="w-4 h-4 text-gray-600" />
+                      <button 
+                        className="p-2 hover:bg-green-50 rounded-lg transition-colors group" 
+                        title="Download Receipt"
+                      >
+                        <Download className="w-4 h-4 text-gray-600 group-hover:text-green-600" />
                       </button>
                     </div>
                   </td>
@@ -176,8 +248,14 @@ export default function ReceiptsPage() {
         </div>
 
         {filteredReceipts.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-600">No receipts found</p>
+          <div className="text-center py-16">
+            <Receipt className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-600 font-medium">No receipts found</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {searchQuery || filterStatus !== 'all' 
+                ? 'Try adjusting your filters' 
+                : 'Generate your first receipt to get started'}
+            </p>
           </div>
         )}
       </div>
@@ -185,7 +263,7 @@ export default function ReceiptsPage() {
       {/* Mobile Cards */}
       <div className="lg:hidden space-y-4">
         {filteredReceipts.map((receipt) => (
-          <div key={receipt.id} className="bg-white rounded-xl border border-gray-200 p-4">
+          <div key={receipt.id} className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-shadow">
             <div className="flex items-start gap-3 mb-4">
               <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
                 receipt.status === 'verified' ? 'bg-green-500' :
@@ -194,23 +272,26 @@ export default function ReceiptsPage() {
                 <Receipt className="w-6 h-6 text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-mono text-sm font-semibold text-gray-900 mb-1">{receipt.receiptNo}</p>
+                <p className="font-mono text-sm font-semibold text-red-600 mb-1">{receipt.receiptNo}</p>
                 <p className="font-medium text-gray-900">{receipt.studentName}</p>
                 <p className="text-sm text-gray-600">{receipt.studentId}</p>
               </div>
-              <span className={`px-2 py-1 text-xs font-semibold rounded-full whitespace-nowrap ${
+              <span className={`px-2 py-1 text-xs font-semibold rounded-full whitespace-nowrap flex items-center gap-1 ${
                 receipt.status === 'verified' ? 'bg-green-100 text-green-700' :
                 receipt.status === 'pending' ? 'bg-orange-100 text-orange-700' :
                 'bg-red-100 text-red-700'
               }`}>
+                {receipt.status === 'verified' && <CheckCircle2 className="w-3 h-3" />}
+                {receipt.status === 'pending' && <Clock className="w-3 h-3" />}
+                {receipt.status === 'rejected' && <XCircle className="w-3 h-3" />}
                 {receipt.status}
               </span>
             </div>
 
-            <div className="space-y-2 mb-4">
+            <div className="space-y-2 mb-4 pb-4 border-b border-gray-200">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-600">Amount:</span>
-                <span className="font-bold text-gray-900">{formatCurrency(receipt.amount)}</span>
+                <span className="font-bold text-lg text-gray-900">{formatCurrency(receipt.amount)}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-600">Type:</span>
@@ -226,24 +307,38 @@ export default function ReceiptsPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 pt-4 border-t border-gray-200">
-              <button className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm font-medium">
+            <div className="flex items-center gap-2">
+              <button className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm font-medium">
                 <Eye className="w-4 h-4" />
                 <span>View</span>
               </button>
-              <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                <Download className="w-4 h-4 text-gray-600" />
+              <button className="px-4 py-2.5 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
+                <Download className="w-4 h-4" />
+                <span>Download</span>
               </button>
             </div>
           </div>
         ))}
 
         {filteredReceipts.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
-            <p className="text-gray-600">No receipts found</p>
+          <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
+            <Receipt className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-600 font-medium">No receipts found</p>
+            <p className="text-sm text-gray-500 mt-1 px-4">
+              {searchQuery || filterStatus !== 'all' 
+                ? 'Try adjusting your filters' 
+                : 'Generate your first receipt to get started'}
+            </p>
           </div>
         )}
       </div>
+
+      {/* Add Receipt Modal */}
+      <AddReceiptModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSubmit={handleAddReceipt}
+      />
     </div>
   );
 }
