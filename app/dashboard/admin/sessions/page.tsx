@@ -3,14 +3,22 @@
 import { useState } from 'react';
 import { Search, Plus, Edit, Trash2, Eye, Calendar, Users, CheckCircle2, Clock } from 'lucide-react';
 import { sessionsData, type Session } from '@/data/admin';
+import { AddSessionModal } from '@/components/modals/AddSessionModal';
 
 export default function SessionsPage() {
   const [sessions, setSessions] = useState<Session[]>(sessionsData);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
   const filteredSessions = sessions.filter(session => 
     session.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const handleAddSession = (newSession: Session) => {
+    setSessions([...sessions, newSession]);
+    // Here you would typically also save to your backend/database
+    console.log('New session added:', newSession);
+  };
 
   const handleDelete = (id: string) => {
     if (confirm('Are you sure you want to delete this session?')) {
@@ -34,7 +42,10 @@ export default function SessionsPage() {
           <h2 className="text-2xl font-bold text-gray-900">Academic Sessions</h2>
           <p className="text-gray-600 mt-1">Manage academic years and semesters</p>
         </div>
-        <button className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors">
+        <button 
+          onClick={() => setIsAddModalOpen(true)}
+          className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
+        >
           <Plus className="w-5 h-5" />
           <span>Add Session</span>
         </button>
@@ -209,6 +220,13 @@ export default function SessionsPage() {
           </div>
         )}
       </div>
+
+      {/* Add Session Modal */}
+      <AddSessionModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSubmit={handleAddSession}
+      />
     </div>
   );
 }
