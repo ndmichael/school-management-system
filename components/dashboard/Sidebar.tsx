@@ -51,9 +51,11 @@ const roleConfig = {
     label: 'Student',
     items: [
       { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/student' },
-      { icon: BookOpen, label: 'My Courses', href: '/dashboard/student/courses' },
-      { icon: FileText, label: 'Results', href: '/dashboard/student/results' },
       { icon: Receipt, label: 'Payments', href: '/dashboard/student/payments' },
+      { icon: FileText, label: 'Downloads', href: '/dashboard/student/downloads' },
+      // { icon: BookOpen, label: 'My Courses', href: '/dashboard/student/courses' },
+      { icon: FileText, label: 'Results', href: '/dashboard/student/results' },
+
       { icon: Users, label: 'Profile', href: '/dashboard/student/profile' },
     ]
   },
@@ -68,8 +70,11 @@ const roleConfig = {
       { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/academic_staff' },
       { icon: BookOpen, label: 'Courses', href: '/dashboard/academic_staff/courses' },
       { icon: Users, label: 'Students', href: '/dashboard/academic_staff/students' },
+      { icon: FileText, label: 'Results', href: '/dashboard/academic_staff/results' }, // add results link
+      //{ icon: Upload, label: 'Materials', href: '/dashboard/academic_staff/materials' }, // optional for downloads
       { icon: Settings, label: 'Settings', href: '/dashboard/academic_staff/settings' },
     ]
+
   },
   non_academic_staff: {
     color: 'bg-green-600',
