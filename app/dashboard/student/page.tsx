@@ -1,210 +1,162 @@
-import { BookOpen, Calendar, CreditCard, Award, Clock, TrendingUp, FileText, Download } from 'lucide-react';
+'use client';
 
-export default function StudentDashboard() {
-  const stats = [
+import { useState } from 'react';
+import Image from 'next/image';
+import { Eye } from 'lucide-react';
+import Link from 'next/link';
+
+export default function AcademicStaffStudentsPage() {
+  const [search, setSearch] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('');
+
+  // Demo student data
+  const students = [
     {
-      label: 'Current CGPA',
-      value: '3.85',
-      subtitle: 'Out of 4.0',
-      icon: Award,
-      color: 'bg-blue-500'
+      id: 'STU001',
+      name: 'Jane Doe',
+      matricNo: 'MAT2025001',
+      department: 'Computer Science',
+      level: '400',
+      email: 'jane.doe@example.com',
+      avatar: 'https://api.dicebear.com/9.x/avataaars/svg?seed=JaneDoe&backgroundColor=b6e3f4',
     },
     {
-      label: 'Enrolled Courses',
-      value: '8',
-      subtitle: 'This semester',
-      icon: BookOpen,
-      color: 'bg-purple-500'
+      id: 'STU002',
+      name: 'John Smith',
+      matricNo: 'MAT2025002',
+      department: 'Mathematics',
+      level: '300',
+      email: 'john.smith@example.com',
+      avatar: 'https://api.dicebear.com/9.x/avataaars/svg?seed=JohnSmith&backgroundColor=b6e3f4',
     },
     {
-      label: 'Attendance',
-      value: '94%',
-      subtitle: 'Overall',
-      icon: Calendar,
-      color: 'bg-green-500'
+      id: 'STU003',
+      name: 'Alice Johnson',
+      matricNo: 'MAT2025003',
+      department: 'Physics',
+      level: '200',
+      email: 'alice.johnson@example.com',
+      avatar: 'https://api.dicebear.com/9.x/avataaars/svg?seed=AliceJohnson&backgroundColor=b6e3f4',
     },
-    {
-      label: 'Pending Fees',
-      value: '₦0',
-      subtitle: 'All cleared',
-      icon: CreditCard,
-      color: 'bg-orange-500'
-    }
   ];
 
-  const upcomingClasses = [
-    { course: 'Clinical Chemistry', time: 'Today, 10:00 AM', room: 'Lab 204', instructor: 'Dr. Adebayo' },
-    { course: 'Medical Microbiology', time: 'Today, 2:00 PM', room: 'Lab 301', instructor: 'Dr. Okafor' },
-    { course: 'Hematology', time: 'Tomorrow, 9:00 AM', room: 'Lab 205', instructor: 'Prof. Chiamaka' },
-  ];
+  // Unique departments for filter
+  const departments = Array.from(new Set(students.map((s) => s.department)));
 
-  const recentAnnouncements = [
-    { title: 'Semester Examination Schedule Released', date: '2 hours ago', priority: 'high' },
-    { title: 'Library Operating Hours Extended', date: '1 day ago', priority: 'normal' },
-    { title: 'Student Council Elections Coming Soon', date: '3 days ago', priority: 'normal' },
-  ];
-
-  const courseProgress = [
-    { name: 'Clinical Chemistry', progress: 85, grade: 'A' },
-    { name: 'Medical Microbiology', progress: 78, grade: 'B+' },
-    { name: 'Hematology', progress: 92, grade: 'A+' },
-    { name: 'Parasitology', progress: 88, grade: 'A' },
-  ];
+  // Filter students by search and department
+  const filteredStudents = students.filter((s) => {
+    const matchesSearch =
+      s.name.toLowerCase().includes(search.toLowerCase()) ||
+      s.matricNo.toLowerCase().includes(search.toLowerCase());
+    const matchesDepartment = departmentFilter ? s.department === departmentFilter : true;
+    return matchesSearch && matchesDepartment;
+  });
 
   return (
-    <div className="space-y-6">
-      {/* Welcome Section */}
-      <div className="bg-gradient-to-br from-blue-600 via-blue-700 to-purple-600 rounded-2xl p-8 text-white relative overflow-hidden">
-        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
-        <div className="relative">
-          <h2 className="text-3xl font-bold mb-2">Welcome back, Student!</h2>
-          <p className="text-blue-100 mb-6">You're doing great this semester. Keep up the excellent work!</p>
-          <div className="flex flex-wrap gap-3">
-            <button className="px-6 py-2.5 bg-white text-blue-600 rounded-lg font-semibold hover:bg-blue-50 transition-colors">
-              View Timetable
-            </button>
-            <button className="px-6 py-2.5 bg-white/10 backdrop-blur-sm text-white rounded-lg font-semibold border border-white/20 hover:bg-white/20 transition-colors">
-              Check Results
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => {
-          const Icon = stat.icon;
-          return (
-            <div key={index} className="group bg-white rounded-2xl p-6 border border-gray-200 hover:border-blue-200 hover:shadow-xl transition-all">
-              <div className={`w-12 h-12 ${stat.color} rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform`}>
-                <Icon className="w-6 h-6 text-white" />
-              </div>
-              <h3 className="text-3xl font-bold text-gray-900 mb-1">{stat.value}</h3>
-              <p className="text-sm font-medium text-gray-900">{stat.label}</p>
-              <p className="text-xs text-gray-500 mt-1">{stat.subtitle}</p>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Upcoming Classes */}
-        <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-              <Clock className="w-5 h-5 text-blue-600" />
-              Upcoming Classes
-            </h3>
-            <button className="text-sm text-blue-600 hover:text-blue-700 font-medium">View All</button>
-          </div>
-          <div className="space-y-4">
-            {upcomingClasses.map((class_, index) => (
-              <div key={index} className="flex items-start gap-4 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl border border-blue-100 hover:border-blue-200 transition-colors">
-                <div className="w-12 h-12 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <BookOpen className="w-6 h-6 text-white" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-semibold text-gray-900 mb-1">{class_.course}</h4>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600">
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5" />
-                      {class_.time}
-                    </span>
-                    <span>Room: {class_.room}</span>
-                    <span>{class_.instructor}</span>
-                  </div>
-                </div>
-              </div>
+    <div className="space-y-8">
+      {/* Header + Filters */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold text-gray-900">Students</h1>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            type="text"
+            placeholder="Search by name or matric"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="px-4 py-2 border rounded-xl border-gray-300 focus:ring-2 focus:ring-primary-500"
+          />
+          <select
+            value={departmentFilter}
+            onChange={(e) => setDepartmentFilter(e.target.value)}
+            className="px-4 py-2 border rounded-xl border-gray-300 focus:ring-2 focus:ring-primary-500"
+          >
+            <option value="">All Departments</option>
+            {departments.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
             ))}
-          </div>
-        </div>
-
-        {/* Announcements */}
-        <div className="bg-white rounded-2xl p-6 border border-gray-200">
-          <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-blue-600" />
-            Announcements
-          </h3>
-          <div className="space-y-4">
-            {recentAnnouncements.map((announcement, index) => (
-              <div key={index} className="pb-4 border-b border-gray-100 last:border-0 last:pb-0">
-                <div className="flex items-start gap-2 mb-2">
-                  {announcement.priority === 'high' && (
-                    <span className="px-2 py-0.5 bg-red-100 text-red-700 text-xs font-semibold rounded">
-                      Important
-                    </span>
-                  )}
-                </div>
-                <h4 className="font-semibold text-gray-900 text-sm mb-1">{announcement.title}</h4>
-                <p className="text-xs text-gray-500">{announcement.date}</p>
-              </div>
-            ))}
-          </div>
-          <button className="w-full mt-4 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg font-medium transition-colors">
-            View All Announcements
-          </button>
+          </select>
         </div>
       </div>
 
-      {/* Course Progress */}
-      <div className="bg-white rounded-2xl p-6 border border-gray-200">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-blue-600" />
-            Course Progress
-          </h3>
-          <button className="text-sm text-blue-600 hover:text-blue-700 font-medium">View Details</button>
+      {/* Desktop Table */}
+      <div className="hidden lg:block bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[280px]">Name</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[120px]">Matric No</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[180px]">Department</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[100px]">Level</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[200px]">Email</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[80px]">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {filteredStudents.map((student) => (
+                <tr key={student.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 flex items-center gap-3">
+                    <div className="relative w-10 h-10 flex-shrink-0">
+                      <Image src={student.avatar} alt={student.name} fill className="rounded-full object-cover" />
+                    </div>
+                    <p className="font-semibold text-gray-900 truncate">{student.name}</p>
+                  </td>
+                  <td className="px-6 py-4 text-sm font-mono text-gray-900">{student.matricNo}</td>
+                  <td className="px-6 py-4 text-sm text-gray-900">{student.department}</td>
+                  <td className="px-6 py-4 text-sm text-gray-900">{student.level}</td>
+                  <td className="px-6 py-4 text-sm text-gray-900 truncate">{student.email}</td>
+                  <td className="px-6 py-4">
+                    <Link
+                      href={`/dashboard/academic_staff/student/${student.id}`}
+                      className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                      title="View Student"
+                    >
+                      <Eye className="w-4 h-4 text-gray-600" />
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {courseProgress.map((course, index) => (
-            <div key={index} className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-gray-900">{course.name}</span>
-                <span className="text-xs font-bold text-blue-600">{course.grade}</span>
+
+        {filteredStudents.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-gray-600">No students found</p>
+          </div>
+        )}
+      </div>
+
+      {/* Mobile Cards */}
+      <div className="lg:hidden space-y-4">
+        {filteredStudents.map((student) => (
+          <div
+            key={student.id}
+            className="bg-white p-4 rounded-xl border border-gray-200 flex justify-between items-center"
+          >
+            <div className="flex items-center gap-3">
+              <div className="relative w-12 h-12 flex-shrink-0">
+                <Image src={student.avatar} alt={student.name} fill className="rounded-full object-cover" />
               </div>
-              <div className="relative w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div 
-                  className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500 to-purple-500 rounded-full transition-all duration-500"
-                  style={{ width: `${course.progress}%` }}
-                />
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-600">{course.progress}% Complete</span>
+              <div>
+                <p className="font-semibold text-gray-900">{student.name}</p>
+                <p className="text-sm text-gray-500">{student.matricNo}</p>
+                <p className="text-sm text-gray-500">
+                  {student.department} - {student.level}
+                </p>
               </div>
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="bg-white rounded-2xl p-6 border border-gray-200">
-        <h3 className="text-xl font-bold text-gray-900 mb-6">Quick Actions</h3>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <button className="group p-6 bg-gradient-to-br from-blue-50 to-blue-100 hover:from-blue-100 hover:to-blue-200 rounded-xl text-left transition-all hover:shadow-lg border border-blue-200">
-            <Download className="w-8 h-8 text-blue-600 mb-3 group-hover:scale-110 transition-transform" />
-            <p className="font-bold text-gray-900">Download Materials</p>
-            <p className="text-xs text-gray-600 mt-1">Course resources</p>
-          </button>
-          
-          <button className="group p-6 bg-gradient-to-br from-purple-50 to-purple-100 hover:from-purple-100 hover:to-purple-200 rounded-xl text-left transition-all hover:shadow-lg border border-purple-200">
-            <CreditCard className="w-8 h-8 text-purple-600 mb-3 group-hover:scale-110 transition-transform" />
-            <p className="font-bold text-gray-900">Make Payment</p>
-            <p className="text-xs text-gray-600 mt-1">Tuition & fees</p>
-          </button>
-          
-          <button className="group p-6 bg-gradient-to-br from-green-50 to-green-100 hover:from-green-100 hover:to-green-200 rounded-xl text-left transition-all hover:shadow-lg border border-green-200">
-            <FileText className="w-8 h-8 text-green-600 mb-3 group-hover:scale-110 transition-transform" />
-            <p className="font-bold text-gray-900">View Results</p>
-            <p className="text-xs text-gray-600 mt-1">Exam scores</p>
-          </button>
-          
-          <button className="group p-6 bg-gradient-to-br from-orange-50 to-orange-100 hover:from-orange-100 hover:to-orange-200 rounded-xl text-left transition-all hover:shadow-lg border border-orange-200">
-            <Calendar className="w-8 h-8 text-orange-600 mb-3 group-hover:scale-110 transition-transform" />
-            <p className="font-bold text-gray-900">Class Schedule</p>
-            <p className="text-xs text-gray-600 mt-1">Weekly timetable</p>
-          </button>
-        </div>
+            <Link
+              href={`/dashboard/academic_staff/student/${student.id}`}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              title="View Student"
+            >
+              <Eye className="w-5 h-5 text-gray-600" />
+            </Link>
+          </div>
+        ))}
       </div>
     </div>
   );
