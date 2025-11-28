@@ -1,60 +1,55 @@
-// components/layout/Navbar.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import {
-  GraduationCap,
-  Menu,
-  X,
-  ChevronDown,
-  BookOpen,
-  Users,
-  Award
-} from 'lucide-react';
+import { GraduationCap, Menu, X } from 'lucide-react';
 
 export function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
+  const pathname = usePathname();
 
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 10);
-    };
+    const handleScroll = () => setIsScrolled(window.scrollY > 10);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   const navLinks = [
     { label: 'Home', href: '/' },
-    {
-      label: 'About',
-      href: '/about',
-      dropdown: [
-        { label: 'Our Story', href: '/about/story', icon: BookOpen },
-        { label: 'Our Team', href: '/about/team', icon: Users },
-        { label: 'Accreditation', href: '/about/accreditation', icon: Award },
-      ]
-    },
+    { label: 'About', href: '/about' }, // No dropdown
     { label: 'Programs', href: '/programs' },
     { label: 'Admissions', href: '/admissions' },
     { label: 'Contact', href: '/contact' },
   ];
 
+  // Smooth scroll handler for About section anchors
+  const handleAboutClick = (e: React.MouseEvent<HTMLAnchorElement, MouseEvent>) => {
+    if (pathname === '/about') {
+      e.preventDefault();
+      const targetId = (e.currentTarget.getAttribute('href') || '').replace('/about', '');
+      const element = document.querySelector(targetId);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth' });
+        setIsMobileMenuOpen(false);
+      }
+    }
+  };
+
   return (
     <nav
       className={cn(
-        "fixed top-0 left-0 right-0 z-50 transition-all duration-500",
+        'fixed top-0 left-0 right-0 z-50 transition-all duration-500',
         isScrolled
-          ? "bg-white/95 backdrop-blur-md shadow-sm border-b border-gray-200/40"
-          : "bg-white/30 backdrop-blur-sm"
+          ? 'bg-white/95 backdrop-blur-md shadow-sm border-b border-gray-200/40'
+          : 'bg-white/30 backdrop-blur-sm'
       )}
     >
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-20">
-
+          
           {/* LOGO */}
           <Link href="/" className="flex items-center gap-3 group">
             <div className="relative">
@@ -72,60 +67,19 @@ export function Navbar() {
           </Link>
 
           {/* DESKTOP NAV */}
-          <div className="hidden lg:flex items-center gap-1">
-            {navLinks.map((link) => (
-              <div
-                key={link.label}
-                className="relative"
-                onMouseEnter={() => link.dropdown && setActiveDropdown(link.label)}
-                onMouseLeave={() => setActiveDropdown(null)}
-              >
-                <Link
-                  href={link.href}
-                  className={cn(
-                    "px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 flex items-center gap-1",
-                    "text-gray-700 hover:text-primary-600 hover:bg-primary-50"
-                  )}
-                >
-                  {link.label}
-                  {link.dropdown && (
-                    <ChevronDown
-                      className={cn(
-                        "w-4 h-4 transition-transform",
-                        activeDropdown === link.label && "rotate-180"
-                      )}
-                    />
-                  )}
-                </Link>
-
-                {/* DROPDOWN */}
-                {link.dropdown && activeDropdown === link.label && (
-                  <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-gray-100 py-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                    {link.dropdown.map((item) => {
-                      const Icon = item.icon;
-                      return (
-                        <Link
-                          key={item.label}
-                          href={item.href}
-                          className="flex items-center gap-3 px-4 py-3 hover:bg-primary-50 transition-colors group"
-                        >
-                          <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center group-hover:bg-primary-200 transition-colors">
-                            <Icon className="w-4 h-4 text-primary-600" />
-                          </div>
-                          <span className="text-sm font-medium text-gray-700 group-hover:text-primary-600">
-                            {item.label}
-                          </span>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* CTA BUTTONS */}
           <div className="hidden lg:flex items-center gap-4">
+            {navLinks.map((link) => (
+              <Link
+                key={link.label}
+                href={link.href}
+                onClick={link.label === 'About' ? handleAboutClick : undefined}
+                className="px-4 py-2 rounded-lg font-medium text-sm text-gray-700 hover:text-primary-600 hover:bg-primary-50 transition-all"
+              >
+                {link.label}
+              </Link>
+            ))}
+
+            {/* CTA */}
             <Link
               href="/login"
               className="px-5 py-2 rounded-lg font-medium text-sm border border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors"
@@ -146,11 +100,8 @@ export function Navbar() {
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
             className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
           >
-            {isMobileMenuOpen
-              ? <X className="w-6 h-6 text-gray-700" />
-              : <Menu className="w-6 h-6 text-gray-700" />}
+            {isMobileMenuOpen ? <X className="w-6 h-6 text-gray-700" /> : <Menu className="w-6 h-6 text-gray-700" />}
           </button>
-
         </div>
       </div>
 
@@ -159,35 +110,14 @@ export function Navbar() {
         <div className="lg:hidden bg-white border-t border-gray-200 shadow-xl animate-in slide-in-from-top duration-300">
           <div className="px-6 py-6 space-y-2">
             {navLinks.map((link) => (
-              <div key={link.label}>
-                <Link
-                  href={link.href}
-                  className="block px-4 py-3 rounded-lg text-gray-700 hover:bg-primary-50 hover:text-primary-600 font-medium transition-colors"
-                  onClick={() => setIsMobileMenuOpen(false)}
-                >
-                  {link.label}
-                </Link>
-
-                {/* Mobile dropdown */}
-                {link.dropdown && (
-                  <div className="ml-4 mt-2 space-y-1">
-                    {link.dropdown.map((item) => {
-                      const Icon = item.icon;
-                      return (
-                        <Link
-                          key={item.label}
-                          href={item.href}
-                          onClick={() => setIsMobileMenuOpen(false)}
-                          className="flex items-center gap-3 px-4 py-2 rounded-lg text-sm text-gray-600 hover:bg-primary-50 hover:text-primary-600 transition-colors"
-                        >
-                          <Icon className="w-4 h-4" />
-                          {item.label}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              <Link
+                key={link.label}
+                href={link.href}
+                onClick={link.label === 'About' ? handleAboutClick : () => setIsMobileMenuOpen(false)}
+                className="block px-4 py-3 rounded-lg text-gray-700 hover:bg-primary-50 hover:text-primary-600 font-medium transition-colors"
+              >
+                {link.label}
+              </Link>
             ))}
 
             {/* Mobile CTA */}
