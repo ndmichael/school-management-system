@@ -1,229 +1,404 @@
+// app/(dashboard)/admin/departments/page.tsx
 'use client';
 
-import { useState } from 'react';
-import { Search, Plus, Edit, Trash2, Eye, Building2, Users, BookOpen } from 'lucide-react';
-import { departmentsData, type Department } from '@/data/admin';
+import { useEffect, useMemo, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
+import {
+  Search,
+  Plus,
+  Building2,
+  Users,
+  BookOpen,
+  Edit,
+  Trash2,
+} from 'lucide-react';
+
+import { PrimaryButton } from '@/components/shared/PrimaryButton';
 import { AddDepartmentModal } from '@/components/modals/AddDepartmentModal';
+import { EditDepartmentModal } from '@/components/modals/EditDepartmentModal';
+
+// use your shared Input
+import { Input } from '@/components/shared/Input';
+
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
+import { toast } from 'react-toastify';
+import { cn } from '@/lib/utils';
+
+
+type Department = {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  hod_profile_id: string | null;
+};
+
 
 export default function DepartmentsPage() {
-  const [departments, setDepartments] = useState<Department[]>(departmentsData);
+  const supabase = createClient();
+
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [initialFetchDone, setInitialFetchDone] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingDept, setEditingDept] = useState<Department | null>(null);
 
-  const filteredDepartments = departments.filter(dept => 
-    dept.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    dept.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    dept.hod.toLowerCase().includes(searchQuery.toLowerCase())
+
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      setLoading(true);
+
+      const { data, error } = await supabase
+        .from('departments')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error(error);
+        toast.error(error.message || 'Failed to load departments');
+      } else {
+        setDepartments((data ?? []) as Department[]);
+      }
+
+      setLoading(false);
+      setInitialFetchDone(true);
+    };
+
+    fetchDepartments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const filteredDepartments = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return departments;
+
+    return departments.filter((dept) => {
+      return (
+        dept.name.toLowerCase().includes(q) ||
+        dept.code.toLowerCase().includes(q) ||
+        (dept.description ?? '').toLowerCase().includes(q)
+      );
+    });
+  }, [departments, searchQuery]);
+
+  const handleDelete = async (id: string) => {
+    const target = departments.find((d) => d.id === id);
+    const label = target ? `${target.code} – ${target.name}` : 'this department';
+
+    if (
+      !window.confirm(
+        `Are you sure you want to delete ${label}? This action cannot be undone.`
+      )
+    ) {
+      return;
+    }
+
+    setDeletingId(id);
+
+    const { error } = await supabase.from('departments').delete().eq('id', id);
+
+    if (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to delete department');
+    } else {
+      setDepartments((prev) => prev.filter((d) => d.id !== id));
+      toast.success(`Department deleted: ${label}`);
+    }
+
+    setDeletingId(null);
+  };
+
+  const handleCreated = (dept: Department) => {
+    setDepartments((prev) => [dept, ...prev]);
+    toast.success(`Department created: ${dept.code} — ${dept.name}`);
+  };
+
+  const renderStatusBadge = (isActive: boolean) => {
+    if (isActive) {
+      return (
+        <Badge className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20">
+          Active
+        </Badge>
+      );
+    }
+
+    return (
+      <Badge className="bg-slate-500/10 text-slate-600 hover:bg-slate-500/20">
+        Inactive
+      </Badge>
+    );
+  };
+
+
+  const emptyState = (
+    <div className="flex h-[260px] flex-col items-center justify-center rounded-3xl border border-dashed border-muted bg-muted/30 text-center">
+      <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
+        <Building2 className="h-6 w-6 text-primary" />
+      </div>
+      <h3 className="text-base font-semibold tracking-tight">
+        No departments yet
+      </h3>
+      <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+        Start by creating your first department. You can always edit or add
+        more later.
+      </p>
+      <div className="mt-4">
+        <PrimaryButton onClick={() => setIsAddModalOpen(true)}>
+          Create department
+        </PrimaryButton>
+      </div>
+    </div>
   );
 
-  const handleAddDepartment = (newDepartment: Department) => {
-    setDepartments([...departments, newDepartment]);
-    // Here you would typically also save to your backend/database
-    console.log('New department added:', newDepartment);
-  };
-
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this department?')) {
-      setDepartments(departments.filter(d => d.id !== id));
-    }
-  };
+  const skeletonState = (
+    <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+      {Array.from({ length: 4 }).map((_, idx) => (
+        <Card
+          key={idx}
+          className="rounded-3xl border border-border/60 bg-card/60 backdrop-blur-sm"
+        >
+          <CardContent className="space-y-4 p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-10 w-10 rounded-2xl" />
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
+              </div>
+              <Skeleton className="h-6 w-16 rounded-full" />
+            </div>
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-2/3" />
+            <div className="flex items-center justify-between pt-1">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-8 w-20 rounded-full" />
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
 
   return (
-    <div className="space-y-6">
+    <>
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Departments</h2>
-          <p className="text-gray-600 mt-1">Manage academic departments</p>
+      <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-1.5">
+          <div className="inline-flex items-center gap-2 rounded-2xl bg-primary/5 px-3 py-1 text-xs font-medium text-primary">
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-xl bg-primary/10">
+              <Building2 className="h-3 w-3" />
+            </span>
+            Admin · Structure
+          </div>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight md:text-3xl">
+            Departments
+          </h1>
+          <p className="max-w-xl text-sm text-muted-foreground">
+            Manage academic departments for your health school. These
+            departments will be used to organize programs, sessions, and
+            courses.
+          </p>
         </div>
-        <button 
-          onClick={() => setIsAddModalOpen(true)}
-          className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
-        >
-          <Plus className="w-5 h-5" />
-          <span>Add Department</span>
-        </button>
+
+        <div className="flex items-center justify-end gap-3">
+          <Button
+            variant="outline"
+            size="icon"
+            className="rounded-2xl md:hidden"
+            onClick={() => setIsAddModalOpen(true)}
+          >
+            <Plus className="h-5 w-5" />
+          </Button>
+
+          <PrimaryButton
+            className="hidden md:inline-flex"
+            onClick={() => setIsAddModalOpen(true)}
+          >
+            New department
+          </PrimaryButton>
+        </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-          <p className="text-gray-600 text-xs sm:text-sm mb-1">Total Departments</p>
-          <p className="text-2xl sm:text-3xl font-bold text-gray-900">{departments.length}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-          <p className="text-gray-600 text-xs sm:text-sm mb-1">Total Staff</p>
-          <p className="text-2xl sm:text-3xl font-bold text-purple-600">{departments.reduce((acc, d) => acc + d.staff, 0)}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-          <p className="text-gray-600 text-xs sm:text-sm mb-1">Total Students</p>
-          <p className="text-2xl sm:text-3xl font-bold text-blue-600">{departments.reduce((acc, d) => acc + d.students, 0)}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-          <p className="text-gray-600 text-xs sm:text-sm mb-1">Active</p>
-          <p className="text-2xl sm:text-3xl font-bold text-green-600">{departments.filter(d => d.status === 'active').length}</p>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search departments..."
+      {/* Filters / search */}
+      <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="w-full md:max-w-md">
+          <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm"
+            placeholder="Search by name, code, or description..."
+            trailingIcon={<Search className="h-4 w-4" />}
+            className="h-10 rounded-2xl bg-background/60 text-sm"
+            aria-label="Search departments"
           />
         </div>
-      </div>
 
-      {/* Desktop Grid */}
-      <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredDepartments.map((dept) => (
-          <div key={dept.id} className="bg-white rounded-xl border border-gray-200 p-6 hover:border-red-200 hover:shadow-lg transition-all group">
-            <div className="flex items-start justify-between mb-4">
-              <div className="w-14 h-14 bg-gradient-to-br from-red-500 to-orange-500 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                <Building2 className="w-7 h-7 text-white" />
-              </div>
-              <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
-                {dept.status}
-              </span>
-            </div>
-
-            <h3 className="text-lg font-bold text-gray-900 mb-2">{dept.name}</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              <span className="font-mono font-semibold">{dept.code}</span> • Est. {dept.established}
-            </p>
-
-            <div className="space-y-3 mb-4 pb-4 border-b border-gray-200">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Head of Department:</span>
-                <span className="font-medium text-gray-900 text-xs text-right">{dept.hod}</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4 mb-4">
-              <div className="text-center">
-                <div className="flex items-center justify-center gap-1 mb-1">
-                  <Users className="w-4 h-4 text-gray-400" />
-                  <p className="text-lg font-bold text-gray-900">{dept.staff}</p>
-                </div>
-                <p className="text-xs text-gray-600">Staff</p>
-              </div>
-              <div className="text-center">
-                <div className="flex items-center justify-center gap-1 mb-1">
-                  <BookOpen className="w-4 h-4 text-gray-400" />
-                  <p className="text-lg font-bold text-gray-900">{dept.students}</p>
-                </div>
-                <p className="text-xs text-gray-600">Students</p>
-              </div>
-              <div className="text-center">
-                <div className="flex items-center justify-center gap-1 mb-1">
-                  <Building2 className="w-4 h-4 text-gray-400" />
-                  <p className="text-lg font-bold text-gray-900">{dept.programs}</p>
-                </div>
-                <p className="text-xs text-gray-600">Programs</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm font-medium">
-                <Eye className="w-4 h-4" />
-                <span>View</span>
-              </button>
-              <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                <Edit className="w-4 h-4 text-gray-600" />
-              </button>
-              <button 
-                onClick={() => handleDelete(dept.id)}
-                className="p-2 hover:bg-red-50 rounded-lg transition-colors"
-              >
-                <Trash2 className="w-4 h-4 text-red-600" />
-              </button>
-            </div>
-          </div>
-        ))}
-
-        {filteredDepartments.length === 0 && (
-          <div className="col-span-full text-center py-12 bg-white rounded-xl border border-gray-200">
-            <p className="text-gray-600">No departments found</p>
+        {departments.length > 0 && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="inline-flex h-6 items-center rounded-full bg-muted px-2">
+              {filteredDepartments.length} visible
+            </span>
+            <span>·</span>
+            <span>{departments.length} total</span>
           </div>
         )}
       </div>
 
-      {/* Mobile List */}
-      <div className="md:hidden space-y-4">
-        {filteredDepartments.map((dept) => (
-          <div key={dept.id} className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="flex items-start gap-3 mb-4">
-              <div className="w-12 h-12 bg-gradient-to-br from-red-500 to-orange-500 rounded-xl flex items-center justify-center flex-shrink-0">
-                <Building2 className="w-6 h-6 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-gray-900 mb-1">{dept.name}</h3>
-                <p className="text-sm text-gray-600 mb-2">
-                  <span className="font-mono font-semibold">{dept.code}</span> • Est. {dept.established}
-                </p>
-                <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-semibold rounded-full">
-                  {dept.status}
-                </span>
-              </div>
-            </div>
+      {/* Content */}
+      {loading && !initialFetchDone ? (
+        skeletonState
+      ) : filteredDepartments.length === 0 ? (
+        emptyState
+      ) : (
+        <ScrollArea className="h-[calc(100vh-260px)] pr-1">
+          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
+            {filteredDepartments.map((dept) => {
+              const initials =
+                dept.code?.slice(0, 3).toUpperCase() ||
+                dept.name
+                  .split(' ')
+                  .map((w) => w[0])
+                  .join('')
+                  .slice(0, 3)
+                  .toUpperCase();
 
-            <div className="space-y-2 mb-4">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">HOD:</span>
-                <span className="font-medium text-gray-900 text-right text-xs">{dept.hod}</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 pt-2">
-                <div className="text-center">
-                  <p className="text-lg font-bold text-gray-900">{dept.staff}</p>
-                  <p className="text-xs text-gray-600">Staff</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-gray-900">{dept.students}</p>
-                  <p className="text-xs text-gray-600">Students</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-lg font-bold text-gray-900">{dept.programs}</p>
-                  <p className="text-xs text-gray-600">Programs</p>
-                </div>
-              </div>
-            </div>
+              const created = new Date(dept.created_at);
 
-            <div className="flex items-center gap-2 pt-4 border-t border-gray-200">
-              <button className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm font-medium">
-                <Eye className="w-4 h-4" />
-                <span>View</span>
-              </button>
-              <button className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                <Edit className="w-4 h-4 text-gray-600" />
-              </button>
-              <button 
-                onClick={() => handleDelete(dept.id)}
-                className="p-2 hover:bg-red-50 rounded-lg transition-colors"
-              >
-                <Trash2 className="w-4 h-4 text-red-600" />
-              </button>
-            </div>
+              return (
+                <Card
+                  key={dept.id}
+                  className={cn(
+                    'group rounded-3xl border border-border/60 bg-card/70 backdrop-blur-sm',
+                    'hover:border-primary/60 hover:bg-card/90 hover:shadow-lg hover:shadow-primary/5',
+                    'transition-all duration-200'
+                  )}
+                >
+                  <CardContent className="flex flex-col gap-4 p-5">
+                    {/* Top row */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-xs font-semibold text-primary">
+                          {initials}
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <h2 className="line-clamp-1 text-sm font-semibold">
+                              {dept.name}
+                            </h2>
+                          </div>
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                            {dept.code}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col items-end gap-2">
+                        {renderStatusBadge(dept.is_active)}
+                        <p className="text-[11px] text-muted-foreground">
+                          Created{' '}
+                          {created.toLocaleDateString(undefined, {
+                            month: 'short',
+                            day: 'numeric',
+                            year: '2-digit',
+                          })}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    {dept.description && (
+                      <p className="line-clamp-3 text-xs text-muted-foreground">
+                        {dept.description}
+                      </p>
+                    )}
+
+                    {/* Footer meta */}
+                    <div className="mt-1 flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
+                      <div className="flex items-center gap-4">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Users className="h-3.5 w-3.5" />
+                          <span>Students</span>
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <BookOpen className="h-3.5 w-3.5" />
+                          <span>Courses</span>
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-xl"
+                          onClick={() => setEditingDept(dept)}
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 rounded-xl text-destructive hover:bg-destructive/10"
+                          onClick={() => handleDelete(dept.id)}
+                          disabled={deletingId === dept.id}
+                        >
+                          {deletingId === dept.id ? (
+                            <Skeleton className="h-3 w-3 rounded-full" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
-        ))}
+        </ScrollArea>
+      )}
 
-        {filteredDepartments.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-xl border border-gray-200">
-            <p className="text-gray-600">No departments found</p>
-          </div>
-        )}
-      </div>
+      {/* Create department modal 
+         NOTE: if your AddDepartmentModal has different props 
+         (e.g. isOpen / onClose / onSuccess), either:
+         - update that component to accept open/onOpenChange/onCreated, OR
+         - adjust this call accordingly.
+      */}
+      
 
-      {/* Add Department Modal */}
       <AddDepartmentModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
-        onSubmit={handleAddDepartment}
+        onCreated={(dept) => {
+          setDepartments((prev) => [dept, ...prev]);
+          // extra toast is optional; modal already toasts
+          toast.success(`Department created: ${dept.code} — ${dept.name}`);
+        }}
       />
-    </div>
+
+      {editingDept && (
+      <EditDepartmentModal
+        department={editingDept}
+        onClose={() => setEditingDept(null)}
+        onSaved={(updated) => {
+          setDepartments((prev) =>
+            prev.map((d) => (d.id === updated.id ? updated : d))
+          );
+          setEditingDept(null);
+        }}
+      />
+    )}
+
+
+
+    </>
   );
 }
