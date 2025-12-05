@@ -1,50 +1,52 @@
-'use client';
+import type { ReactNode } from 'react'
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import { DashboardShell } from '@/components/dashboard'
+import type { DashboardUser, UserRole } from '@/types/dashboard'
 
-import { usePathname } from 'next/navigation';
-import { Sidebar, Header } from '@/components/dashboard';
-
-// Function to detect role from pathname
-function getRoleFromPath(pathname: string): 'admin' | 'student' | 'academic_staff' | 'non_academic_staff' {
-  if (pathname.startsWith('/dashboard/admin')) return 'admin';
-  if (pathname.startsWith('/dashboard/student')) return 'student';
-  if (pathname.startsWith('/dashboard/academic_staff')) return 'academic_staff';
-  if (pathname.startsWith('/dashboard/non_academic_staff')) return 'non_academic_staff';
-  return 'admin'; // Default fallback
+type Props = {
+  children: ReactNode
 }
 
-// Function to get page title from pathname
-function getPageTitle(pathname: string): string {
-  const segments = pathname.split('/').filter(Boolean);
-  const lastSegment = segments[segments.length - 1];
-  
-  // If it's just the role dashboard (e.g., /dashboard/admin)
-  if (segments.length === 2) return 'Dashboard';
-  
-  // Capitalize and format the last segment
-  return lastSegment
-    .split('-')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
+export default async function DashboardLayout({ children }: Props) {
+  const supabase = await createClient()
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const pathname = usePathname();
-  const role = getRoleFromPath(pathname);
-  const pageTitle = getPageTitle(pathname);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect('/login')
+  }
+
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select(
+      'first_name, middle_name, last_name, email, main_role'
+    )
+    .eq('id', user.id)
+    .single()
+
+  if (error || !profile?.main_role) {
+    redirect('/login')
+  }
+
+  const role = profile.main_role as UserRole
+
+  const fullName = [profile.first_name, profile.middle_name, profile.last_name]
+    .filter(Boolean)
+    .join(' ')
+
+  const dashboardUser: DashboardUser = {
+    id: user.id,
+    fullName: fullName || 'User',
+    email: profile.email,
+    role,
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Sidebar role={role} />
-      <div className="lg:ml-64">
-        <Header title={pageTitle} role={role} />
-        <main className="p-4 sm:p-6">
-          {children}
-        </main>
-      </div>
-    </div>
-  );
+    <DashboardShell user={dashboardUser}>
+      {children}
+    </DashboardShell>
+  )
 }
