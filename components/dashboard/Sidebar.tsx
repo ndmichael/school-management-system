@@ -1,9 +1,9 @@
-'use client';
+'use client'
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { 
+import { useState } from 'react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import {
   LayoutDashboard,
   Users,
   UserCog,
@@ -16,13 +16,20 @@ import {
   Menu,
   X,
   GraduationCap,
-} from 'lucide-react';
+} from 'lucide-react'
+import type { DashboardUser, UserRole } from '@/types/dashboard'
 
-interface SidebarProps {
-  role: 'admin' | 'student' | 'academic_staff' | 'non_academic_staff';
+type RoleConfig = {
+  color: string
+  hoverColor: string
+  activeColor: string
+  lightBg: string
+  textColor: string
+  label: string
+  items: { icon: React.ComponentType<{ className?: string }>; label: string; href: string }[]
 }
 
-const roleConfig = {
+const roleConfig: Record<UserRole, RoleConfig> = {
   admin: {
     color: 'bg-red-600',
     hoverColor: 'hover:bg-red-700',
@@ -40,7 +47,7 @@ const roleConfig = {
       { icon: Receipt, label: 'Receipts', href: '/dashboard/admin/receipts' },
       { icon: FileText, label: 'Reports', href: '/dashboard/admin/reports' },
       { icon: Settings, label: 'Settings', href: '/dashboard/admin/settings' },
-    ]
+    ],
   },
   student: {
     color: 'bg-blue-600',
@@ -53,11 +60,9 @@ const roleConfig = {
       { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/student' },
       { icon: Receipt, label: 'Payments', href: '/dashboard/student/payments' },
       { icon: FileText, label: 'Downloads', href: '/dashboard/student/downloads' },
-      // { icon: BookOpen, label: 'My Courses', href: '/dashboard/student/courses' },
       { icon: FileText, label: 'Results', href: '/dashboard/student/results' },
-
       { icon: Users, label: 'Profile', href: '/dashboard/student/profile' },
-    ]
+    ],
   },
   academic_staff: {
     color: 'bg-purple-600',
@@ -70,11 +75,9 @@ const roleConfig = {
       { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/academic_staff' },
       { icon: BookOpen, label: 'Courses', href: '/dashboard/academic_staff/courses' },
       { icon: Users, label: 'Students', href: '/dashboard/academic_staff/students' },
-      { icon: FileText, label: 'Results', href: '/dashboard/academic_staff/results' }, // add results link
-      //{ icon: Upload, label: 'Materials', href: '/dashboard/academic_staff/materials' }, // optional for downloads
+      { icon: FileText, label: 'Results', href: '/dashboard/academic_staff/results' },
       { icon: Settings, label: 'Settings', href: '/dashboard/academic_staff/settings' },
-    ]
-
+    ],
   },
   non_academic_staff: {
     color: 'bg-green-600',
@@ -85,28 +88,33 @@ const roleConfig = {
     label: 'Non-Academic Staff',
     items: [
       { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/non_academic_staff' },
-      { icon: Building2, label: 'Facilities', href: '/dashboard/non_academic_staff/facilities' },
+      { icon: Receipt, label: 'Receipts', href: '/dashboard/non_academic_staff/receipts' },
+      { icon: Users, label: 'Students', href: '/dashboard/non_academic_staff/students' },
       { icon: Settings, label: 'Settings', href: '/dashboard/non_academic_staff/settings' },
-    ]
-  }
-};
+    ],
+  },
+}
 
-export function Sidebar({ role }: SidebarProps) {
-  const [isMobileOpen, setIsMobileOpen] = useState(false);
-  const pathname = usePathname();
-  const config = roleConfig[role];
+type SidebarProps = {
+  user: DashboardUser
+}
+
+export function Sidebar({ user }: SidebarProps) {
+  const [isMobileOpen, setIsMobileOpen] = useState(false)
+  const pathname = usePathname()
+  const config = roleConfig[user.role]
 
   return (
     <>
-      {/* Mobile Toggle */}
+      {/* Mobile toggle */}
       <button
-        onClick={() => setIsMobileOpen(!isMobileOpen)}
+        onClick={() => setIsMobileOpen(prev => !prev)}
         className="lg:hidden fixed top-4 left-4 z-50 w-10 h-10 bg-white rounded-lg shadow-lg flex items-center justify-center"
       >
         {isMobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
 
-      {/* Overlay */}
+      {/* Mobile overlay */}
       {isMobileOpen && (
         <div
           onClick={() => setIsMobileOpen(false)}
@@ -124,7 +132,9 @@ export function Sidebar({ role }: SidebarProps) {
           {/* Logo */}
           <div className="p-6 border-b border-gray-200">
             <Link href="/" className="flex items-center gap-3 group">
-              <div className={`w-10 h-10 ${config.color} rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform`}>
+              <div
+                className={`w-10 h-10 ${config.color} rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform`}
+              >
                 <GraduationCap className="w-6 h-6 text-white" />
               </div>
               <div>
@@ -136,25 +146,22 @@ export function Sidebar({ role }: SidebarProps) {
 
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-            {config.items.map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.href;
-
+            {config.items.map(item => {
+              const Icon = item.icon
+              const isActive = pathname.startsWith(item.href)
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={() => setIsMobileOpen(false)}
                   className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
-                    isActive
-                      ? `${config.activeColor} text-white`
-                      : `text-gray-700 hover:bg-gray-100`
+                    isActive ? `${config.activeColor} text-white` : 'text-gray-700 hover:bg-gray-100'
                   }`}
                 >
                   <Icon className="w-5 h-5" />
                   <span>{item.label}</span>
                 </Link>
-              );
+              )
             })}
           </nav>
 
@@ -162,11 +169,11 @@ export function Sidebar({ role }: SidebarProps) {
           <div className="p-4 border-t border-gray-200">
             <div className={`${config.lightBg} rounded-xl p-4`}>
               <p className="text-sm font-medium text-gray-900">{config.label}</p>
-              <p className="text-xs text-gray-600">user@sykschool.edu.ng</p>
+              <p className="text-xs text-gray-600 truncate">{user.email}</p>
             </div>
           </div>
         </div>
       </aside>
     </>
-  );
+  )
 }
