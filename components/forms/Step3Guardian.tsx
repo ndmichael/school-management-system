@@ -15,50 +15,66 @@ const statuses: GuardianStatus[] = ["father", "mother", "guardian", "other"];
 const Step3Guardian: FC<Step3Props> = ({ data, setData }) => {
   return (
     <div className="space-y-4">
-      <Input
-        label="Guardian First Name"
-        placeholder="John"
-        value={data.guardianFirstName}
-        onChange={(e) => setData({ guardianFirstName: e.target.value })}
-        required
-      />
-      <Input
-        label="Guardian Middle Name"
-        placeholder="Optional"
-        value={data.guardianMiddleName || ""}
-        onChange={(e) => setData({ guardianMiddleName: e.target.value })}
-      />
-      <Input
-        label="Guardian Last Name"
-        placeholder="Doe"
-        value={data.guardianLastName}
-        onChange={(e) => setData({ guardianLastName: e.target.value })}
-        required
-      />
+      {/* First + Middle Name */}
+      <div className="grid grid-cols-2 gap-4">
+        <Input
+          label="Guardian First Name"
+          placeholder="John"
+          value={data.guardianFirstName}
+          onChange={(e) => setData({ guardianFirstName: e.target.value })}
+          required
+        />
+        <Input
+          label="Guardian Middle Name"
+          placeholder="Optional"
+          value={data.guardianMiddleName || ""}
+          onChange={(e) => setData({ guardianMiddleName: e.target.value })}
+        />
+      </div>
 
-      <Select
-        label="Guardian Gender"
-        value={data.guardianGender}
-        onChange={(val: Gender) => setData({ guardianGender: val })}
-        options={genders.map((g) => ({ value: g, label: g.charAt(0).toUpperCase() + g.slice(1) }))}
-        required
-      />
+      {/* Last Name + Gender */}
+      <div className="grid grid-cols-2 gap-4">
+        <Input
+          label="Guardian Last Name"
+          placeholder="Doe"
+          value={data.guardianLastName}
+          onChange={(e) => setData({ guardianLastName: e.target.value })}
+          required
+        />
+        <Select<Gender>
+          label="Guardian Gender"
+          value={data.guardianGender}
+          onChange={(val) => setData({ guardianGender: val })}
+          options={genders.map((g) => ({
+            value: g,
+            label: g.charAt(0).toUpperCase() + g.slice(1),
+          }))}
+          required
+        />
+      </div>
 
-      <Select
-        label="Guardian Status"
-        value={data.guardianStatus}
-        onChange={(val: GuardianStatus) => setData({ guardianStatus: val })}
-        options={statuses.map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) }))}
-        required
-      />
+      {/* Status + Phone */}
+      <div className="grid grid-cols-2 gap-4">
+        <Select<GuardianStatus>
+          label="Guardian Status"
+          value={data.guardianStatus}
+          onChange={(val) => setData({ guardianStatus: val })}
+          options={statuses.map((s) => ({
+            value: s,
+            label: s.charAt(0).toUpperCase() + s.slice(1),
+          }))}
+          required
+        />
+        <Input
+          label="Guardian Phone"
+          placeholder="+2348012345678"
+          value={data.guardianPhone}
+          onChange={(e) => setData({ guardianPhone: e.target.value })}
+          required
+        />
+      </div>
 
-      <Input
-        label="Guardian Phone"
-        placeholder="+2348012345678"
-        value={data.guardianPhone}
-        onChange={(e) => setData({ guardianPhone: e.target.value })}
-        required
-      />
+      {/* Email */}
       <Input
         label="Guardian Email"
         placeholder="guardian@example.com"
@@ -67,11 +83,13 @@ const Step3Guardian: FC<Step3Props> = ({ data, setData }) => {
         required
       />
 
+      {/* Image */}
       <Input
         label="Guardian Image"
         type="file"
         onChange={(e) => {
-          if (e.target.files?.[0]) setData({ guardianImageId: URL.createObjectURL(e.target.files[0]) });
+          if (e.target.files?.[0])
+            setData({ guardianImageId: URL.createObjectURL(e.target.files[0]) });
         }}
       />
     </div>

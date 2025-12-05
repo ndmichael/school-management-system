@@ -2,7 +2,7 @@
 
 import { FC } from "react";
 import { ApplicationFormData, Gender } from "@/types/applications";
-import { Input, Textarea } from "@/components/shared";
+import { Input, Select } from "@/components/shared";
 
 interface Step1Props {
   data: ApplicationFormData;
@@ -14,82 +14,85 @@ const genders: Gender[] = ["male", "female", "other"];
 const Step1Personal: FC<Step1Props> = ({ data, setData }) => {
   return (
     <div className="space-y-4">
-      <Input
-        label="First Name"
-        placeholder="John"
-        value={data.firstName}
-        onChange={(e) => setData({ firstName: e.target.value })}
-        required
-      />
-
-      <Input
-        label="Middle Name"
-        placeholder="Optional"
-        value={data.middleName || ""}
-        onChange={(e) => setData({ middleName: e.target.value })}
-      />
-
-      <Input
-        label="Last Name"
-        placeholder="Doe"
-        value={data.lastName}
-        onChange={(e) => setData({ lastName: e.target.value })}
-        required
-      />
-
-      <div>
-        <label className="block text-sm font-medium mb-1">Gender</label>
-        <div className="flex gap-4">
-          {genders.map((g) => (
-            <label key={g} className="flex items-center gap-1">
-              <input
-                type="radio"
-                name="gender"
-                value={g}
-                checked={data.gender === g}
-                onChange={() => setData({ gender: g })}
-              />
-              {g.charAt(0).toUpperCase() + g.slice(1)}
-            </label>
-          ))}
-        </div>
+      {/* First + Middle Name */}
+      <div className="grid grid-cols-2 gap-4">
+        <Input
+          label="First Name"
+          placeholder="John"
+          value={data.firstName}
+          onChange={(e) => setData({ firstName: e.target.value })}
+          required
+        />
+        <Input
+          label="Middle Name"
+          placeholder="Optional"
+          value={data.middleName || ""}
+          onChange={(e) => setData({ middleName: e.target.value })}
+        />
       </div>
 
-      <Input
-        label="Date of Birth"
-        type="date"
-        value={data.dateOfBirth}
-        onChange={(e) => setData({ dateOfBirth: e.target.value })}
-        required
-      />
+      {/* Last Name + Gender */}
+      <div className="grid grid-cols-2 gap-4">
+        <Input
+          label="Last Name"
+          placeholder="Doe"
+          value={data.lastName}
+          onChange={(e) => setData({ lastName: e.target.value })}
+          required
+        />
+        <Select<Gender>
+          label="Gender"
+          value={data.gender}
+          onChange={(val) => setData({ gender: val })}
+          options={genders.map((g) => ({
+            value: g,
+            label: g.charAt(0).toUpperCase() + g.slice(1),
+          }))}
+          required
+        />
+      </div>
 
-      <Input
-        label="Email"
-        type="email"
-        placeholder="john@example.com"
-        value={data.email}
-        onChange={(e) => setData({ email: e.target.value })}
-        required
-      />
+      {/* Date of Birth + NIN */}
+      <div className="grid grid-cols-2 gap-4">
+        <Input
+          label="Date of Birth"
+          type="date"
+          value={data.dateOfBirth}
+          onChange={(e) => setData({ dateOfBirth: e.target.value })}
+          required
+        />
+        <Input
+          label="NIN"
+          placeholder="National Identification Number"
+          value={data.nin}
+          onChange={(e) => setData({ nin: e.target.value })}
+          required
+        />
+      </div>
 
-      <Input
-        label="Phone"
-        type="tel"
-        placeholder="+2348012345678"
-        value={data.phone}
-        onChange={(e) => setData({ phone: e.target.value })}
-        required
-      />
+      {/* Email + Phone */}
+      <div className="grid grid-cols-2 gap-4">
+        <Input
+          label="Email"
+          placeholder="john@example.com"
+          type="email"
+          value={data.email}
+          onChange={(e) => setData({ email: e.target.value })}
+          required
+        />
+        <Input
+          label="Phone"
+          placeholder="+2348012345678"
+          type="tel"
+          value={data.phone}
+          onChange={(e) => setData({ phone: e.target.value })}
+          required
+        />
+      </div>
 
+      {/* Special Needs */}
       <Input
-        label="NIN"
-        placeholder="Optional"
-        value={data.nin || ""}
-        onChange={(e) => setData({ nin: e.target.value })}
-      />
-
-      <Textarea
-        label="Special Needs"
+        label="Special Needs (if any)"
         placeholder="Optional"
         value={data.specialNeeds || ""}
         onChange={(e) => setData({ specialNeeds: e.target.value })}
