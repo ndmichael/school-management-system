@@ -7,10 +7,8 @@ import Step3Guardian from "@/components/forms/Step3Guardian";
 import Step4AttachmentsReview from "@/components/forms/Step4AttachmentsReview";
 import { ApplicationFormData } from "@/types/applications";
 import { PrimaryButton, SecondaryButton } from "@/components/shared";
-// import { databases } from "@/utils/appwriteClient";
-// import { ID } from "appwrite";
+import { toast } from "react-toastify";
 
-// Default empty form
 const defaultForm: ApplicationFormData = {
   firstName: "",
   middleName: "",
@@ -21,9 +19,9 @@ const defaultForm: ApplicationFormData = {
   phone: "",
   nin: "",
   specialNeeds: "",
-  stateOfOrigin: "",
-  lgaOfOrigin: "",
-  religion: "",
+  stateOfOrigin: "Kano",
+  lgaOfOrigin: "Karaye",
+  religion: "muslim",
   address: "",
   programId: "",
   classAppliedFor: "",
@@ -43,9 +41,36 @@ const defaultForm: ApplicationFormData = {
   attestationDate: "",
 };
 
+// ✅ Step validation rules
+const stepValidations: Record<number, (data: ApplicationFormData) => boolean> = {
+  1: (data) =>
+    !!data.firstName.trim() &&
+    !!data.lastName.trim() &&
+    !!data.email.trim() &&
+    !!data.phone.trim() &&
+    !!data.dateOfBirth.trim(),
+
+  2: (data) =>
+    !!data.stateOfOrigin.trim() &&
+    !!data.lgaOfOrigin.trim() &&
+    !!data.programId &&
+    !!data.classAppliedFor &&
+    !!data.admissionType,
+
+  3: (data) =>
+    !!data.guardianFirstName.trim() &&
+    !!data.guardianLastName.trim() &&
+    !!data.guardianPhone.trim() &&
+    !!data.guardianEmail.trim() &&
+    !!data.guardianStatus &&
+    !!data.guardianGender,
+
+  4: (data) =>
+    !!data.passportImageId && !!data.attestationDate, // optional supporting docs can be skipped
+};
+
 export default function ApplyPage() {
   const [data, setData] = useState<ApplicationFormData>(() => {
-    // Load from localStorage if exists
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("applicationForm");
       return saved ? JSON.parse(saved) : defaultForm;
@@ -53,6 +78,7 @@ export default function ApplyPage() {
     return defaultForm;
   });
 
+  const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
   const [step, setStep] = useState(1);
 
   // Persist to localStorage
@@ -60,31 +86,55 @@ export default function ApplyPage() {
     localStorage.setItem("applicationForm", JSON.stringify(data));
   }, [data]);
 
-  // Example programs (replace with Appwrite fetch)
-  const programs = [
-    { id: "prog1", name: "Medical Laboratory Science" },
-    { id: "prog2", name: "Community Health" },
-    { id: "prog3", name: "Pharmacy Technology" },
-  ];
+  // Fetch programs dynamically from API
+  useEffect(() => {
+    fetch("/api/programs")
+      .then((res) => res.json())
+      .then((progs) => setPrograms(progs))
+      .catch(console.error);
+  }, []);
 
-  const nextStep = () => setStep((s) => Math.min(s + 1, 4));
+  // ✅ Navigate steps with validation
+  const nextStep = () => {
+    if (!stepValidations[step](data)) {
+      toast.error("Please fill all required fields before proceeding.");
+      return;
+    }
+    setStep((s) => Math.min(s + 1, 4));
+  };
   const prevStep = () => setStep((s) => Math.max(s - 1, 1));
 
   const handleSubmit = async () => {
+    if (!stepValidations[4](data)) {
+      toast.error("Please complete all required attachments before submitting.");
+      return;
+    }
+
     try {
-      await databases.createDocument(
-        process.env.NEXT_PUBLIC_APPWRITE_DB_ID!,
-        "applications",
-        ID.unique(),
-        data
-      );
+      const submissionData: ApplicationFormData = {
+        ...data,
+        supportingDocuments: data.supportingDocuments || [],
+      };
+
+      const res: Response = await fetch("/api/applications/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(submissionData),
+      });
+
+      if (!res.ok) {
+        const json: { error?: string } = await res.json().catch(() => ({}));
+        throw new Error(json.error || "Failed to submit");
+      }
+
       localStorage.removeItem("applicationForm");
-      alert("Application submitted successfully!");
+      toast.success("Application submitted successfully!");
       setData(defaultForm);
       setStep(1);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error(err);
-      alert("Failed to submit. Try again.");
+      const errorMessage = err instanceof Error ? err.message : "Failed to submit. Try again.";
+      toast.error(errorMessage);
     }
   };
 
@@ -92,6 +142,7 @@ export default function ApplyPage() {
     <div className="max-w-3xl mx-auto p-6 pt-[calc(6rem+1rem)] space-y-6">
       <h1 className="text-2xl font-bold">Apply to SYK Health Tech</h1>
 
+      {/* Progress Bar */}
       <div className="w-full bg-gray-200 rounded-full h-2 mb-6">
         <div
           className="bg-primary-500 h-2 rounded-full transition-all"
@@ -99,16 +150,16 @@ export default function ApplyPage() {
         />
       </div>
 
-      {step === 1 && <Step1Personal data={data} setData={setData} />}
-      {step === 2 && <Step2OriginProgram data={data} setData={setData} programs={programs} />}
-      {step === 3 && <Step3Guardian data={data} setData={setData} />}
-      {step === 4 && <Step4AttachmentsReview data={data} setData={setData} />}
+      {/* Steps */}
+      {step === 1 && <Step1Personal data={data} setData={(newData) => setData({ ...data, ...newData })} />}
+      {step === 2 && <Step2OriginProgram data={data} setData={(newData) => setData({ ...data, ...newData })} programs={programs} />}
+      {step === 3 && <Step3Guardian data={data} setData={(newData) => setData({ ...data, ...newData })} />}
+      {step === 4 && <Step4AttachmentsReview data={data} setData={(newData) => setData({ ...data, ...newData })} />}
 
+      {/* Navigation */}
       <div className="flex justify-between mt-6">
         {step > 1 ? (
-          <SecondaryButton onClick={prevStep}>
-            Back
-          </SecondaryButton>
+          <SecondaryButton onClick={prevStep}>Back</SecondaryButton>
         ) : <div />}
 
         {step < 4 ? (
