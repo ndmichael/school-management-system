@@ -1,386 +1,369 @@
 'use client';
+
 import { useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { Modal } from './Modal';
-import { sessionsData } from '@/data/admin';
-import type { Session } from '@/data/admin';
-import { Calendar, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { Input } from '@/components/shared/Input';
+import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { AlertCircle, CheckCircle } from 'lucide-react';
+import { toast } from 'react-toastify';
+
+type SessionRow = {
+  id: string;
+  name: string;
+  start_date: string;
+  end_date: string;
+  registration_start_date: string | null;
+  registration_end_date: string | null;
+  application_fee: number | null;
+  max_applications: number | null;
+  is_active: boolean | null;
+  created_at: string;
+  updated_at: string;
+};
 
 interface AddSessionModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: SessionFormData) => void;
+  onCreated: (session: SessionRow) => void;
 }
 
-interface SessionFormData {
-  id: string;
+interface FormState {
   name: string;
   startDate: string;
   endDate: string;
-  currentSemester: string;
-  status: string;
-  students: number;
-}
-
-interface FormData {
-  name: string;
-  startDate: string;
-  endDate: string;
-  currentSemester: string;
+  registrationStartDate: string;
+  registrationEndDate: string;
+  applicationFee: string;
+  maxApplications: string;
+  isActive: boolean;
 }
 
 interface FormErrors {
   name?: string;
   startDate?: string;
   endDate?: string;
-  currentSemester?: string;
+  registrationStartDate?: string;
+  registrationEndDate?: string;
 }
 
-export function AddSessionModal({ isOpen, onClose, onSubmit }: AddSessionModalProps) {
-  const [formData, setFormData] = useState<FormData>({
+export function AddSessionModal({
+  isOpen,
+  onClose,
+  onCreated,
+}: AddSessionModalProps) {
+  const supabase = createClient();
+
+  const [form, setForm] = useState<FormState>({
     name: '',
     startDate: '',
     endDate: '',
-    currentSemester: 'First Semester',
+    registrationStartDate: '',
+    registrationEndDate: '',
+    applicationFee: '',
+    maxApplications: '',
+    isActive: true,
   });
   const [errors, setErrors] = useState<FormErrors>({});
+  const [submitting, setSubmitting] = useState(false);
 
-  const validate = (): FormErrors => {
-    const newErrors: FormErrors = {};
-    
-    // Validate session name format
-    if (!formData.name.trim()) {
-      newErrors.name = 'Session name is required';
-    } else if (!/^\d{4}\/\d{4}$/.test(formData.name.trim())) {
-      newErrors.name = 'Session format must be YYYY/YYYY (e.g., 2024/2025)';
-    } else {
-      const [year1, year2] = formData.name.split('/').map(Number);
-      if (year2 !== year1 + 1) {
-        newErrors.name = 'Second year must be exactly one year after first year';
-      }
-    }
-    
-    // Check for duplicate session name
-    const duplicateSession = sessionsData.find(
-      session => session.name === formData.name.trim()
-    );
-    if (duplicateSession) {
-      newErrors.name = 'A session with this name already exists';
-    }
-    
-    if (!formData.startDate) {
-      newErrors.startDate = 'Start date is required';
-    }
-    
-    if (!formData.endDate) {
-      newErrors.endDate = 'End date is required';
-    }
-    
-    // Validate date relationships
-    if (formData.startDate && formData.endDate) {
-      const start = new Date(formData.startDate);
-      const end = new Date(formData.endDate);
-      
-      if (end <= start) {
-        newErrors.endDate = 'End date must be after start date';
-      }
-      
-      // Calculate duration in days
-      const diffTime = Math.abs(end.getTime() - start.getTime());
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      // Academic sessions are typically 10-13 months (300-400 days)
-      if (diffDays < 300) {
-        newErrors.endDate = 'Session must be at least 10 months (300 days) long';
-      } else if (diffDays > 400) {
-        newErrors.endDate = 'Session cannot exceed 13 months (400 days)';
-      }
-    }
-    
-    // Check for overlapping sessions
-    if (formData.startDate && formData.endDate) {
-      const start = new Date(formData.startDate);
-      const end = new Date(formData.endDate);
-      
-      const overlapping = sessionsData.find(session => {
-        const sessionStart = new Date(session.startDate);
-        const sessionEnd = new Date(session.endDate);
-        
-        return (
-          (start >= sessionStart && start <= sessionEnd) ||
-          (end >= sessionStart && end <= sessionEnd) ||
-          (start <= sessionStart && end >= sessionEnd)
-        );
-      });
-      
-      if (overlapping) {
-        newErrors.startDate = `Overlaps with existing session: ${overlapping.name}`;
-      }
-    }
-    
-    return newErrors;
+  const handleChange = <K extends keyof FormState>(key: K, value: FormState[K]) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setErrors((prev) => ({ ...prev, [key]: undefined }));
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const newErrors = validate();
-    
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      return;
+  const validate = (): FormErrors => {
+    const e: FormErrors = {};
+
+    if (!form.name.trim()) {
+      e.name = 'Session name is required';
     }
 
-    const sessionData: SessionFormData = {
-      id: `SES${(sessionsData.length + 1).toString().padStart(3, '0')}`,
-      name: formData.name.trim(),
-      startDate: formData.startDate,
-      endDate: formData.endDate,
-      currentSemester: formData.currentSemester,
-      status: 'active',
-      students: 0,
-    };
+    if (!form.startDate) {
+      e.startDate = 'Start date is required';
+    }
+    if (!form.endDate) {
+      e.endDate = 'End date is required';
+    }
 
-    onSubmit(sessionData);
+    if (form.startDate && form.endDate) {
+      const start = new Date(form.startDate);
+      const end = new Date(form.endDate);
+      if (end < start) {
+        e.endDate = 'End date must be after start date';
+      }
+    }
 
-    // Reset form
-    setFormData({
+    if (form.registrationStartDate && !form.registrationEndDate) {
+      e.registrationEndDate = 'Registration end date is required if start date is set';
+    }
+    if (!form.registrationStartDate && form.registrationEndDate) {
+      e.registrationStartDate =
+        'Registration start date is required if end date is set';
+    }
+
+    if (form.registrationStartDate && form.registrationEndDate) {
+      const rs = new Date(form.registrationStartDate);
+      const re = new Date(form.registrationEndDate);
+      if (re < rs) {
+        e.registrationEndDate = 'Registration end must be after start';
+      }
+    }
+
+    return e;
+  };
+
+  const resetForm = () => {
+    setForm({
       name: '',
       startDate: '',
       endDate: '',
-      currentSemester: 'First Semester',
+      registrationStartDate: '',
+      registrationEndDate: '',
+      applicationFee: '',
+      maxApplications: '',
+      isActive: true,
     });
     setErrors({});
+  };
+
+  const handleSubmit = async (ev: React.FormEvent<HTMLFormElement>) => {
+    ev.preventDefault();
+
+    const v = validate();
+    if (Object.keys(v).length > 0) {
+      setErrors(v);
+      return;
+    }
+
+    setSubmitting(true);
+
+    const application_fee = form.applicationFee
+      ? Number(form.applicationFee)
+      : null;
+    const max_applications = form.maxApplications
+      ? Number(form.maxApplications)
+      : null;
+
+    const { data, error } = await supabase
+      .from('sessions')
+      .insert({
+        name: form.name.trim(),
+        start_date: form.startDate,
+        end_date: form.endDate,
+        registration_start_date: form.registrationStartDate || null,
+        registration_end_date: form.registrationEndDate || null,
+        application_fee,
+        max_applications,
+        is_active: form.isActive,
+      })
+      .select('*')
+      .single();
+
+    setSubmitting(false);
+
+    if (error) {
+      console.error(error);
+      toast.error(error.message || 'Failed to create session');
+      return;
+    }
+
+    onCreated(data as SessionRow);
+    toast.success('Session created successfully');
+    resetForm();
     onClose();
   };
 
-  const handleInputChange = (field: keyof FormData, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    setErrors(prev => ({ ...prev, [field]: undefined }));
-  };
+  if (!isOpen) return null;
 
-  // Auto-generate session name from start date
-  const handleStartDateChange = (date: string) => {
-    handleInputChange('startDate', date);
-    
-    if (date) {
-      const year = new Date(date).getFullYear();
-      const sessionName = `${year}/${year + 1}`;
-      setFormData(prev => ({ ...prev, startDate: date, name: sessionName }));
-      setErrors(prev => ({ ...prev, name: undefined }));
-    }
-  };
-
-  // Calculate session duration
-  const calculateDuration = (): number | null => {
-    if (!formData.startDate || !formData.endDate) return null;
-    
-    const start = new Date(formData.startDate);
-    const end = new Date(formData.endDate);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  };
-
-  const duration = calculateDuration();
-  const semesterOptions = [
-    { value: 'First Semester', label: 'First Semester' },
-    { value: 'Second Semester', label: 'Second Semester' },
-  ];
+  const previewReady =
+    form.name &&
+    form.startDate &&
+    form.endDate &&
+    Object.keys(errors).length === 0;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Add New Academic Session" size="lg">
+    <Modal
+      isOpen={isOpen}
+      onClose={() => {
+        if (!submitting) onClose();
+      }}
+      title="Add New Academic Session"
+      size="lg"
+    >
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Info Banner */}
-        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex gap-3">
-          <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-          <div className="text-sm text-blue-800">
-            <p className="font-semibold mb-1">Session Guidelines</p>
-            <ul className="list-disc list-inside space-y-1 text-blue-700">
-              <li>Academic sessions must be 10-13 months long (300-400 days)</li>
-              <li>Sessions cannot overlap with existing sessions</li>
-              <li>Session name format: YYYY/YYYY (e.g., 2024/2025)</li>
-              <li>Only one session can be active at a time</li>
-            </ul>
+        <div className="flex gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-xs text-red-800">
+          <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600" />
+          <div>
+            <p className="mb-1 text-sm font-semibold text-red-900">
+              Session guidelines
+            </p>
+            <p>
+              Set clear start and end dates. Active sessions will be highlighted
+              across the admin dashboard.
+            </p>
           </div>
         </div>
 
-        {/* Session Name */}
-        <div className="space-y-2">
-          <label className="block text-sm font-semibold text-gray-700">
-            Session Name <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            value={formData.name}
-            onChange={(e) => handleInputChange('name', e.target.value)}
-            placeholder="e.g., 2024/2025"
-            className={`w-full px-4 py-3 border rounded-xl transition-all outline-none ${
-              errors.name ? 'border-red-500 bg-red-50' : 'border-gray-200 focus:ring-2 focus:ring-red-500 focus:border-transparent'
-            }`}
+        {/* Name */}
+        <Input
+          label="Session Name"
+          required
+          value={form.name}
+          onChange={(e) => handleChange('name', e.target.value)}
+          placeholder="e.g., 2024/2025 Academic Session"
+          error={errors.name}
+        />
+
+        {/* Dates */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Start Date"
+            type="date"
+            required
+            value={form.startDate}
+            onChange={(e) => handleChange('startDate', e.target.value)}
+            error={errors.startDate}
           />
-          {errors.name && (
-            <p className="text-sm text-red-600 flex items-center gap-1">
-              <AlertCircle className="w-4 h-4" />
-              {errors.name}
+          <Input
+            label="End Date"
+            type="date"
+            required
+            value={form.endDate}
+            onChange={(e) => handleChange('endDate', e.target.value)}
+            error={errors.endDate}
+          />
+        </div>
+
+        {/* Registration window */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Registration Start (optional)"
+            type="date"
+            value={form.registrationStartDate}
+            onChange={(e) =>
+              handleChange('registrationStartDate', e.target.value)
+            }
+            error={errors.registrationStartDate}
+          />
+          <Input
+            label="Registration End (optional)"
+            type="date"
+            value={form.registrationEndDate}
+            onChange={(e) =>
+              handleChange('registrationEndDate', e.target.value)
+            }
+            error={errors.registrationEndDate}
+          />
+        </div>
+
+        {/* Fee + Max applications */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Application Fee (optional)"
+            type="number"
+            min="0"
+            step="0.01"
+            value={form.applicationFee}
+            onChange={(e) => handleChange('applicationFee', e.target.value)}
+            placeholder="e.g., 15000"
+          />
+          <Input
+            label="Max Applications (optional)"
+            type="number"
+            min="0"
+            step="1"
+            value={form.maxApplications}
+            onChange={(e) =>
+              handleChange('maxApplications', e.target.value)
+            }
+            placeholder="e.g., 5000"
+          />
+        </div>
+
+        {/* Status toggle */}
+        <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm">
+          <div>
+            <p className="font-medium text-gray-900">Session status</p>
+            <p className="text-xs text-gray-600">
+              Active sessions are treated as the current academic session.
             </p>
-          )}
-          <p className="text-xs text-gray-500">
-            Tip: Select a start date to auto-generate the session name
-          </p>
-        </div>
-
-        {/* Start and End Dates */}
-        <div className="grid sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="block text-sm font-semibold text-gray-700">
-              Start Date <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-              <input
-                type="date"
-                value={formData.startDate}
-                onChange={(e) => handleStartDateChange(e.target.value)}
-                className={`w-full pl-11 px-4 py-3 border rounded-xl transition-all outline-none ${
-                  errors.startDate ? 'border-red-500 bg-red-50' : 'border-gray-200 focus:ring-2 focus:ring-red-500 focus:border-transparent'
-                }`}
-              />
-            </div>
-            {errors.startDate && (
-              <p className="text-sm text-red-600 flex items-center gap-1">
-                <AlertCircle className="w-4 h-4" />
-                {errors.startDate}
-              </p>
-            )}
           </div>
-
-          <div className="space-y-2">
-            <label className="block text-sm font-semibold text-gray-700">
-              End Date <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" />
-              <input
-                type="date"
-                value={formData.endDate}
-                onChange={(e) => handleInputChange('endDate', e.target.value)}
-                min={formData.startDate}
-                className={`w-full pl-11 px-4 py-3 border rounded-xl transition-all outline-none ${
-                  errors.endDate ? 'border-red-500 bg-red-50' : 'border-gray-200 focus:ring-2 focus:ring-red-500 focus:border-transparent'
-                }`}
-              />
-            </div>
-            {errors.endDate && (
-              <p className="text-sm text-red-600 flex items-center gap-1">
-                <AlertCircle className="w-4 h-4" />
-                {errors.endDate}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Current Semester */}
-        <div className="space-y-2">
-          <label className="block text-sm font-semibold text-gray-700">
-            Starting Semester <span className="text-red-500">*</span>
-          </label>
-          <select
-            value={formData.currentSemester}
-            onChange={(e) => handleInputChange('currentSemester', e.target.value)}
-            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all outline-none"
+          <button
+            type="button"
+            onClick={() => handleChange('isActive', !form.isActive)}
+            className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              form.isActive
+                ? 'border-red-500 bg-red-50 text-red-700'
+                : 'border-slate-400 bg-slate-50 text-slate-700'
+            }`}
           >
-            {semesterOptions.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            <span
+              className={`mr-1 h-2 w-2 rounded-full ${
+                form.isActive ? 'bg-red-500' : 'bg-slate-400'
+              }`}
+            />
+            {form.isActive ? 'Active' : 'Inactive'}
+          </button>
         </div>
 
-        {/* Session Duration Preview */}
-        {duration !== null && (
-          <div className={`border-2 rounded-xl p-4 ${
-            duration >= 300 && duration <= 400
-              ? 'bg-green-50 border-green-200'
-              : 'bg-yellow-50 border-yellow-200'
-          }`}>
-            <div className="flex items-start gap-3">
-              <Clock className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
-                duration >= 300 && duration <= 400 ? 'text-green-600' : 'text-yellow-600'
-              }`} />
-              <div className="flex-1">
-                <p className="font-semibold text-gray-900 mb-1">Session Duration</p>
-                <p className={`text-sm ${
-                  duration >= 300 && duration <= 400 ? 'text-green-700' : 'text-yellow-700'
-                }`}>
-                  {duration} days ({Math.floor(duration / 30)} months)
+        {/* Preview */}
+        {previewReady && (
+          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4 text-xs text-emerald-800">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-900">
+              <CheckCircle className="h-4 w-4" />
+              Session Preview
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <div>
+                <span className="text-emerald-700/80">Name:</span>
+                <p className="font-semibold">{form.name}</p>
+              </div>
+              <div>
+                <span className="text-emerald-700/80">Active:</span>
+                <p className="font-semibold">
+                  {form.isActive ? 'Yes' : 'No'}
                 </p>
-                {(duration < 300 || duration > 400) && (
-              <p className="text-xs text-yellow-600 mt-1">
-                ⚠️ Recommended duration: 10-13 months (300-400 days)
-              </p>
-            )}
+              </div>
+              <div>
+                <span className="text-emerald-700/80">Dates:</span>
+                <p className="font-semibold">
+                  {form.startDate} → {form.endDate}
+                </p>
+              </div>
+              <div>
+                <span className="text-emerald-700/80">Registration:</span>
+                <p className="font-semibold">
+                  {form.registrationStartDate && form.registrationEndDate
+                    ? `${form.registrationStartDate} → ${form.registrationEndDate}`
+                    : 'Not configured'}
+                </p>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
-    )}
+        )}
 
-    {/* Session Preview */}
-    {formData.name && formData.startDate && formData.endDate && Object.keys(errors).length === 0 && duration && duration >= 300 && duration <= 400 && (
-      <div className="bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-xl p-5">
-        <h4 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
-          <CheckCircle className="w-5 h-5 text-green-600" />
-          Session Preview
-        </h4>
-        <div className="grid sm:grid-cols-2 gap-3 text-sm">
-          <div>
-            <span className="text-gray-600">Session Name:</span>
-            <p className="font-semibold text-gray-900">{formData.name}</p>
-          </div>
-          <div>
-            <span className="text-gray-600">Duration:</span>
-            <p className="font-semibold text-gray-900">{duration} days</p>
-          </div>
-          <div>
-            <span className="text-gray-600">Start Date:</span>
-            <p className="font-semibold text-gray-900">
-              {new Date(formData.startDate).toLocaleDateString('en-NG', { 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-              })}
-            </p>
-          </div>
-          <div>
-            <span className="text-gray-600">End Date:</span>
-            <p className="font-semibold text-gray-900">
-              {new Date(formData.endDate).toLocaleDateString('en-NG', { 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-              })}
-            </p>
-          </div>
+        {/* Actions */}
+        <div className="flex gap-4 border-t border-gray-200 pt-4">
+          <PrimaryButton
+            type="submit"
+            disabled={submitting}
+            className="flex-1"
+          >
+            {submitting ? 'Creating...' : 'Create session'}
+          </PrimaryButton>
+          <button
+            type="button"
+            onClick={() => {
+              if (!submitting) onClose();
+            }}
+            className="rounded-xl bg-gray-100 px-6 py-3 text-sm font-semibold text-gray-700 transition-all hover:bg-gray-200"
+          >
+            Cancel
+          </button>
         </div>
-      </div>
-    )}
-
-    {/* Action Buttons */}
-    <div className="flex gap-4 pt-4 border-t border-gray-200">
-      <button
-        type="submit"
-        className="flex-1 px-6 py-3.5 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 active:scale-95 transition-all flex items-center justify-center gap-2 shadow-lg shadow-red-600/20"
-      >
-        <CheckCircle className="w-5 h-5" />
-        Add Session
-      </button>
-      <button
-        type="button"
-        onClick={onClose}
-        className="px-8 py-3.5 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 active:scale-95 transition-all"
-      >
-        Cancel
-      </button>
-    </div>
-  </form>
-</Modal>
-);
+      </form>
+    </Modal>
+  );
 }
