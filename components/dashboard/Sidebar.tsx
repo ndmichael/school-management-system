@@ -43,6 +43,10 @@ const roleConfig: Record<UserRole, RoleConfig> = {
       { icon: UserCog, label: 'Staff', href: '/dashboard/admin/staff' },
       { icon: BookOpen, label: 'Courses', href: '/dashboard/admin/courses' },
       { icon: Building2, label: 'Departments', href: '/dashboard/admin/departments' },
+
+      // ⭐ New Programs menu
+      { icon: GraduationCap, label: 'Programs', href: '/dashboard/admin/programs' },
+
       { icon: Calendar, label: 'Sessions', href: '/dashboard/admin/sessions' },
       { icon: Receipt, label: 'Receipts', href: '/dashboard/admin/receipts' },
       { icon: FileText, label: 'Reports', href: '/dashboard/admin/reports' },
