@@ -6,7 +6,6 @@ import { Modal } from './Modal';
 import { Input } from '@/components/shared/Input';
 import { PrimaryButton } from '@/components/shared/PrimaryButton';
 import { AlertCircle, CheckCircle } from 'lucide-react';
-import { toast } from 'react-toastify';
 
 type ProgramType = 'certificate' | 'diploma' | 'nd' | 'hnd' | 'post_basic';
 type ProgramLevel = 'basic' | 'post_basic' | 'nd' | 'hnd';
@@ -184,12 +183,10 @@ export function EditProgramModal({
 
     if (error) {
       console.error(error);
-      toast.error(error.message || 'Failed to update program');
       return;
     }
 
     onUpdated(data as ProgramRow);
-    toast.success('Program updated successfully');
     onClose();
   };
 
