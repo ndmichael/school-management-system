@@ -15,6 +15,8 @@ import {
 
 import { toast } from 'react-toastify';
 import { AddSessionModal } from '@/components/modals/AddSessionModal';
+import { ViewSessionModal } from '@/components/modals/ViewSessionModal';
+import { EditSessionModal } from '@/components/modals/EditSessionModal';
 
 type SessionStatus = 'active' | 'completed' | 'upcoming';
 
@@ -28,6 +30,8 @@ type SessionRow = {
   application_fee: number | null;
   max_applications: number | null;
   is_active: boolean | null;
+  current_semester: string | null;   
+  students_count: number | null; 
   created_at: string;
   updated_at: string;
 };
@@ -63,10 +67,8 @@ function mapRowToSession(row: SessionRow): SessionUI {
     startDate: row.start_date,
     endDate: row.end_date,
     status,
-    // You don’t have semester columns yet, so we keep a neutral label
-    currentSemester: 'Academic Session',
-    // You don’t have students count on this table yet, so 0 for now
-    students: 0,
+    currentSemester: row.current_semester || 'Academic Session', // fallback
+    students: row.students_count ?? 0,
   };
 }
 
@@ -76,9 +78,14 @@ export default function SessionsPage() {
   const [sessions, setSessions] = useState<SessionUI[]>([]);
   const [loading, setLoading] = useState(true);
   const [initialFetchDone, setInitialFetchDone] = useState(false);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // 🔹 new: modal state like Programs page
+  const [viewingSession, setViewingSession] = useState<SessionUI | null>(null);
+  const [editingSession, setEditingSession] = useState<SessionUI | null>(null);
 
   // Fetch sessions from Supabase
   useEffect(() => {
@@ -120,6 +127,15 @@ export default function SessionsPage() {
     const ui = mapRowToSession(row);
     setSessions((prev) => [ui, ...prev]);
     toast.success(`Session created: ${ui.name}`);
+  };
+
+  // 🔹 new: update handler (like handleProgramUpdated)
+  const handleSessionUpdated = (row: SessionRow) => {
+    const ui = mapRowToSession(row);
+    setSessions((prev) =>
+      prev.map((s) => (s.id === ui.id ? ui : s)),
+    );
+    toast.success(`Session updated: ${ui.name}`);
   };
 
   const handleDelete = async (id: string) => {
@@ -263,9 +279,11 @@ export default function SessionsPage() {
                   </div>
 
                   <div>
-                    <h3 className="text-xl font-bold text-gray-900">
-                      {session.name}
-                    </h3>
+                    <div className="leading-tight">
+                      <h3 className="text-xl font-bold text-gray-900">
+                        {session.name.split(' ')[0]}
+                      </h3>
+                    </div>
                     <p className="text-sm text-gray-600">
                       {session.currentSemester}
                     </p>
@@ -301,11 +319,17 @@ export default function SessionsPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <button className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-200">
+                <button
+                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-200"
+                  onClick={() => setViewingSession(session)}
+                >
                   <Eye className="h-4 w-4" />
                   <span>View Details</span>
                 </button>
-                <button className="rounded-lg p-2 transition-colors hover:bg-gray-100">
+                <button
+                  className="rounded-lg p-2 transition-colors hover:bg-gray-100"
+                  onClick={() => setEditingSession(session)}
+                >
                   <Edit className="h-4 w-4 text-gray-600" />
                 </button>
                 <button
@@ -352,7 +376,6 @@ export default function SessionsPage() {
                   : 'border-amber-200 bg-amber-50/40'
               }`}
             >
-
               <div className="mb-4 flex items-start gap-3">
                 <div
                   className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl ${
@@ -399,11 +422,17 @@ export default function SessionsPage() {
               </div>
 
               <div className="flex items-center gap-2 border-t border-gray-200 pt-4">
-                <button className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-200">
+                <button
+                  className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium transition-colors hover:bg-gray-200"
+                  onClick={() => setViewingSession(session)}
+                >
                   <Eye className="h-4 w-4" />
                   <span>View</span>
                 </button>
-                <button className="rounded-lg p-2 transition-colors hover:bg-gray-100">
+                <button
+                  className="rounded-lg p-2 transition-colors hover:bg-gray-100"
+                  onClick={() => setEditingSession(session)}
+                >
                   <Edit className="h-4 w-4 text-gray-600" />
                 </button>
                 <button
@@ -431,6 +460,27 @@ export default function SessionsPage() {
         onClose={() => setIsAddModalOpen(false)}
         onCreated={handleAddSession}
       />
+
+      {/* 🔹 View / Edit modals */}
+      {viewingSession && (
+        <ViewSessionModal
+          isOpen={true}
+          onClose={() => setViewingSession(null)}
+          session={viewingSession}
+        />
+      )}
+
+      {editingSession && (
+        <EditSessionModal
+          isOpen={true}
+          onClose={() => setEditingSession(null)}
+          session={editingSession}
+          onUpdated={(row: SessionRow) => {
+            handleSessionUpdated(row);
+            setEditingSession(null);
+          }}
+        />
+      )}
     </div>
   );
 }
