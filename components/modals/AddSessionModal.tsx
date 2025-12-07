@@ -37,6 +37,8 @@ interface FormState {
   applicationFee: string;
   maxApplications: string;
   isActive: boolean;
+  currentSemester: string; 
+  studentsCount: string;
 }
 
 interface FormErrors {
@@ -63,6 +65,8 @@ export function AddSessionModal({
     applicationFee: '',
     maxApplications: '',
     isActive: true,
+    currentSemester: '', // 🔹 add
+  studentsCount: '',
   });
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
@@ -123,27 +127,39 @@ export function AddSessionModal({
       applicationFee: '',
       maxApplications: '',
       isActive: true,
+      currentSemester: '', // 🔹 add
+      studentsCount: '',
     });
     setErrors({});
   };
 
   const handleSubmit = async (ev: React.FormEvent<HTMLFormElement>) => {
-    ev.preventDefault();
+  ev.preventDefault();
 
-    const v = validate();
-    if (Object.keys(v).length > 0) {
-      setErrors(v);
-      return;
+  const v = validate();
+  if (Object.keys(v).length > 0) {
+    setErrors(v);
+    return;
+  }
+
+  setSubmitting(true);
+
+  const application_fee = form.applicationFee
+    ? Number(form.applicationFee)
+    : null;
+  const max_applications = form.maxApplications
+    ? Number(form.maxApplications)
+    : null;
+
+  try {
+    // 🔹 if this new session is active, deactivate all others first
+    if (form.isActive) {
+      const { error: deactivateError } = await supabase
+        .from('sessions')
+        .update({ is_active: false });
+
+      if (deactivateError) throw deactivateError;
     }
-
-    setSubmitting(true);
-
-    const application_fee = form.applicationFee
-      ? Number(form.applicationFee)
-      : null;
-    const max_applications = form.maxApplications
-      ? Number(form.maxApplications)
-      : null;
 
     const { data, error } = await supabase
       .from('sessions')
@@ -156,23 +172,31 @@ export function AddSessionModal({
         application_fee,
         max_applications,
         is_active: form.isActive,
+        current_semester: form.currentSemester || null,
+        students_count: form.studentsCount
+          ? Number(form.studentsCount)
+          : null,
       })
       .select('*')
       .single();
 
-    setSubmitting(false);
-
-    if (error) {
-      console.error(error);
-      toast.error(error.message || 'Failed to create session');
-      return;
-    }
+    if (error) throw error;
 
     onCreated(data as SessionRow);
     toast.success('Session created successfully');
     resetForm();
     onClose();
-  };
+  } catch (error) {
+    console.error(error);
+    const message =
+      error instanceof Error ? error.message : 'Failed to update session';
+    toast.error(message);
+    return;
+  } finally {
+    setSubmitting(false);
+  }
+};
+
 
   if (!isOpen) return null;
 
