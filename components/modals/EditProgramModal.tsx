@@ -207,7 +207,7 @@ export function EditProgramModal({
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Info banner */}
         <div className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-xs text-blue-800">
-          <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600" />
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" />
           <div>
             <p className="mb-1 text-sm font-semibold text-blue-900">
               Update program details
