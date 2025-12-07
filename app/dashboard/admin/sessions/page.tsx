@@ -131,11 +131,28 @@ export default function SessionsPage() {
 
   // 🔹 new: update handler (like handleProgramUpdated)
   const handleSessionUpdated = (row: SessionRow) => {
-    const ui = mapRowToSession(row);
-    setSessions((prev) =>
-      prev.map((s) => (s.id === ui.id ? ui : s)),
-    );
-    toast.success(`Session updated: ${ui.name}`);
+    const updated = mapRowToSession(row);
+    setSessions(prev => {
+      // If not active, only replace that one
+      if (updated.status !== 'active') {
+        return prev.map(s => (s.id === updated.id ? updated : s));
+      }
+
+      const today = new Date();
+
+      // If active, make sure all other sessions are NOT active
+      return prev.map(s => {
+        if (s.id === updated.id) return updated;
+
+        if (s.status === 'active') {
+          const end = new Date(s.endDate);
+          const status: SessionStatus = end < today ? 'completed' : 'upcoming';
+          return { ...s, status };
+        }
+
+        return s;
+      });
+    });
   };
 
   const handleDelete = async (id: string) => {
@@ -378,7 +395,7 @@ export default function SessionsPage() {
             >
               <div className="mb-4 flex items-start gap-3">
                 <div
-                  className={`flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl ${
+                  className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${
                     session.status === 'active'
                       ? 'bg-linear-to-br from-red-500 to-rose-500'
                       : 'bg-linear-to-br from-gray-400 to-gray-500'
