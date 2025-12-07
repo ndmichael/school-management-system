@@ -7,34 +7,8 @@ import { Input } from '@/components/shared/Input';
 import { PrimaryButton } from '@/components/shared/PrimaryButton';
 import { AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
+import type { SessionRow, SessionUI } from '@/types/session';
 
-type SessionStatus = 'active' | 'completed' | 'upcoming';
-
-type SessionRow = {
-  id: string;
-  name: string;
-  start_date: string;
-  end_date: string;
-  registration_start_date: string | null;
-  registration_end_date: string | null;
-  application_fee: number | null;
-  max_applications: number | null;
-  is_active: boolean | null;
-  current_semester: string | null;   // 🔹 new
-  students_count: number | null;     // 🔹 new
-  created_at: string;
-  updated_at: string;
-};
-
-type SessionUI = {
-  id: string;
-  name: string;
-  startDate: string;
-  endDate: string;
-  status: SessionStatus;
-  currentSemester: string;
-  students: number;
-};
 
 interface EditSessionModalProps {
   isOpen: boolean;
@@ -120,41 +94,58 @@ export function EditSessionModal({
 
     const v = validate();
     if (Object.keys(v).length > 0) {
-      setErrors(v);
-      return;
+        setErrors(v);
+        return;
     }
 
     setSubmitting(true);
 
     const students_count = form.studentsCount
-      ? Number(form.studentsCount)
-      : null;
+        ? Number(form.studentsCount)
+        : null;
 
-    const { data, error } = await supabase
-      .from('sessions')
-      .update({
-        name: form.name.trim(),
-        start_date: form.startDate,
-        end_date: form.endDate,
-        is_active: form.isActive,
-        current_semester: form.currentSemester || null,
-        students_count,
-      })
-      .eq('id', session.id)
-      .select('*')
-      .single();
+    // 🔹 we only need to deactivate others if we're newly activating this one
+    const isBecomingActive = form.isActive && session.status !== 'active';
 
-    setSubmitting(false);
+    try {
+        if (isBecomingActive) {
+        const { error: deactivateError } = await supabase
+            .from('sessions')
+            .update({ is_active: false })
+            .neq('id', session.id);
 
-    if (error) {
-      console.error(error);
-      toast.error(error.message || 'Failed to update session');
-      return;
-    }
+        if (deactivateError) throw deactivateError;
+        }
 
-    onUpdated(data as SessionRow);
-    onClose();
-  };
+        const { data, error } = await supabase
+        .from('sessions')
+        .update({
+            name: form.name.trim(),
+            start_date: form.startDate,
+            end_date: form.endDate,
+            is_active: form.isActive,
+            current_semester: form.currentSemester || null,
+            students_count,
+        })
+        .eq('id', session.id)
+        .select('*')
+        .single();
+
+        if (error) throw error;
+
+        onUpdated(data as SessionRow);
+        onClose();
+    } catch (error) {
+        console.error(error);
+        const message =
+        error instanceof Error ? error.message : 'Failed to update session';
+        toast.error(message);
+        return;
+     } finally {
+            setSubmitting(false);
+        }
+    };
+
 
   if (!isOpen || !session) return null;
 
@@ -173,7 +164,7 @@ export function EditSessionModal({
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Info Banner */}
         <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-800">
-          <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
           <div>
             <p className="mb-1 text-sm font-semibold text-amber-900">
               Editing session
