@@ -5,7 +5,7 @@ import { ApplicationFormData } from "@/types/applications";
 import { Input } from "@/components/shared";
 import Image from "next/image";
 import { toast } from "react-toastify";
-import { supabase } from "@/lib/supabase/supabase"; // ✅ adjust to your actual path
+import { supabase } from "@/lib/supabase/supabase"; // ✅ adjust if your file is different
 
 interface Step4Props {
   data: ApplicationFormData;
@@ -13,20 +13,18 @@ interface Step4Props {
 }
 
 const MAX_DOCS = 4;
-const MAX_FILE_SIZE_MB = 1;
+const MAX_FILE_SIZE_MB = 1; // 1 MB per file
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 const PASSPORT_FOLDER = "passports";
 const DOCUMENTS_FOLDER = "documents";
 
 const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
-  const [passportPreview, setPassportPreview] = useState<string>(
-    data.passportImageId || ""
-  );
-  const [previewImages, setPreviewImages] = useState<string[]>(
-    data.supportingDocuments || []
-  );
   const [uploading, setUploading] = useState(false);
+
+  // 🔹 derive from parent state
+  const passportPreview = data.passportImageId || "";
+  const previewImages = data.supportingDocuments || [];
 
   const uploadFileToStorage = async (
     file: File,
@@ -71,7 +69,6 @@ const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
 
     if (!url) return;
 
-    setPassportPreview(url);
     setData({ passportImageId: url });
     toast.success("Passport uploaded successfully.");
   };
@@ -82,7 +79,7 @@ const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
     if (!e.target.files) return;
 
     const filesArray = Array.from(e.target.files);
-    const existingCount = data.supportingDocuments?.length || 0;
+    const existingCount = previewImages.length;
     const availableSlots = MAX_DOCS - existingCount;
 
     if (availableSlots <= 0) {
@@ -103,22 +100,16 @@ const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
 
     if (!uploadedUrls.length) return;
 
-    const merged = [...(data.supportingDocuments || []), ...uploadedUrls];
+    const merged = [...previewImages, ...uploadedUrls];
 
-    setPreviewImages(merged);
     setData({ supportingDocuments: merged });
 
     toast.success(`${uploadedUrls.length} document(s) uploaded.`);
   };
 
   const removeSupportingFile = (index: number) => {
-    const updatedPreviews = [...previewImages];
-    updatedPreviews.splice(index, 1);
-    setPreviewImages(updatedPreviews);
-
-    const updatedData = [...(data.supportingDocuments || [])];
-    updatedData.splice(index, 1);
-    setData({ supportingDocuments: updatedData });
+    const updated = previewImages.filter((_, i) => i !== index);
+    setData({ supportingDocuments: updated });
 
     toast.info("File removed from application (not deleted from storage).");
   };
@@ -136,6 +127,7 @@ const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
           accept="image/*"
           onChange={handlePassportChange}
           required
+          disabled={uploading}
         />
         {passportPreview && isImageUrl(passportPreview) && (
           <div className="mt-2 w-32 h-32 relative">
@@ -156,6 +148,7 @@ const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
           type="file"
           multiple
           onChange={handleSupportingFilesChange}
+          disabled={uploading}
         />
 
         {previewImages.length > 0 && (
@@ -196,6 +189,7 @@ const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
           value={data.attestationDate}
           onChange={(e) => setData({ attestationDate: e.target.value })}
           required
+          disabled={uploading}
         />
         <p className="text-xs text-gray-600">
           By selecting this date, you confirm that all information provided is
@@ -227,7 +221,7 @@ const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
         </p>
         <p>
           <strong>Uploaded supporting files:</strong>{" "}
-          {data.supportingDocuments?.length || 0}
+          {previewImages.length || 0}
         </p>
       </div>
     </div>
