@@ -105,6 +105,8 @@ export default function ApplyPage() {
 
   const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
   const [step, setStep] = useState<number>(1);
+  const [submitting, setSubmitting] = useState(false);
+
 
   // Auto-save to localStorage (stable and safe)
   useEffect(() => {
@@ -152,7 +154,11 @@ export default function ApplyPage() {
       return;
     }
 
+    if (submitting) return; // guard against double-click
+
     try {
+      setSubmitting(true);
+
       const res = await fetch("/api/applications/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -173,6 +179,8 @@ export default function ApplyPage() {
       const msg = err instanceof Error ? err.message : "Submission failed.";
       toast.error(msg);
       console.error(err);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -199,19 +207,24 @@ export default function ApplyPage() {
       {/* Navigation */}
       <div className="flex justify-between mt-6">
         {step > 1 ? (
-          <SecondaryButton onClick={prevStep}>Back</SecondaryButton>
+          <SecondaryButton onClick={prevStep} disabled={submitting}>
+            Back
+          </SecondaryButton>
         ) : (
           <div />
         )}
 
         {step < 4 ? (
-          <PrimaryButton onClick={nextStep}>Next</PrimaryButton>
+          <PrimaryButton onClick={nextStep} disabled={submitting}>
+            Next
+          </PrimaryButton>
         ) : (
           <PrimaryButton
             onClick={handleSubmit}
-            className="bg-green-600 hover:bg-green-700"
+            disabled={submitting}
+            className="bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            Submit
+            {submitting ? "Submitting..." : "Submit"}
           </PrimaryButton>
         )}
       </div>
