@@ -1,7 +1,11 @@
 "use client";
 
 import { FC } from "react";
-import { ApplicationFormData, Gender, GuardianStatus } from "@/types/applications";
+import {
+  ApplicationFormData,
+  Gender,
+  GuardianStatus,
+} from "@/types/applications";
 import { Input, Select } from "@/components/shared";
 
 interface Step3Props {
@@ -15,7 +19,7 @@ const statuses: GuardianStatus[] = ["father", "mother", "guardian", "other"];
 const Step3Guardian: FC<Step3Props> = ({ data, setData }) => {
   return (
     <div className="space-y-4">
-      {/* First + Middle Name */}
+      {/* Names */}
       <div className="grid grid-cols-2 gap-4">
         <Input
           label="Guardian First Name"
@@ -32,7 +36,7 @@ const Step3Guardian: FC<Step3Props> = ({ data, setData }) => {
         />
       </div>
 
-      {/* Last Name + Gender */}
+      {/* Last + Gender */}
       <div className="grid grid-cols-2 gap-4">
         <Input
           label="Guardian Last Name"
@@ -68,30 +72,12 @@ const Step3Guardian: FC<Step3Props> = ({ data, setData }) => {
         <Input
           label="Guardian Phone"
           placeholder="+2348012345678"
+          type="tel"
           value={data.guardianPhone}
           onChange={(e) => setData({ guardianPhone: e.target.value })}
           required
         />
       </div>
-
-      {/* Email */}
-      <Input
-        label="Guardian Email"
-        placeholder="guardian@example.com"
-        value={data.guardianEmail}
-        onChange={(e) => setData({ guardianEmail: e.target.value })}
-        required
-      />
-
-      {/* Image */}
-      <Input
-        label="Guardian Image"
-        type="file"
-        onChange={(e) => {
-          if (e.target.files?.[0])
-            setData({ guardianImageId: URL.createObjectURL(e.target.files[0]) });
-        }}
-      />
     </div>
   );
 };
