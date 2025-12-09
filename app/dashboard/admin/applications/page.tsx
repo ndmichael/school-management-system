@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { CheckCircle2, XCircle } from "lucide-react";
 
+// Types
 type ApplicationStatus = "pending" | "accepted" | "rejected";
 
-type ApplicationRow = {
+interface ApplicationRow {
   id: string;
   application_no: string;
   status: ApplicationStatus;
@@ -21,20 +22,21 @@ type ApplicationRow = {
   session_id: string | null;
   programName: string | null;
   sessionName: string | null;
-};
+  student_id: string | null;
+  converted_to_student: boolean;
+}
 
 const PAGE_SIZE = 10;
 
 export default function AdminApplicationsPage() {
   const [applications, setApplications] = useState<ApplicationRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [filterStatus, setFilterStatus] = useState<"all" | ApplicationStatus>(
-    "pending"
-  );
+  const [filterStatus, setFilterStatus] = useState<"all" | ApplicationStatus>("pending");
   const [search, setSearch] = useState("");
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
+  // Load applications from backend
   const loadApplications = async () => {
     try {
       setLoading(true);
@@ -43,7 +45,7 @@ export default function AdminApplicationsPage() {
       if (filterStatus !== "all") params.set("status", filterStatus);
       if (search.trim()) params.set("search", search.trim());
 
-      const res = await fetch(`/api/applications?${params.toString()}`, {
+      const res = await fetch(`/api/applications?${params}`, {
         cache: "no-store",
       });
 
@@ -54,10 +56,11 @@ export default function AdminApplicationsPage() {
 
       const json = (await res.json()) as { applications: ApplicationRow[] };
       setApplications(json.applications || []);
-      setPage(1); // reset to first page when data set changes
-    } catch (err: any) {
+      setPage(1); // reset pagination
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error loading applications.";
       console.error(err);
-      toast.error(err.message || "Error loading applications.");
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -68,15 +71,13 @@ export default function AdminApplicationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterStatus]);
 
-  const handleSearch = (e: React.FormEvent) => {
+  const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     loadApplications();
   };
 
-  const reviewApplication = async (
-    id: string,
-    action: "accept" | "reject"
-  ) => {
+  // Review application (accept or reject)
+  const reviewApplication = async (id: string, action: "accept" | "reject") => {
     try {
       let rejectionReason: string | undefined;
 
@@ -99,29 +100,25 @@ export default function AdminApplicationsPage() {
         throw new Error(json.error || "Failed to update application.");
       }
 
-      const { application } = (await res.json()) as {
-        application: ApplicationRow;
-      };
+      // Now that API no longer returns the application,
+      // we reload the data cleanly.
+      toast.success(action === "accept" ? "Application accepted." : "Application rejected.");
 
-      setApplications((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, ...application } : a))
-      );
-
-      toast.success(
-        action === "accept" ? "Application accepted." : "Application rejected."
-      );
-    } catch (err: any) {
+      await loadApplications();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Operation failed.";
       console.error(err);
-      toast.error(err.message || "Operation failed.");
+      toast.error(msg);
     } finally {
       setReviewingId(null);
     }
   };
 
-  const formatDate = (iso: string | null | undefined) => {
+  // Formatting helpers
+  const formatDate = (iso?: string | null) => {
     if (!iso) return "-";
     const d = new Date(iso);
-    return d.toLocaleDateString();
+    return isNaN(d.getTime()) ? "-" : d.toLocaleDateString();
   };
 
   const statusBadgeClass = (status: ApplicationStatus) => {
@@ -137,33 +134,20 @@ export default function AdminApplicationsPage() {
     }
   };
 
-  // 🔹 pagination (client-side for now)
+  // Pagination
   const total = applications.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const startIndex = (currentPage - 1) * PAGE_SIZE;
-  const pageItems = applications.slice(
-    startIndex,
-    startIndex + PAGE_SIZE
-  );
-
-  const handlePrev = () => {
-    setPage((p) => Math.max(1, p - 1));
-  };
-
-  const handleNext = () => {
-    setPage((p) => Math.min(totalPages, p + 1));
-  };
+  const pageItems = applications.slice(startIndex, startIndex + PAGE_SIZE);
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header + filters */}
+      {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Applications</h1>
-          <p className="text-sm text-gray-600">
-            Review and manage student applications.
-          </p>
+          <p className="text-sm text-gray-600">Review and manage student applications.</p>
         </div>
 
         <form onSubmit={handleSearch} className="flex gap-2">
@@ -209,6 +193,7 @@ export default function AdminApplicationsPage() {
               <th className="px-3 py-2 text-right">Actions</th>
             </tr>
           </thead>
+
           <tbody>
             {loading && (
               <tr>
@@ -244,16 +229,12 @@ export default function AdminApplicationsPage() {
                     </div>
                   </td>
 
-                  {/* Program / Session use programName / sessionName */}
                   <td className="px-3 py-2">
-                    {app.programName || (
-                      <span className="text-gray-400">—</span>
-                    )}
+                    {app.programName || <span className="text-gray-400">—</span>}
                   </td>
+
                   <td className="px-3 py-2">
-                    {app.sessionName || (
-                      <span className="text-gray-400">—</span>
-                    )}
+                    {app.sessionName || <span className="text-gray-400">—</span>}
                   </td>
 
                   <td className="px-3 py-2 uppercase text-xs text-gray-600">
@@ -274,7 +255,7 @@ export default function AdminApplicationsPage() {
                     {formatDate(app.created_at)}
                   </td>
 
-                  <td className="px-3 py-2 text-right space-x-2">
+                  <td className="px-3 py-2 text-right">
                     {app.status === "pending" ? (
                       <div className="flex justify-end gap-2">
                         <button
@@ -282,7 +263,7 @@ export default function AdminApplicationsPage() {
                           onClick={() => reviewApplication(app.id, "accept")}
                           disabled={reviewingId === app.id}
                           title="Accept application"
-                          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 disabled:opacity-60"
                         >
                           <CheckCircle2 className="w-4 h-4" />
                         </button>
@@ -291,7 +272,7 @@ export default function AdminApplicationsPage() {
                           onClick={() => reviewApplication(app.id, "reject")}
                           disabled={reviewingId === app.id}
                           title="Reject application"
-                          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 disabled:opacity-60"
                         >
                           <XCircle className="w-4 h-4" />
                         </button>
@@ -305,36 +286,34 @@ export default function AdminApplicationsPage() {
           </tbody>
         </table>
 
-        {/* Pagination footer */}
+        {/* Pagination */}
         {!loading && total > 0 && (
           <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50 text-xs text-gray-600">
             <div>
               Showing{" "}
-              <span className="font-medium">
-                {startIndex + 1}
-              </span>{" "}
-              –{" "}
+              <span className="font-medium">{startIndex + 1}</span> –{" "}
               <span className="font-medium">
                 {Math.min(startIndex + PAGE_SIZE, total)}
               </span>{" "}
               of <span className="font-medium">{total}</span> applications
             </div>
+
             <div className="flex items-center gap-2">
               <button
-                type="button"
-                onClick={handlePrev}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
                 className="px-2 py-1 border rounded disabled:opacity-50"
               >
                 Prev
               </button>
+
               <span>
                 Page <span className="font-medium">{currentPage}</span> of{" "}
                 <span className="font-medium">{totalPages}</span>
               </span>
+
               <button
-                type="button"
-                onClick={handleNext}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
                 className="px-2 py-1 border rounded disabled:opacity-50"
               >
