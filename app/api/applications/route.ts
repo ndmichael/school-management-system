@@ -9,7 +9,7 @@ export async function GET(req: Request) {
 
     const supabase = await createClient();
 
-    // 1️⃣ Get applications (flat) ==========================
+    // 1️⃣ Get applications (flat)
     let appQuery = supabase
       .from("applications")
       .select(
@@ -25,7 +25,9 @@ export async function GET(req: Request) {
         phone,
         application_type,
         program_id,
-        session_id
+        session_id,
+        student_id,
+        converted_to_student
       `
       )
       .order("created_at", { ascending: false });
@@ -51,7 +53,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ applications: [] });
     }
 
-    // 2️⃣ Collect unique program_ids & session_ids ==========
+    // 2️⃣ Collect unique program_ids & session_ids
     const programIds = Array.from(
       new Set(
         apps
@@ -68,7 +70,7 @@ export async function GET(req: Request) {
       )
     );
 
-    // 3️⃣ Fetch program names ===============================
+    // 3️⃣ Fetch programs
     let programMap = new Map<string, string>();
     if (programIds.length > 0) {
       const { data: programs, error: progError } = await supabase
@@ -85,7 +87,7 @@ export async function GET(req: Request) {
       }
     }
 
-    // 4️⃣ Fetch session names ===============================
+    // 4️⃣ Fetch sessions
     let sessionMap = new Map<string, string>();
     if (sessionIds.length > 0) {
       const { data: sessions, error: sessError } = await supabase
@@ -102,7 +104,7 @@ export async function GET(req: Request) {
       }
     }
 
-    // 5️⃣ Merge names into the response =====================
+    // 5️⃣ Merge names into the response
     const appsWithNames = apps.map((a) => ({
       ...a,
       programName: a.program_id ? programMap.get(a.program_id) ?? null : null,
