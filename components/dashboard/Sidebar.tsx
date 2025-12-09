@@ -40,11 +40,11 @@ const roleConfig: Record<UserRole, RoleConfig> = {
     items: [
       { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/admin' },
       { icon: Users, label: 'Students', href: '/dashboard/admin/students' },
+      { icon: FileText, label: 'Applications', href: '/dashboard/admin/applications' },
       { icon: UserCog, label: 'Staff', href: '/dashboard/admin/staff' },
       { icon: BookOpen, label: 'Courses', href: '/dashboard/admin/courses' },
       { icon: Building2, label: 'Departments', href: '/dashboard/admin/departments' },
 
-      // ⭐ New Programs menu
       { icon: GraduationCap, label: 'Programs', href: '/dashboard/admin/programs' },
 
       { icon: Calendar, label: 'Sessions', href: '/dashboard/admin/sessions' },
