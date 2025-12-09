@@ -1,5 +1,7 @@
+// app/api/applications/[id]/review/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { acceptApplication } from "@/lib/utils/applications";
 
 type Action = "accept" | "reject";
 
@@ -8,87 +10,131 @@ interface ReviewBody {
   rejectionReason?: string;
 }
 
+interface ApplicationRow {
+  id: string;
+  status: string;
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+  email: string;
+  phone: string | null;
+  gender: string | null;
+  date_of_birth: string | null;
+  program_id: string | null;
+  session_id: string | null;
+  class_applied_for: string | null;
+  converted_to_student: boolean | null;
+  student_id: string | null;
+}
+
 export async function PATCH(req: Request) {
   try {
-    const body = (await req.json()) as ReviewBody;
-    const { action, rejectionReason } = body;
+    const { action, rejectionReason } = (await req.json()) as ReviewBody;
 
-    // 🔹 Basic validation
     if (action !== "accept" && action !== "reject") {
-      return NextResponse.json(
-        { error: "Invalid action. Use 'accept' or 'reject'." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid action." }, { status: 400 });
     }
 
     if (action === "reject" && !rejectionReason?.trim()) {
       return NextResponse.json(
-        { error: "Rejection reason is required." },
+        { error: "Rejection reason required." },
         { status: 400 }
       );
     }
 
-    // 🔹 Extract id from URL path: /api/applications/:id/review
+    // Extract ID from URL
     const url = new URL(req.url);
     const segments = url.pathname.split("/").filter(Boolean);
-    const applicationsIndex = segments.indexOf("applications");
+    const appsIndex = segments.indexOf("applications");
     const id =
-      applicationsIndex >= 0 && segments.length > applicationsIndex + 1
-        ? segments[applicationsIndex + 1]
+      appsIndex >= 0 && segments.length > appsIndex + 1
+        ? segments[appsIndex + 1]
         : null;
 
     if (!id) {
       return NextResponse.json(
-        { error: "Missing or invalid application id in URL." },
+        { error: "Missing application id." },
         { status: 400 }
       );
     }
 
-    const supabase = await createClient();
-
-    const newStatus: "accepted" | "rejected" =
-      action === "accept" ? "accepted" : "rejected";
-
-    // 1️⃣ Update directly; let Supabase handle not-found etc.
-    const { data, error } = await supabase
+    // Fetch application
+    const { data: application, error: appErr } = await supabaseAdmin
       .from("applications")
-      .update({
-        status: newStatus,
-        reviewed_by: "SYSTEM", // TODO: replace with real user
-        reviewed_date: new Date().toISOString(),
-        rejection_reason: action === "reject" ? rejectionReason ?? null : null,
-      })
+      .select(
+        `
+        id,
+        status,
+        converted_to_student,
+        student_id,
+        first_name,
+        middle_name,
+        last_name,
+        email,
+        phone,
+        gender,
+        date_of_birth,
+        program_id,
+        session_id,
+        class_applied_for
+      `
+      )
       .eq("id", id)
-      .select()
-      .single();
+      .single<ApplicationRow>();
 
-    if (error) {
-      console.error("Application update error:", error);
+    if (appErr || !application) {
       return NextResponse.json(
-        { error: error.message || "Failed to update application." },
+        { error: "Application not found." },
+        { status: 404 }
+      );
+    }
+
+    if (application.status !== "pending") {
+      return NextResponse.json(
+        { error: "Application already reviewed." },
         { status: 400 }
       );
     }
 
-    // (Optional) mock email log
-    try {
-      console.log("📧 Application decision:", {
-        to: data.email,
-        fullName: `${data.first_name} ${
-          data.middle_name ? data.middle_name + " " : ""
-        }${data.last_name}`,
-        decision: newStatus,
-      });
-    } catch (e) {
-      console.error("Email log error:", e);
+    // ----- ❌ REJECT -----
+    if (action === "reject") {
+      const { error: updateErr } = await supabaseAdmin
+        .from("applications")
+        .update({
+          status: "rejected",
+          rejection_reason: rejectionReason ?? null,
+          reviewed_by: "SYSTEM",
+          reviewed_date: new Date().toISOString(),
+        })
+        .eq("id", application.id);
+
+      if (updateErr) {
+        return NextResponse.json(
+          { error: updateErr.message },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json({ success: true });
     }
 
-    // ✅ Frontend expects { application }
-    return NextResponse.json({ success: true, application: data });
-  } catch (err: unknown) {
-    console.error("/api/applications/[id]/review error:", err);
-    const message =
-      err instanceof Error ? err.message : "Invalid request or server error.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    // ----- ✅ ACCEPT -----
+    const result = await acceptApplication(application);
+
+    return NextResponse.json({
+      success: true,
+      studentId: result.studentId,
+      createdNewUser: result.createdNewUser,
+      tempPassword: result.tempPassword,
+    });
+  } catch (err) {
+    console.error("Review API error:", err);
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error ? err.message : "Unexpected server error.",
+      },
+      { status: 500 }
+    );
   }
 }
