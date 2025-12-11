@@ -8,7 +8,6 @@ export async function POST(
   try {
     console.log("🔥 CONVERT ROUTE HIT");
 
-    // Next.js 14: params is a Promise
     const { id: applicationId } = await context.params;
     console.log("🔥 Extracted applicationId:", applicationId);
 
@@ -19,7 +18,7 @@ export async function POST(
       );
     }
 
-    // 1️⃣ Fetch application with required fields
+    // 1️⃣ Load full application including ALL profile + guardian fields
     const { data: app, error: appErr } = await supabaseAdmin
       .from("applications")
       .select(`
@@ -27,6 +26,7 @@ export async function POST(
         status,
         converted_to_student,
         student_id,
+
         first_name,
         middle_name,
         last_name,
@@ -34,14 +34,24 @@ export async function POST(
         phone,
         gender,
         date_of_birth,
+
+        state_of_origin,
+        lga_of_origin,
+        nin,
+        religion,
+        address,
+
+        guardian_first_name,
+        guardian_last_name,
+        guardian_phone,
+        guardian_status,
+
         program_id,
         department_id,
         session_id
       `)
       .eq("id", applicationId)
       .single();
-
-    console.log("🔥 Loaded application:", app);
 
     if (appErr || !app) {
       return NextResponse.json({ error: "Application not found." }, { status: 404 });
@@ -61,7 +71,7 @@ export async function POST(
       );
     }
 
-    // 2️⃣ Fetch program for program code
+    // 2️⃣ Program → get program code
     const { data: program } = await supabaseAdmin
       .from("programs")
       .select("code")
@@ -72,7 +82,7 @@ export async function POST(
       return NextResponse.json({ error: "Program not found." }, { status: 400 });
     }
 
-    // 3️⃣ Fetch session for year parsing
+    // 3️⃣ Session → extract year
     const { data: session } = await supabaseAdmin
       .from("sessions")
       .select("name")
@@ -83,11 +93,10 @@ export async function POST(
       return NextResponse.json({ error: "Session not found." }, { status: 400 });
     }
 
-    const sessionName = session.name; // "2024/2025"
-    const [startYear] = sessionName.split("/");
-    const yy = startYear.slice(-2); // → "24"
+    const [startYear] = session.name.split("/");
+    const yy = startYear.slice(-2);
 
-    // 4️⃣ Generate sequence number
+    // 4️⃣ Generate student sequence number
     const { count: seqCount } = await supabaseAdmin
       .from("students")
       .select("id", { count: "exact", head: true })
@@ -98,11 +107,9 @@ export async function POST(
 
     // 5️⃣ Build matric number
     const matricNo = `SYK/${program.code}/${yy}/${nextSeq}`;
-    console.log("🔥 Generated matric:", matricNo);
 
-    // 6️⃣ Create Supabase Auth user
+    // 6️⃣ Create Auth user
     const tempPassword = Math.random().toString(36).slice(-10);
-
     const { data: authUser, error: authErr } =
       await supabaseAdmin.auth.admin.createUser({
         email: app.email,
@@ -111,18 +118,17 @@ export async function POST(
       });
 
     if (authErr || !authUser.user) {
-      console.log("🔥 Auth error:", authErr);
       return NextResponse.json(
         { error: "Failed to create auth user." },
         { status: 400 }
       );
     }
 
-    // 7️⃣ Create profile
+    // 7️⃣ Create Profile (NOW INCLUDES ALL FIELDS)
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
       .insert({
-        id: authUser.user.id, // match auth user id
+        id: authUser.user.id,
         first_name: app.first_name,
         middle_name: app.middle_name,
         last_name: app.last_name,
@@ -130,20 +136,24 @@ export async function POST(
         phone: app.phone,
         gender: app.gender,
         date_of_birth: app.date_of_birth,
+        state_of_origin: app.state_of_origin,
+        lga_of_origin: app.lga_of_origin,
+        nin: app.nin,
+        religion: app.religion,
+        address: app.address,
         main_role: "student",
       })
       .select()
       .single();
 
     if (profileErr || !profile) {
-      console.log("🔥 Profile error:", profileErr);
       return NextResponse.json(
         { error: "Failed to create profile." },
         { status: 400 }
       );
     }
 
-    // 8️⃣ Create student record
+    // 8️⃣ Create Student (NOW INCLUDES GUARDIAN FIELDS)
     const { data: student, error: studentErr } = await supabaseAdmin
       .from("students")
       .insert({
@@ -152,21 +162,26 @@ export async function POST(
         department_id: app.department_id,
         course_session_id: app.session_id,
         matric_no: matricNo,
+        level: null,
         status: "active",
         enrollment_date: new Date().toISOString().slice(0, 10),
+
+        guardian_first_name: app.guardian_first_name,
+        guardian_last_name: app.guardian_last_name,
+        guardian_phone: app.guardian_phone,
+        guardian_status: app.guardian_status,
       })
       .select()
       .single();
 
     if (studentErr || !student) {
-      console.log("🔥 Student error:", studentErr);
       return NextResponse.json(
         { error: "Failed to create student." },
         { status: 400 }
       );
     }
 
-    // 9️⃣ Update application
+    // 9️⃣ Mark application as converted
     const { error: updateErr } = await supabaseAdmin
       .from("applications")
       .update({
@@ -177,7 +192,6 @@ export async function POST(
       .eq("id", applicationId);
 
     if (updateErr) {
-      console.log("🔥 Application update error:", updateErr);
       return NextResponse.json(
         { error: updateErr.message },
         { status: 400 }
