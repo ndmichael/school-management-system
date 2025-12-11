@@ -4,7 +4,10 @@ import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { Search, Filter, Plus, Edit, Trash2, Eye } from "lucide-react";
 import { toast } from "react-toastify";
+
 import { AddStaffModal } from "@/components/modals/AddStaffModal";
+import { ViewStaffDetailsModal } from "@/components/modals/staff/ViewStaffDetailsModal";
+import { EditStaffModal } from "@/components/modals/staff/EditStaffDetailsModal";
 
 export interface StaffRow {
   id: string;
@@ -14,7 +17,7 @@ export interface StaffRow {
   status: string;
   staff_type: string | null;
 
-  // 👇 FIXED — Supabase returns "departments", not "department"
+  // Supabase join alias
   departments: { name: string | null } | null;
 
   profiles: {
@@ -38,7 +41,10 @@ export default function StaffPage() {
   // Pagination
   const [page, setPage] = useState(1);
 
+  // Modals
   const [showAddModal, setShowAddModal] = useState(false);
+  const [viewId, setViewId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
 
   // LOAD STAFF
   const loadStaff = useCallback(async () => {
@@ -70,13 +76,12 @@ export default function StaffPage() {
     loadStaff();
   }, [loadStaff]);
 
-  // DELETE STAFF
+  // DELETE STAFF — FIXED (correct route)
   async function deleteStaff(id: string) {
     if (!confirm("Are you sure?")) return;
 
-    const res = await fetch(`/api/admin/staff`, {
+    const res = await fetch(`/api/admin/staff/${id}`, {
       method: "DELETE",
-      body: JSON.stringify({ id }),
     });
 
     if (!res.ok) return toast.error("Failed to delete staff");
@@ -96,6 +101,7 @@ export default function StaffPage() {
   return (
     <div className="w-full min-h-screen bg-gray-50 pb-20">
       <div className="max-w-7xl mx-auto px-4 lg:px-6 py-10 space-y-10">
+
         {/* HEADER */}
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
           <div>
@@ -115,6 +121,7 @@ export default function StaffPage() {
         {/* FILTERS */}
         <div className="bg-white p-6 rounded-xl border shadow-sm space-y-4">
           <div className="flex flex-col lg:flex-row gap-4 lg:items-center">
+
             {/* SEARCH */}
             <div className="flex-1 relative">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -139,6 +146,7 @@ export default function StaffPage() {
                 <option value="non_academic_staff">Non-Academic Staff</option>
               </select>
             </div>
+
           </div>
         </div>
 
@@ -177,6 +185,7 @@ export default function StaffPage() {
                 {!loading &&
                   items.map((s) => (
                     <tr key={s.id} className="hover:bg-gray-50 transition">
+
                       {/* Staff Profile */}
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
@@ -197,7 +206,6 @@ export default function StaffPage() {
                         </div>
                       </td>
 
-                      {/* Staff ID */}
                       <td className="px-6 py-4 font-mono text-xs">{s.staff_id}</td>
 
                       {/* Department FIXED */}
@@ -205,10 +213,8 @@ export default function StaffPage() {
                         {s.departments?.name || <span className="text-gray-400">—</span>}
                       </td>
 
-                      {/* Designation */}
                       <td className="px-6 py-4">{s.designation || "—"}</td>
 
-                      {/* Status */}
                       <td className="px-6 py-4">
                         <span
                           className={`px-3 py-1 rounded-full text-xs font-semibold ${
@@ -221,25 +227,37 @@ export default function StaffPage() {
                         </span>
                       </td>
 
-                      {/* Actions */}
+                      {/* ACTIONS */}
                       <td className="px-6 py-4 text-right">
                         <div className="flex justify-end gap-3 items-center">
-                          <button className="p-2 hover:bg-gray-100 rounded-lg transition">
+                          
+                          {/* VIEW */}
+                          <button
+                            className="p-2 hover:bg-gray-100 rounded-lg transition"
+                            onClick={() => setViewId(s.id)}
+                          >
                             <Eye className="w-4 h-4 text-gray-700" />
                           </button>
 
-                          <button className="p-2 hover:bg-gray-100 rounded-lg transition">
+                          {/* EDIT */}
+                          <button
+                            className="p-2 hover:bg-gray-100 rounded-lg transition"
+                            onClick={() => setEditId(s.id)}
+                          >
                             <Edit className="w-4 h-4 text-gray-700" />
                           </button>
 
+                          {/* DELETE */}
                           <button
                             onClick={() => deleteStaff(s.id)}
                             className="p-2 hover:bg-red-100 rounded-lg transition"
                           >
                             <Trash2 className="w-4 h-4 text-red-600" />
                           </button>
+
                         </div>
                       </td>
+
                     </tr>
                   ))}
               </tbody>
@@ -250,8 +268,7 @@ export default function StaffPage() {
           {!loading && total > 0 && (
             <div className="flex items-center justify-between px-6 py-4 bg-gray-50 border-t text-sm text-gray-700">
               <span>
-                Showing{" "}
-                <strong>{startIndex + 1}</strong> -{" "}
+                Showing <strong>{startIndex + 1}</strong> -{" "}
                 <strong>{Math.min(startIndex + PAGE_SIZE, total)}</strong> of{" "}
                 <strong>{total}</strong>
               </span>
@@ -266,7 +283,8 @@ export default function StaffPage() {
                 </button>
 
                 <span>
-                  Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+                  Page <strong>{currentPage}</strong> of{" "}
+                  <strong>{totalPages}</strong>
                 </span>
 
                 <button
@@ -287,6 +305,26 @@ export default function StaffPage() {
           onClose={() => setShowAddModal(false)}
           onCreated={loadStaff}
         />
+
+        {/* VIEW MODAL */}
+        {viewId && (
+          <ViewStaffDetailsModal
+            isOpen={true}
+            staffId={viewId}
+            onClose={() => setViewId(null)}
+          />
+        )}
+
+        {/* EDIT MODAL */}
+        {editId && (
+          <EditStaffModal
+            isOpen={true}
+            staffId={editId}
+            onClose={() => setEditId(null)}
+            onUpdated={loadStaff}
+          />
+        )}
+
       </div>
     </div>
   );
