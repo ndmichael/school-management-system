@@ -1,23 +1,36 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-export async function GET(_: Request, { params }: { params: { id: string } }) {
-  const studentId = params.id;
+/* ----------------------------- GET Guardian ----------------------------- */
+
+export async function GET(
+  _req: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id: studentId } = await context.params;
 
   const { data, error } = await supabaseAdmin
     .from("students")
-    .select("guardian_first_name, guardian_last_name, guardian_phone, guardian_status")
+    .select(
+      "guardian_first_name, guardian_last_name, guardian_phone, guardian_status"
+    )
     .eq("id", studentId)
     .single();
 
-  if (error)
+  if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
 
   return NextResponse.json({ guardian: data });
 }
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const studentId = params.id;
+/* ----------------------------- PATCH Guardian ---------------------------- */
+
+export async function PATCH(
+  req: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id: studentId } = await context.params;
   const body = await req.json();
 
   const { error } = await supabaseAdmin
@@ -31,8 +44,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     })
     .eq("id", studentId);
 
-  if (error)
+  if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
 
   return NextResponse.json({ success: true });
 }
