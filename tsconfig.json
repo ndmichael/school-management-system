@@ -29,6 +29,6 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts"
-  ],
+, "lib/appwrite.server.ts", "test.mjs"  ],
   "exclude": ["node_modules"]
 }
