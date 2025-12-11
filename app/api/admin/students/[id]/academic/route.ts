@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-export async function GET(_: Request, { params }: { params: { id: string } }) {
-  const studentId = params.id;
+export async function GET(
+  _req: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id: studentId } = await context.params;
 
   const { data, error } = await supabaseAdmin
     .from("students")
@@ -10,14 +13,19 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
     .eq("id", studentId)
     .single();
 
-  if (error)
+  if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
 
   return NextResponse.json({ academic: data });
 }
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const studentId = params.id;
+export async function PATCH(
+  req: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const { id: studentId } = await context.params;
+
   const body = await req.json();
 
   const { error } = await supabaseAdmin
@@ -32,8 +40,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     })
     .eq("id", studentId);
 
-  if (error)
+  if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
+  }
 
   return NextResponse.json({ success: true });
 }
