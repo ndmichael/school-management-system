@@ -11,62 +11,60 @@ export async function GET(req: Request) {
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  // Build filters
-  const matchFilters: Record<string, any> = {};
-  if (status !== "all") matchFilters.status = status;
-
-  // Base query (students table)
   let query = supabaseAdmin
     .from("students")
     .select(
       `
-      id,
-      profile_id,
-      matric_no,
-      level,
-      status,
-      program_id,
-      department_id,
-      course_session_id,
+        id,
+        profile_id,
+        matric_no,
+        level,
+        status,
+        program_id,
+        department_id,
+        course_session_id,
 
-      profiles!inner (
-        first_name,
-        middle_name,
-        last_name,
-        email,
-        phone,
-        gender
-      ),
+        profiles!inner (
+          first_name,
+          middle_name,
+          last_name,
+          email,
+          phone,
+          gender
+        ),
 
-      programs:program_id (
-        name,
-        code
-      ),
+        programs:program_id (
+          name,
+          code
+        ),
 
-      departments:department_id (
-        name,
-        code
-      ),
+        departments:department_id (
+          name,
+          code
+        ),
 
-      sessions:course_session_id (
-        name
-      )
-    `,
+        sessions:course_session_id (
+          id,
+          name
+        )
+      `,
       { count: "exact" }
     )
     .order("created_at", { ascending: false })
     .range(from, to);
 
-  // Apply status filter
-  if (status !== "all") query = query.eq("status", status);
+  if (status !== "all") {
+    query = query.eq("status", status);
+  }
 
-  // Search (case-insensitive)
   if (search) {
     query = query.or(
-      `matric_no.ilike.%${search}%, 
-       profiles.first_name.ilike.%${search}%, 
-       profiles.last_name.ilike.%${search}%, 
-       profiles.email.ilike.%${search}%`
+      `
+        matric_no.ilike.%${search}%,
+        profiles.first_name.ilike.%${search}%,
+        profiles.last_name.ilike.%${search}%,
+        profiles.email.ilike.%${search}%
+      `
     );
   }
 
@@ -82,8 +80,8 @@ export async function GET(req: Request) {
     pagination: {
       page,
       pageSize,
-      total: count || 0,
-      totalPages: Math.ceil((count || 0) / pageSize),
+      total: count ?? 0,
+      totalPages: Math.ceil((count ?? 0) / pageSize),
     },
   });
 }
