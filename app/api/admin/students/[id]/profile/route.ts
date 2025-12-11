@@ -1,51 +1,92 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-export async function GET(_: Request, { params }: { params: { id: string } }) {
-  const studentId = params.id;
+export async function GET(
+  req: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  console.log("🔥 PROFILE GET ROUTE HIT");
 
-  // Fetch student → get profile_id → load profile
-  const { data: stu, error: stuErr } = await supabaseAdmin
+  const { id } = await context.params; // ← REQUIRED IN NEXT.JS 14
+  console.log("🔥 Extracted studentId:", id);
+
+  if (!id) {
+    return NextResponse.json({ error: "Missing student id." }, { status: 400 });
+  }
+
+  // Get student + profile relation
+  const { data, error } = await supabaseAdmin
     .from("students")
-    .select("profile_id")
-    .eq("id", studentId)
+    .select(
+      `
+      profile_id,
+      profiles (
+        first_name,
+        middle_name,
+        last_name,
+        email,
+        phone,
+        date_of_birth,
+        gender,
+        nin,
+        address,
+        state_of_origin,
+        lga_of_origin,
+        religion
+      )
+    `
+    )
+    .eq("id", id)
     .single();
 
-  if (stuErr || !stu)
-    return NextResponse.json({ error: stuErr?.message || "Not found" }, { status: 404 });
+  if (error || !data) {
+    console.error("Profile load error:", error);
+    return NextResponse.json({ error: "Student not found." }, { status: 404 });
+  }
 
-  const { data: profile, error: profErr } = await supabaseAdmin
-    .from("profiles")
-    .select("*")
-    .eq("id", stu.profile_id)
-    .single();
-
-  if (profErr)
-    return NextResponse.json({ error: profErr.message }, { status: 400 });
-
-  return NextResponse.json({ profile });
+  return NextResponse.json({ profile: data.profiles });
 }
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
-  const studentId = params.id;
-  const body = await req.json();
+// -----------------------------------------------------------
+// PATCH — Update student profile
+// -----------------------------------------------------------
 
-  const { data: stu, error: stuErr } = await supabaseAdmin
+export async function PATCH(
+  req: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  console.log("🔥 PROFILE PATCH ROUTE HIT");
+
+  const { id } = await context.params; // ← REQUIRED
+  console.log("🔥 Extracted studentId:", id);
+
+  if (!id) {
+    return NextResponse.json({ error: "Missing student id." }, { status: 400 });
+  }
+
+  const updates = await req.json();
+
+  // First get the profile_id for this student
+  const { data: student, error: studentErr } = await supabaseAdmin
     .from("students")
     .select("profile_id")
-    .eq("id", studentId)
+    .eq("id", id)
     .single();
 
-  if (stuErr || !stu)
-    return NextResponse.json({ error: stuErr?.message || "Not found" }, { status: 404 });
+  if (studentErr || !student) {
+    return NextResponse.json({ error: "Student not found." }, { status: 404 });
+  }
 
-  const { error } = await supabaseAdmin
+  // Now update the profile
+  const { error: updateErr } = await supabaseAdmin
     .from("profiles")
-    .update(body)
-    .eq("id", stu.profile_id);
+    .update(updates)
+    .eq("id", student.profile_id);
 
-  if (error)
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  if (updateErr) {
+    console.error("Profile update error:", updateErr);
+    return NextResponse.json({ error: updateErr.message }, { status: 400 });
+  }
 
   return NextResponse.json({ success: true });
 }
