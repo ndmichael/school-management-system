@@ -1,8 +1,8 @@
-interface SelectProps<T = string> {
+interface SelectProps<T extends string = string> {
   label: string;
-  value: T;
-  onChange: (value: T) => void;
-  options: { value: T; label: string }[];
+  value: T | ""; // ✅ allows the default empty option
+  onChange: (value: T | "") => void;
+  options: ReadonlyArray<{ value: T; label: string }>; // ✅ readonly-friendly
   error?: string;
   required?: boolean;
 }
@@ -21,9 +21,10 @@ export const Select = <T extends string>({
         {label}
         {required && <span className="text-red-500 ml-1">*</span>}
       </label>
+
       <select
         value={value}
-        onChange={(e) => onChange(e.target.value as T)}
+        onChange={(e) => onChange(e.target.value as T | "")}
         required={required}
         className={`w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all appearance-none bg-white ${
           error ? "border-red-500" : ""
@@ -36,6 +37,7 @@ export const Select = <T extends string>({
           </option>
         ))}
       </select>
+
       {error && <p className="text-sm text-red-500">{error}</p>}
     </div>
   );
