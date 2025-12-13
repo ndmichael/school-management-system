@@ -1,344 +1,297 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { Search, Filter, Plus, Eye, Download, Receipt, CheckCircle2, Clock, XCircle } from 'lucide-react';
-import { receiptsData, type Receipt } from '@/data/admin';
-import { AddReceiptModal } from '@/components/modals/AddReceiptModal';
+import { useState, useEffect, useCallback } from "react";
+import Image from "next/image";
+import {
+  Search,
+  Filter,
+  Eye,
+  Plus, 
+  Download,
+  CheckCircle2,
+  XCircle,
+  Clock,
+} from "lucide-react";
+import { toast } from "react-toastify";
+
+import AddReceiptModal from "@/components/modals/AddReceiptModal";
+import ViewReceiptModal from "@/components/modals/ViewReceiptModal";
+import { Button } from "@/components/ui/button";
+
+interface ReceiptRow {
+  id: string;
+  payment_type: string;
+  amount_paid: number;
+  payment_date: string;
+  receipt_url: string;
+
+  status: "pending" | "approved" | "rejected";
+
+  students: {
+    id: string;
+    matric_no: string;
+    profiles: {
+      first_name: string;
+      last_name: string;
+      email: string;
+    };
+  };
+
+  sessions: {
+    name: string | null;
+  } | null;
+}
 
 export default function ReceiptsPage() {
-  const [receipts, setReceipts] = useState<Receipt[]>(receiptsData);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [receipts, setReceipts] = useState<ReceiptRow[]>([]);
 
-  const filteredReceipts = receipts.filter(receipt => {
-    const matchesSearch = 
-      receipt.receiptNo.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      receipt.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      receipt.studentId.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = filterStatus === 'all' || receipt.status === filterStatus;
-    
-    return matchesSearch && matchesStatus;
-  });
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
 
-  const handleAddReceipt = (newReceipt: Receipt) => {
-    setReceipts([newReceipt, ...receipts]);
-    console.log('New receipt added:', newReceipt);
-  };
+  const [viewId, setViewId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false); // ✅ FIXED
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-NG', {
-      style: 'currency',
-      currency: 'NGN',
-      minimumFractionDigits: 0
-    }).format(amount);
-  };
+  // ============================
+  // FETCH RECEIPTS
+  // ============================
+  const loadReceipts = useCallback(async () => {
+    try {
+      setLoading(true);
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric' 
+      const params = new URLSearchParams();
+      if (search.trim()) params.set("search", search.trim());
+      if (filterStatus !== "all") params.set("status", filterStatus);
+
+      const res = await fetch(`/api/admin/receipts?${params.toString()}`, {
+        cache: "no-store",
+      });
+
+      if (!res.ok) throw new Error("Failed to load receipts");
+
+      const json = await res.json();
+      setReceipts(json.receipts || []);
+    } catch {
+      toast.error("Failed to load receipts");
+    } finally {
+      setLoading(false);
+    }
+  }, [search, filterStatus]);
+
+  useEffect(() => {
+    loadReceipts();
+  }, [loadReceipts]);
+
+  // ============================
+  // DELETE RECEIPT
+  // ============================
+  async function deleteReceipt(id: string) {
+    if (!confirm("Delete this receipt?")) return;
+
+    const res = await fetch(`/api/admin/receipts/${id}`, {
+      method: "DELETE",
     });
-  };
 
-  const totalRevenue = receipts.reduce((acc, r) => acc + r.amount, 0);
-  const verifiedCount = receipts.filter(r => r.status === 'verified').length;
-  const pendingCount = receipts.filter(r => r.status === 'pending').length;
+    if (!res.ok) return toast.error("Failed to delete receipt");
+
+    toast.success("Receipt deleted");
+    loadReceipts();
+  }
+
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: "NGN",
+      minimumFractionDigits: 0,
+    }).format(value);
+
+  const formatDate = (value: string) =>
+    new Date(value).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">Payment Receipts</h2>
-          <p className="text-gray-600 mt-1">Track and manage all payment receipts</p>
-        </div>
-        <button 
-          onClick={() => setIsAddModalOpen(true)}
-          className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors shadow-lg shadow-red-600/20"
-        >
-          <Plus className="w-5 h-5" />
-          <span>Generate Receipt</span>
-        </button>
-      </div>
+    <div className="w-full min-h-screen bg-gray-50 pb-20">
+      <div className="max-w-7xl mx-auto px-4 lg:px-6 py-10 space-y-10">
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200 hover:border-gray-300 transition-colors">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-              <Receipt className="w-5 h-5 text-gray-600" />
+        {/* HEADER */}
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Payment Receipts</h1>
+            <p className="text-gray-600 mt-1">
+              Verification & financial tracking
+            </p>
+          </div>
+
+          {/* ADD RECEIPT BUTTON */}
+          <Button onClick={() => setAddOpen(true)}
+            className="cursor-pointer inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-red-700" 
+          >
+            <Plus className="h-5 w-5" />
+            Add Receipt
+          </Button>
+        </div>
+
+        {/* FILTERS */}
+        <div className="bg-white p-6 rounded-xl border shadow-sm space-y-4">
+          <div className="flex flex-col lg:flex-row gap-4 lg:items-center">
+
+            {/* SEARCH */}
+            <div className="flex-1 relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input
+                className="w-full pl-12 pr-4 py-3 border rounded-xl bg-white text-sm"
+                placeholder="Search receipt, matric no, student name…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
             </div>
-            <p className="text-gray-600 text-xs sm:text-sm font-medium">Total Receipts</p>
-          </div>
-          <p className="text-2xl sm:text-3xl font-bold text-gray-900">{receipts.length}</p>
-        </div>
 
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200 hover:border-green-300 transition-colors">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <CheckCircle2 className="w-5 h-5 text-green-600" />
-            </div>
-            <p className="text-gray-600 text-xs sm:text-sm font-medium">Total Revenue</p>
-          </div>
-          <p className="text-xl sm:text-2xl font-bold text-green-600">{formatCurrency(totalRevenue)}</p>
-        </div>
-
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200 hover:border-blue-300 transition-colors">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <CheckCircle2 className="w-5 h-5 text-blue-600" />
-            </div>
-            <p className="text-gray-600 text-xs sm:text-sm font-medium">Verified</p>
-          </div>
-          <p className="text-2xl sm:text-3xl font-bold text-blue-600">{verifiedCount}</p>
-        </div>
-
-        <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200 hover:border-orange-300 transition-colors">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-              <Clock className="w-5 h-5 text-orange-600" />
-            </div>
-            <p className="text-gray-600 text-xs sm:text-sm font-medium">Pending</p>
-          </div>
-          <p className="text-2xl sm:text-3xl font-bold text-orange-600">{pendingCount}</p>
-        </div>
-      </div>
-
-      {/* Filters & Search */}
-      <div className="bg-white rounded-xl p-4 sm:p-6 border border-gray-200">
-        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search by receipt no, student name or ID..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-sm"
-            />
-          </div>
-
-          <div className="flex gap-3">
-            <div className="flex-1 sm:flex-none flex items-center gap-2">
-              <Filter className="w-5 h-5 text-gray-600 flex-shrink-0" />
+            {/* STATUS FILTER */}
+            <div className="flex items-center gap-2">
+              <Filter className="w-5 h-5 text-gray-500" />
               <select
+                className="px-4 py-3 border rounded-xl bg-white text-sm"
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full sm:w-auto px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 bg-white text-sm"
               >
                 <option value="all">All Status</option>
-                <option value="verified">Verified</option>
                 <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
                 <option value="rejected">Rejected</option>
               </select>
             </div>
 
-            <button className="inline-flex items-center gap-2 px-4 sm:px-6 py-3 bg-gray-100 hover:bg-gray-200 rounded-xl font-medium transition-colors text-sm whitespace-nowrap">
-              <Download className="w-5 h-5" />
-              <span className="hidden sm:inline">Export</span>
-            </button>
           </div>
         </div>
 
-        {/* Active Filters Display */}
-        {(searchQuery || filterStatus !== 'all') && (
-          <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-200">
-            <span className="text-sm text-gray-600">Active filters:</span>
-            {searchQuery && (
-              <span className="px-3 py-1 bg-red-100 text-red-700 text-xs font-medium rounded-full flex items-center gap-1">
-                Search: {searchQuery}
-                <button 
-                  onClick={() => setSearchQuery('')}
-                  className="hover:bg-red-200 rounded-full p-0.5"
-                >
-                  <XCircle className="w-3 h-3" />
-                </button>
-              </span>
-            )}
-            {filterStatus !== 'all' && (
-              <span className="px-3 py-1 bg-blue-100 text-blue-700 text-xs font-medium rounded-full flex items-center gap-1">
-                Status: {filterStatus}
-                <button 
-                  onClick={() => setFilterStatus('all')}
-                  className="hover:bg-blue-200 rounded-full p-0.5"
-                >
-                  <XCircle className="w-3 h-3" />
-                </button>
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Desktop Table */}
-      <div className="hidden lg:block bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Receipt No.</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Student</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Amount</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Payment Type</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Method</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Date</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Status</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredReceipts.map((receipt) => (
-                <tr key={receipt.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4">
-                    <span className="font-mono text-sm font-semibold text-red-600">{receipt.receiptNo}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div>
-                      <p className="font-medium text-gray-900">{receipt.studentName}</p>
-                      <p className="text-sm text-gray-600">{receipt.studentId}</p>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className="font-semibold text-gray-900">{formatCurrency(receipt.amount)}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-sm text-gray-900">{receipt.paymentType}</p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-sm text-gray-600">{receipt.paymentMethod}</p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <p className="text-sm text-gray-600">{formatDate(receipt.date)}</p>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`px-3 py-1 text-xs font-semibold rounded-full whitespace-nowrap inline-flex items-center gap-1 ${
-                      receipt.status === 'verified' ? 'bg-green-100 text-green-700' :
-                      receipt.status === 'pending' ? 'bg-orange-100 text-orange-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
-                      {receipt.status === 'verified' && <CheckCircle2 className="w-3 h-3" />}
-                      {receipt.status === 'pending' && <Clock className="w-3 h-3" />}
-                      {receipt.status === 'rejected' && <XCircle className="w-3 h-3" />}
-                      {receipt.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <button 
-                        className="p-2 hover:bg-blue-50 rounded-lg transition-colors group" 
-                        title="View Receipt"
-                      >
-                        <Eye className="w-4 h-4 text-gray-600 group-hover:text-blue-600" />
-                      </button>
-                      <button 
-                        className="p-2 hover:bg-green-50 rounded-lg transition-colors group" 
-                        title="Download Receipt"
-                      >
-                        <Download className="w-4 h-4 text-gray-600 group-hover:text-green-600" />
-                      </button>
-                    </div>
-                  </td>
+        {/* TABLE */}
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr className="text-left">
+                  <th className="px-6 py-4 font-semibold">Student</th>
+                  <th className="px-6 py-4 font-semibold">Payment Type</th>
+                  <th className="px-6 py-4 font-semibold">Amount</th>
+                  <th className="px-6 py-4 font-semibold">Date</th>
+                  <th className="px-6 py-4 font-semibold">Status</th>
+                  <th className="px-6 py-4 text-right font-semibold">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+
+              <tbody className="divide-y">
+                {loading && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center text-gray-500">
+                      Loading receipts…
+                    </td>
+                  </tr>
+                )}
+
+                {!loading && receipts.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-10 text-center text-gray-500">
+                      No receipts found
+                    </td>
+                  </tr>
+                )}
+
+                {!loading &&
+                  receipts.map((r) => (
+                    <tr key={r.id} className="hover:bg-gray-50 transition">
+
+                      <td className="px-6 py-4">
+                        <p className="font-semibold text-gray-900">
+                          {r.students.profiles.first_name}{" "}
+                          {r.students.profiles.last_name}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          {r.students.matric_no}
+                        </p>
+                      </td>
+
+                      <td className="px-6 py-4 capitalize">
+                        {r.payment_type.replace(/_/g, " ")}
+                      </td>
+
+                      <td className="px-6 py-4 font-medium text-gray-900">
+                        {formatCurrency(r.amount_paid)}
+                      </td>
+
+                      <td className="px-6 py-4">
+                        {formatDate(r.payment_date)}
+                      </td>
+
+                      <td className="px-6 py-4">
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1 w-fit ${
+                            r.status === "approved"
+                              ? "bg-green-100 text-green-700"
+                              : r.status === "pending"
+                              ? "bg-orange-100 text-orange-700"
+                              : "bg-red-100 text-red-700"
+                          }`}
+                        >
+                          {r.status === "approved" && <CheckCircle2 className="w-3 h-3" />}
+                          {r.status === "pending" && <Clock className="w-3 h-3" />}
+                          {r.status === "rejected" && <XCircle className="w-3 h-3" />}
+                          {r.status}
+                        </span>
+                      </td>
+
+                      <td className="px-6 py-4 text-right">
+                        <div className="flex justify-end gap-3">
+
+                          <button
+                            className="p-2 hover:bg-gray-100 rounded-lg"
+                            onClick={() => setViewId(r.id)}
+                          >
+                            <Eye className="w-4 h-4 text-gray-700" />
+                          </button>
+
+                          <a
+                            href={r.receipt_url}
+                            target="_blank"
+                            className="p-2 hover:bg-gray-100 rounded-lg"
+                          >
+                            <Download className="w-4 h-4 text-gray-700" />
+                          </a>
+
+                          <button
+                            className="p-2 hover:bg-red-100 rounded-lg"
+                            onClick={() => deleteReceipt(r.id)}
+                          >
+                            <XCircle className="w-4 h-4 text-red-600" />
+                          </button>
+
+                        </div>
+                      </td>
+
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {filteredReceipts.length === 0 && (
-          <div className="text-center py-16">
-            <Receipt className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-600 font-medium">No receipts found</p>
-            <p className="text-sm text-gray-500 mt-1">
-              {searchQuery || filterStatus !== 'all' 
-                ? 'Try adjusting your filters' 
-                : 'Generate your first receipt to get started'}
-            </p>
-          </div>
-        )}
+        {/* MODALS */}
+        <ViewReceiptModal
+          isOpen={!!viewId}
+          receiptId={viewId}
+          onClose={() => setViewId(null)}
+          onVerified={loadReceipts}
+        />
+
+        <AddReceiptModal
+          isOpen={addOpen}
+          onClose={() => setAddOpen(false)}
+          onCreated={loadReceipts}
+        />
+
       </div>
-
-      {/* Mobile Cards */}
-      <div className="lg:hidden space-y-4">
-        {filteredReceipts.map((receipt) => (
-          <div key={receipt.id} className="bg-white rounded-xl border border-gray-200 p-4 hover:shadow-md transition-shadow">
-            <div className="flex items-start gap-3 mb-4">
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                receipt.status === 'verified' ? 'bg-green-500' :
-                receipt.status === 'pending' ? 'bg-orange-500' : 'bg-red-500'
-              }`}>
-                <Receipt className="w-6 h-6 text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-mono text-sm font-semibold text-red-600 mb-1">{receipt.receiptNo}</p>
-                <p className="font-medium text-gray-900">{receipt.studentName}</p>
-                <p className="text-sm text-gray-600">{receipt.studentId}</p>
-              </div>
-              <span className={`px-2 py-1 text-xs font-semibold rounded-full whitespace-nowrap flex items-center gap-1 ${
-                receipt.status === 'verified' ? 'bg-green-100 text-green-700' :
-                receipt.status === 'pending' ? 'bg-orange-100 text-orange-700' :
-                'bg-red-100 text-red-700'
-              }`}>
-                {receipt.status === 'verified' && <CheckCircle2 className="w-3 h-3" />}
-                {receipt.status === 'pending' && <Clock className="w-3 h-3" />}
-                {receipt.status === 'rejected' && <XCircle className="w-3 h-3" />}
-                {receipt.status}
-              </span>
-            </div>
-
-            <div className="space-y-2 mb-4 pb-4 border-b border-gray-200">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Amount:</span>
-                <span className="font-bold text-lg text-gray-900">{formatCurrency(receipt.amount)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Type:</span>
-                <span className="font-medium text-gray-900">{receipt.paymentType}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Method:</span>
-                <span className="text-gray-900">{receipt.paymentMethod}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-600">Date:</span>
-                <span className="text-gray-900">{formatDate(receipt.date)}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm font-medium">
-                <Eye className="w-4 h-4" />
-                <span>View</span>
-              </button>
-              <button className="px-4 py-2.5 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors flex items-center gap-2 text-sm font-medium">
-                <Download className="w-4 h-4" />
-                <span>Download</span>
-              </button>
-            </div>
-          </div>
-        ))}
-
-        {filteredReceipts.length === 0 && (
-          <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-            <Receipt className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-600 font-medium">No receipts found</p>
-            <p className="text-sm text-gray-500 mt-1 px-4">
-              {searchQuery || filterStatus !== 'all' 
-                ? 'Try adjusting your filters' 
-                : 'Generate your first receipt to get started'}
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Add Receipt Modal */}
-      <AddReceiptModal
-        isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
-        onSubmit={handleAddReceipt}
-      />
     </div>
   );
 }
