@@ -1,9 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-export const runtime = "nodejs"; // service-role safe (supabaseAdmin)
+export const runtime = "nodejs";
 
-const FEE_TYPES = [
+const json = (body: unknown, status = 200) => NextResponse.json(body, { status });
+
+type ReceiptStatus = "pending" | "approved" | "rejected";
+type Semester = "first" | "second";
+type PaymentType =
+  | "school_fees"
+  | "acceptance_fee"
+  | "registration_fee"
+  | "departmental_fee"
+  | "examination_fee"
+  | "accommodation_fee"
+  | "id_card_fee"
+  | "other";
+
+const FEE_TYPES: readonly PaymentType[] = [
   "school_fees",
   "acceptance_fee",
   "registration_fee",
@@ -14,107 +29,51 @@ const FEE_TYPES = [
   "other",
 ] as const;
 
-type FeeType = (typeof FEE_TYPES)[number];
+const SEMESTERS: readonly Semester[] = ["first", "second"] as const;
 
-const STATUSES = ["pending", "approved", "rejected"] as const;
-type ReceiptStatus = (typeof STATUSES)[number];
+const GetQuerySchema = z.object({
+  search: z.string().optional(),
+  status: z.enum(["all", "pending", "approved", "rejected"]).default("all"),
+  semester: z.enum(["all", ...SEMESTERS]).default("all"),
+  session: z.string().optional(), // uuid or "all"
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
 
-const SEMESTERS = ["first", "second"] as const;
-type Semester = (typeof SEMESTERS)[number];
-
-type ReceiptsQuery = {
-  search: string;
-  status: "all" | ReceiptStatus;
-  semester: "all" | Semester;
-  session: "all" | string; // uuid
-  page: number;
-  limit: number;
-};
-
-function isOneOf<const T extends readonly string[]>(
-  value: string,
-  allowed: T
-): value is T[number] {
-  return (allowed as readonly string[]).includes(value);
-}
-
-function parsePositiveInt(value: string | null, fallback: number, max?: number): number {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 1) return fallback;
-  const int = Math.floor(n);
-  if (max && int > max) return max;
-  return int;
-}
-
-function sanitizeSearch(input: string): string {
-  // PostgREST filter strings aren't parameterized; keep this conservative
-  return input.trim().slice(0, 80).replace(/[(),%]/g, "").replace(/\s+/g, " ");
-}
-
-function json(body: unknown, status = 200) {
-  return NextResponse.json(body, { status });
-}
-
-function badRequest(message: string, extra?: Record<string, unknown>) {
-  return json({ ok: false, error: message, ...extra }, 400);
-}
-
-function unprocessable(message: string, extra?: Record<string, unknown>) {
-  return json({ ok: false, error: message, ...extra }, 422);
-}
-
-function getString(formData: FormData, key: string): string | null {
-  const v = formData.get(key);
-  return typeof v === "string" ? v : null;
-}
-
-function getFile(formData: FormData, key: string): File | null {
-  const v = formData.get(key);
-  return v instanceof File ? v : null;
-}
-
-function parseQuery(req: NextRequest): ReceiptsQuery {
-  const { searchParams } = new URL(req.url);
-
-  const search = sanitizeSearch(searchParams.get("search") ?? "");
-  const statusRaw = (searchParams.get("status") ?? "all").trim();
-  const semesterRaw = (searchParams.get("semester") ?? "all").trim();
-  const sessionRaw = (searchParams.get("session") ?? "all").trim();
-
-  const page = parsePositiveInt(searchParams.get("page"), 1);
-  const limit = parsePositiveInt(searchParams.get("limit"), 20, 100);
-
-  const status: ReceiptsQuery["status"] =
-    statusRaw === "all"
-      ? "all"
-      : isOneOf(statusRaw, STATUSES)
-        ? statusRaw
-        : "all"; // alternatively: throw 422 if invalid
-
-  const semester: ReceiptsQuery["semester"] =
-    semesterRaw === "all"
-      ? "all"
-      : isOneOf(semesterRaw, SEMESTERS)
-        ? semesterRaw
-        : "all";
-
-  const session: ReceiptsQuery["session"] = sessionRaw === "all" ? "all" : sessionRaw;
-
-  return { search, status, semester, session, page, limit };
-}
+const CreateSchema = z.object({
+  student_id: z.string().uuid(),
+  session_id: z.string().uuid().optional(),
+  semester: z.enum(SEMESTERS).optional(),
+  payment_type: z.enum(FEE_TYPES),
+  amount_expected: z.coerce.number().positive().optional(),
+  amount_paid: z.coerce.number().positive(),
+  payment_date: z.string().min(1), // YYYY-MM-DD
+  transaction_reference: z.string().trim().min(3).max(80).optional(),
+  receipt: z.instanceof(File),
+});
 
 // ================================
 // GET — LIST RECEIPTS (filters + pagination)
 // ================================
 export async function GET(req: NextRequest) {
-  const q = parseQuery(req);
+  const sp = req.nextUrl.searchParams;
 
-  // If you prefer strict validation instead of falling back to "all":
-  // if (q.status !== "all" && !isOneOf(q.status, STATUSES)) return unprocessable("Invalid status");
-  // if (q.semester !== "all" && !isOneOf(q.semester, SEMESTERS)) return unprocessable("Invalid semester");
+  const parsed = GetQuerySchema.safeParse({
+    search: sp.get("search")?.trim() || undefined,
+    status: sp.get("status") || "all",
+    semester: sp.get("semester") || "all",
+    session: sp.get("session") || undefined,
+    page: sp.get("page") ?? 1,
+    limit: sp.get("limit") ?? 20,
+  });
 
-  const from = (q.page - 1) * q.limit;
-  const to = from + q.limit - 1;
+  if (!parsed.success) {
+    return json({ ok: false, error: "Invalid query params.", issues: parsed.error.flatten() }, 422);
+  }
+
+  const { search, status, semester, session, page, limit } = parsed.data;
+  const from = (page - 1) * limit;
+  const to = from + limit - 1;
 
   let query = supabaseAdmin
     .from("payment_receipts")
@@ -138,88 +97,74 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: false })
     .range(from, to);
 
-  // 🔍 SEARCH (only columns that actually exist)
-  // NOTE: searching joined profile fields via .or(...) is not reliable the way you wrote it.
-  // We keep it to receipt fields here to avoid PostgREST filter errors.
-  if (q.search) {
+  if (search) {
+    // Keep it simple: search only columns in payment_receipts to avoid join filter quirks
     query = query.or(
-      [
-        `payment_type.ilike.%${q.search}%`,
-        `transaction_reference.ilike.%${q.search}%`,
-        `remarks.ilike.%${q.search}%`,
-      ].join(",")
+      `payment_type.ilike.%${search}%,transaction_reference.ilike.%${search}%`
     );
   }
 
-  if (q.status !== "all") query = query.eq("status", q.status);
-  if (q.semester !== "all") query = query.eq("semester", q.semester);
-  if (q.session !== "all") query = query.eq("session_id", q.session);
+  if (status !== "all") query = query.eq("status", status as ReceiptStatus);
+  if (semester !== "all") query = query.eq("semester", semester as Semester);
+  if (session && session !== "all") query = query.eq("session_id", session);
 
   const { data, error, count } = await query;
 
-  if (error) {
-    console.error("Receipts GET Error:", error);
-    return badRequest(error.message, { code: error.code });
-  }
+  if (error) return json({ ok: false, error: error.message, code: error.code }, 400);
 
   return json({
     ok: true,
-    feeTypes: FEE_TYPES, // ✅ send list to frontend
     receipts: data ?? [],
     pagination: {
       total: count ?? 0,
-      page: q.page,
-      limit: q.limit,
-      totalPages: Math.max(1, Math.ceil(((count ?? 0) / q.limit) || 1)),
+      page,
+      limit,
+      totalPages: Math.ceil((count ?? 0) / limit),
     },
   });
 }
 
 // ================================
-// POST — CREATE RECEIPT (admin upload)
+// POST — CREATE RECEIPT (multipart/form-data)
 // ================================
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData();
+    const fd = await req.formData();
 
-    const student_id = getString(formData, "student_id")?.trim() ?? "";
-    const payment_typeRaw = getString(formData, "payment_type")?.trim() ?? "";
-    const amount_paidRaw = getString(formData, "amount_paid")?.trim() ?? "";
-    const payment_date = getString(formData, "payment_date")?.trim() ?? "";
-    const receipt = getFile(formData, "receipt");
+    const parsed = CreateSchema.safeParse({
+      student_id: fd.get("student_id"),
+      session_id: fd.get("session_id") ?? undefined,
+      semester: fd.get("semester") ?? undefined,
+      payment_type: fd.get("payment_type"),
+      amount_expected: fd.get("amount_expected") ?? undefined,
+      amount_paid: fd.get("amount_paid"),
+      payment_date: fd.get("payment_date"),
+      transaction_reference: fd.get("transaction_reference") ?? undefined,
+      receipt: fd.get("receipt"),
+    });
 
-    // Optional fields:
-    const session_id = getString(formData, "session_id")?.trim() ?? null;
-    const semesterRaw = getString(formData, "semester")?.trim() ?? null;
-
-    if (!student_id || !payment_typeRaw || !amount_paidRaw || !payment_date || !receipt) {
-      return unprocessable("Missing required fields.");
+    if (!parsed.success) {
+      return json({ ok: false, error: "Validation failed.", issues: parsed.error.flatten() }, 422);
     }
 
-    if (!isOneOf(payment_typeRaw, FEE_TYPES)) {
-      return unprocessable("Invalid payment_type.", { allowed: FEE_TYPES });
-    }
-    const payment_type: FeeType = payment_typeRaw;
+    const {
+      student_id,
+      session_id,
+      semester,
+      payment_type,
+      amount_expected,
+      amount_paid,
+      payment_date,
+      transaction_reference,
+      receipt,
+    } = parsed.data;
 
-    const amount_paid = Number(amount_paidRaw);
-    if (!Number.isFinite(amount_paid) || amount_paid <= 0) {
-      return unprocessable("amount_paid must be a positive number.");
-    }
-
-    const semester: Semester | null =
-      semesterRaw && isOneOf(semesterRaw, SEMESTERS) ? semesterRaw : null;
-
-    // File hygiene
+    // file hygiene
+    if (receipt.size > 5 * 1024 * 1024) return json({ ok: false, error: "Receipt max size is 5MB." }, 413);
     if (!receipt.type.startsWith("image/") && receipt.type !== "application/pdf") {
       return json({ ok: false, error: "Receipt must be an image or PDF." }, 415);
     }
-    if (receipt.size > 5 * 1024 * 1024) {
-      return json({ ok: false, error: "Receipt too large (max 5MB)." }, 413);
-    }
 
-    // =========================
-    // UPLOAD RECEIPT
-    // =========================
     const ext = receipt.name.split(".").pop()?.toLowerCase() || "bin";
     const filePath = `receipts/${crypto.randomUUID()}.${ext}`;
 
@@ -227,40 +172,32 @@ export async function POST(req: NextRequest) {
       .from("receipts")
       .upload(filePath, receipt, { contentType: receipt.type, upsert: false });
 
-    if (uploadError) {
-      console.error("Upload Error:", uploadError);
-      return json({ ok: false, error: "Failed to upload receipt." }, 500);
-    }
+    if (uploadError) return json({ ok: false, error: "Failed to upload receipt." }, 500);
 
     const { data: pub } = supabaseAdmin.storage.from("receipts").getPublicUrl(filePath);
-    const receipt_url = pub.publicUrl;
 
-    // =========================
-    // INSERT DB RECORD
-    // =========================
     const { data, error } = await supabaseAdmin
       .from("payment_receipts")
       .insert({
         student_id,
-        session_id,
-        semester,
+        session_id: session_id ?? null,
+        semester: semester ?? null,
         payment_type,
+        amount_expected: amount_expected ?? null,
         amount_paid,
-        payment_date, // date column: ISO string "YYYY-MM-DD" is fine
-        receipt_url,
+        payment_date,
+        transaction_reference: transaction_reference ?? null,
+        receipt_url: pub.publicUrl,
         status: "pending",
       })
       .select()
       .single();
 
-    if (error) {
-      console.error("Insert Error:", error);
-      return badRequest(error.message, { code: error.code, details: error.details });
-    }
+    if (error) return json({ ok: false, error: error.message, code: error.code, details: error.details }, 400);
 
     return json({ ok: true, receipt: data }, 201);
-  } catch (err) {
-    console.error("Receipt Create Crash:", err);
+  } catch (e) {
+    console.error(e);
     return json({ ok: false, error: "Unexpected server error." }, 500);
   }
 }
