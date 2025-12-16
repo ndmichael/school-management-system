@@ -5,7 +5,7 @@ import Image from "next/image";
 import { Input } from "@/components/shared/Input";
 import { Select } from "@/components/shared/Select";
 import { Textarea } from "@/components/shared/Textarea";
-import { Eye, Upload } from "lucide-react";
+import { Eye, Upload, X } from "lucide-react";
 import { format } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "react-toastify";
@@ -94,6 +94,15 @@ function money(v: number | null | undefined) {
   return v == null ? "—" : `₦${Number(v).toLocaleString()}`;
 }
 
+function fmtDate(d: string | null | undefined) {
+  if (!d) return "—";
+  try {
+    return format(new Date(d), "dd MMM yyyy");
+  } catch {
+    return "—";
+  }
+}
+
 export default function StudentPaymentsPage() {
   const supabase = createClient();
 
@@ -103,16 +112,20 @@ export default function StudentPaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
 
-  // ✅ NEW: active session
+  // ✅ active session
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [activeSessionName, setActiveSessionName] = useState<string | null>(null);
+
+  // ✅ slide-in state
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activePayment, setActivePayment] = useState<PaymentRow | null>(null);
 
   // upload form state
   const [paymentType, setPaymentType] = useState<PaymentType | "">("");
   const [semester, setSemester] = useState<Semester | "">("");
-  const [amount, setAmount] = useState<string>(""); // maps to amount_paid
+  const [amount, setAmount] = useState<string>("");
   const [paymentProof, setPaymentProof] = useState<File | null>(null);
-  const [description, setDescription] = useState(""); // maps to remarks
+  const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const semesterOptions = [
@@ -146,7 +159,6 @@ export default function StudentPaymentsPage() {
   }, [payments, filterSemester, statusFilter]);
 
   async function loadActiveSession() {
-    // ✅ using maybeSingle to avoid "Cannot coerce..." if none/multiple
     const { data, error } = await supabase
       .from("sessions")
       .select("id, name, current_semester, is_active")
@@ -159,7 +171,6 @@ export default function StudentPaymentsPage() {
     setActiveSessionId(data.id);
     setActiveSessionName(data.name);
 
-    // Optional UX: default the semester from active session if student hasn't picked yet
     if (!semester && (data.current_semester === "first" || data.current_semester === "second")) {
       setSemester(data.current_semester);
     }
@@ -189,7 +200,6 @@ export default function StudentPaymentsPage() {
         .returns<PaymentRow[]>();
 
       if (error) throw new Error(error.message);
-
       setPayments(data ?? []);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load payments");
@@ -211,6 +221,17 @@ export default function StudentPaymentsPage() {
     void loadPayments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  function openDrawer(p: PaymentRow) {
+    setActivePayment(p);
+    setDrawerOpen(true);
+  }
+
+  function closeDrawer() {
+    setDrawerOpen(false);
+    // keep activePayment so animation doesn’t flash; clear after a tick
+    window.setTimeout(() => setActivePayment(null), 150);
+  }
 
   async function handleView(payment: PaymentRow) {
     try {
@@ -254,7 +275,6 @@ export default function StudentPaymentsPage() {
       if (sErr || !student) throw new Error(sErr?.message || "Student record not found.");
       if (student.profile_id !== uid) throw new Error("Student record mismatch.");
 
-      // Upload file to storage
       const ext = paymentProof.name.split(".").pop()?.toLowerCase() || "jpg";
       const path = `${uid}/${crypto.randomUUID()}.${ext}`;
 
@@ -267,15 +287,14 @@ export default function StudentPaymentsPage() {
       const receiptUrl = supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
       if (!receiptUrl) throw new Error("Could not generate receipt URL.");
 
-      // ✅ INSERT session_id (and keep your real columns)
       const payload = {
         student_id: student.id,
-        session_id: activeSessionId, // ✅ THIS is the main fix
-        uploaded_by: uid, // RLS requires this
+        session_id: activeSessionId,
+        uploaded_by: uid,
         payment_type: paymentType,
         semester: semester,
         amount_paid: parsedAmount,
-        receipt_url: receiptUrl, // NOT NULL
+        receipt_url: receiptUrl,
         status: "pending" as const,
         remarks: description.trim() ? description.trim() : null,
       };
@@ -292,7 +311,6 @@ export default function StudentPaymentsPage() {
       toast.success("Payment proof submitted for verification.");
 
       setPaymentType("");
-      // keep semester as is (optional). If you want reset: setSemester("")
       setAmount("");
       setPaymentProof(null);
       setDescription("");
@@ -368,14 +386,12 @@ export default function StudentPaymentsPage() {
                           {(p.status ?? "unknown").charAt(0).toUpperCase() + (p.status ?? "unknown").slice(1)}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">
-                        {bestDate ? format(new Date(bestDate), "dd MMM yyyy") : "—"}
-                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500">{bestDate ? fmtDate(bestDate) : "—"}</td>
                       <td className="px-6 py-4">
                         <button
-                          onClick={() => void handleView(p)}
+                          onClick={() => openDrawer(p)}
                           className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                          title="View"
+                          title="View details"
                         >
                           <Eye className="w-4 h-4 text-gray-600" />
                         </button>
@@ -387,6 +403,58 @@ export default function StudentPaymentsPage() {
             </tbody>
           </table>
         </div>
+
+        {!loading && filteredPayments.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-gray-600">No payments found for the selected filters</p>
+          </div>
+        )}
+      </div>
+
+      {/* Mobile Cards */}
+      <div className="lg:hidden space-y-4">
+        {loading ? (
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 text-sm text-gray-600">
+            Loading payments...
+          </div>
+        ) : (
+          filteredPayments.map((p) => {
+            const bestAmount = p.amount_paid ?? p.approved_amount ?? p.amount_expected ?? null;
+            const bestDate = p.payment_date ?? p.created_at ?? null;
+
+            return (
+              <div key={p.id} className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-semibold text-gray-900">{paymentTypeLabel(p.payment_type ?? null)}</span>
+                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusBadge(p.status)}`}>
+                    {(p.status ?? "unknown").charAt(0).toUpperCase() + (p.status ?? "unknown").slice(1)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 text-sm text-gray-700">
+                  <div>
+                    <span className="font-semibold">Amount:</span> {money(bestAmount)}
+                  </div>
+                  <div>
+                    <span className="font-semibold">Semester:</span> {semesterLabel(p.semester ?? null)}
+                  </div>
+                  <div className="col-span-2">
+                    <span className="font-semibold">Date:</span> {bestDate ? fmtDate(bestDate) : "—"}
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <button
+                    onClick={() => openDrawer(p)}
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm"
+                  >
+                    <Eye className="w-4 h-4" /> View details
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
 
         {!loading && filteredPayments.length === 0 && (
           <div className="text-center py-12">
@@ -459,6 +527,142 @@ export default function StudentPaymentsPage() {
           </button>
         </form>
       </div>
+
+      {/* ✅ Slide-in Drawer */}
+      <div
+        className={`fixed inset-0 z-50 ${drawerOpen ? "pointer-events-auto" : "pointer-events-none"}`}
+        aria-hidden={!drawerOpen}
+      >
+        {/* Backdrop */}
+        <div
+          onClick={closeDrawer}
+          className={`absolute inset-0 bg-black/30 transition-opacity ${drawerOpen ? "opacity-100" : "opacity-0"}`}
+        />
+
+        {/* Panel */}
+        <aside
+          className={`absolute right-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl border-l border-gray-200 transform transition-transform duration-200 ${
+            drawerOpen ? "translate-x-0" : "translate-x-full"
+          }`}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="h-full flex flex-col">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <div>
+                <p className="text-sm text-gray-500">Payment Details</p>
+                <h3 className="text-base font-semibold text-gray-900">
+                  {activePayment ? paymentTypeLabel(activePayment.payment_type ?? null) : "—"}
+                </h3>
+              </div>
+
+              <button
+                onClick={closeDrawer}
+                className="p-2 rounded-lg hover:bg-gray-100"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5 text-gray-700" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              {!activePayment ? (
+                <div className="text-sm text-gray-600">No payment selected.</div>
+              ) : (
+                <>
+                  <div className="rounded-xl border border-gray-200 p-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">Status</span>
+                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusBadge(activePayment.status)}`}>
+                        {(activePayment.status ?? "unknown").toString().toUpperCase()}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                      <Detail label="Session ID" value={activePayment.session_id ?? "—"} />
+                      <Detail label="Semester" value={semesterLabel(activePayment.semester ?? null)} />
+                      <Detail
+                        label="Amount Paid"
+                        value={money(activePayment.amount_paid ?? null)}
+                      />
+                      <Detail
+                        label="Approved Amount"
+                        value={money(activePayment.approved_amount ?? null)}
+                      />
+                      <Detail
+                        label="Expected Amount"
+                        value={money(activePayment.amount_expected ?? null)}
+                      />
+                      <Detail
+                        label="Payment Date"
+                        value={fmtDate(activePayment.payment_date ?? activePayment.created_at ?? null)}
+                      />
+                      <Detail label="Transaction Ref" value={activePayment.transaction_reference ?? "—"} />
+                      <Detail label="Late Payment" value={activePayment.is_late_payment ? "Yes" : "No"} />
+                    </div>
+
+                    {activePayment.remarks ? (
+                      <div className="mt-4">
+                        <p className="text-xs text-gray-500">Remarks</p>
+                        <p className="text-sm text-gray-900 mt-1 whitespace-pre-wrap">{activePayment.remarks}</p>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-xl border border-gray-200 p-4">
+                    <p className="text-xs text-gray-500 mb-2">Receipt</p>
+
+                    {activePayment.receipt_url ? (
+                      <>
+                        {/* If it's an image, show preview */}
+                        {/\.(png|jpe?g|webp)$/i.test(activePayment.receipt_url) ? (
+                          <div className="relative w-full h-56 rounded-lg overflow-hidden border bg-gray-50">
+                            <Image
+                              src={activePayment.receipt_url}
+                              alt="Receipt"
+                              fill
+                              className="object-contain"
+                            />
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-700">PDF uploaded (preview not shown).</p>
+                        )}
+
+                        <button
+                          onClick={() => void handleView(activePayment)}
+                          className="mt-3 w-full rounded-xl bg-blue-600 px-4 py-2 text-white text-sm font-medium hover:bg-blue-700"
+                        >
+                          View Receipt
+                        </button>
+                      </>
+                    ) : (
+                      <p className="text-sm text-gray-600">No receipt URL found.</p>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="px-5 py-4 border-t border-gray-200">
+              <button
+                onClick={closeDrawer}
+                className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm font-medium hover:bg-gray-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="text-sm font-medium text-gray-900 truncate">{value}</p>
     </div>
   );
 }
