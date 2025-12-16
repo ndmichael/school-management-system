@@ -55,7 +55,14 @@ type PaymentRow = {
   updated_at: string;
 };
 
-const BUCKET = "receipts"; // your storage bucket name
+type ActiveSessionRow = {
+  id: string;
+  name: string;
+  current_semester: string | null;
+  is_active: boolean | null;
+};
+
+const BUCKET = "receipts";
 
 function semesterLabel(s: string | null | undefined) {
   if (s === "first") return "First Semester";
@@ -96,6 +103,10 @@ export default function StudentPaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [payments, setPayments] = useState<PaymentRow[]>([]);
 
+  // ✅ NEW: active session
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionName, setActiveSessionName] = useState<string | null>(null);
+
   // upload form state
   const [paymentType, setPaymentType] = useState<PaymentType | "">("");
   const [semester, setSemester] = useState<Semester | "">("");
@@ -134,6 +145,26 @@ export default function StudentPaymentsPage() {
     });
   }, [payments, filterSemester, statusFilter]);
 
+  async function loadActiveSession() {
+    // ✅ using maybeSingle to avoid "Cannot coerce..." if none/multiple
+    const { data, error } = await supabase
+      .from("sessions")
+      .select("id, name, current_semester, is_active")
+      .eq("is_active", true)
+      .maybeSingle<ActiveSessionRow>();
+
+    if (error) throw new Error(error.message);
+    if (!data?.id) throw new Error("No active session found. Please contact admin.");
+
+    setActiveSessionId(data.id);
+    setActiveSessionName(data.name);
+
+    // Optional UX: default the semester from active session if student hasn't picked yet
+    if (!semester && (data.current_semester === "first" || data.current_semester === "second")) {
+      setSemester(data.current_semester);
+    }
+  }
+
   async function loadPayments() {
     setLoading(true);
     try {
@@ -169,6 +200,14 @@ export default function StudentPaymentsPage() {
   }
 
   useEffect(() => {
+    (async () => {
+      try {
+        await loadActiveSession();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to load active session");
+      }
+    })();
+
     void loadPayments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -188,6 +227,7 @@ export default function StudentPaymentsPage() {
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!activeSessionId) return toast.error("No active session found. Please contact admin.");
     if (!paymentType) return toast.error("Select payment type.");
     if (!semester) return toast.error("Select semester.");
     if (!paymentProof) return toast.error("Please select a file.");
@@ -224,19 +264,18 @@ export default function StudentPaymentsPage() {
       });
       if (up.error) throw new Error(up.error.message);
 
-      // Convert to public URL (bucket must be public)
-      const pub = supabase.storage.from(BUCKET).getPublicUrl(path);
-      const receiptUrl = pub.data.publicUrl;
+      const receiptUrl = supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
       if (!receiptUrl) throw new Error("Could not generate receipt URL.");
 
-      // ✅ Match your real columns
+      // ✅ INSERT session_id (and keep your real columns)
       const payload = {
         student_id: student.id,
-        uploaded_by: uid, // your RLS requires this
+        session_id: activeSessionId, // ✅ THIS is the main fix
+        uploaded_by: uid, // RLS requires this
         payment_type: paymentType,
         semester: semester,
         amount_paid: parsedAmount,
-        receipt_url: receiptUrl, // REQUIRED (NOT NULL)
+        receipt_url: receiptUrl, // NOT NULL
         status: "pending" as const,
         remarks: description.trim() ? description.trim() : null,
       };
@@ -253,7 +292,7 @@ export default function StudentPaymentsPage() {
       toast.success("Payment proof submitted for verification.");
 
       setPaymentType("");
-      setSemester("");
+      // keep semester as is (optional). If you want reset: setSemester("")
       setAmount("");
       setPaymentProof(null);
       setDescription("");
@@ -270,7 +309,12 @@ export default function StudentPaymentsPage() {
     <div className="space-y-8">
       {/* Page Header + Filters */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">Payments</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Payments</h1>
+          <p className="text-xs text-gray-500 mt-1">
+            Active session: <span className="font-medium">{activeSessionName ?? "—"}</span>
+          </p>
+        </div>
 
         <div className="flex flex-col sm:flex-row gap-4">
           <Select<Semester>
@@ -351,59 +395,6 @@ export default function StudentPaymentsPage() {
         )}
       </div>
 
-      {/* Mobile Cards */}
-      <div className="lg:hidden space-y-4">
-        {loading ? (
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 text-sm text-gray-600">
-            Loading payments...
-          </div>
-        ) : (
-          filteredPayments.map((p) => {
-            const bestAmount = p.amount_paid ?? p.approved_amount ?? p.amount_expected ?? null;
-            const bestDate = p.payment_date ?? p.created_at ?? null;
-
-            return (
-              <div key={p.id} className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="font-semibold text-gray-900">{paymentTypeLabel(p.payment_type ?? null)}</span>
-                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusBadge(p.status)}`}>
-                    {(p.status ?? "unknown").charAt(0).toUpperCase() + (p.status ?? "unknown").slice(1)}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 text-sm text-gray-700">
-                  <div>
-                    <span className="font-semibold">Amount:</span> {money(bestAmount)}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Semester:</span> {semesterLabel(p.semester ?? null)}
-                  </div>
-                  <div className="col-span-2">
-                    <span className="font-semibold">Date:</span>{" "}
-                    {bestDate ? format(new Date(bestDate), "dd MMM yyyy") : "—"}
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <button
-                    onClick={() => void handleView(p)}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm"
-                  >
-                    <Eye className="w-4 h-4" /> View
-                  </button>
-                </div>
-              </div>
-            );
-          })
-        )}
-
-        {!loading && filteredPayments.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-600">No payments found for the selected filters</p>
-          </div>
-        )}
-      </div>
-
       {/* Upload Payment Proof Form */}
       <div className="bg-white rounded-2xl p-6 border border-gray-200 space-y-6">
         <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -439,7 +430,7 @@ export default function StudentPaymentsPage() {
           <Input
             label="Select File"
             type="file"
-            accept=".jpg,.jpeg,.png,.pdf"
+            accept=".jpg,.jpeg,.png,.webp,.pdf"
             onChange={(e) => setPaymentProof(e.target.files ? e.target.files[0] : null)}
             required
           />
