@@ -1,127 +1,272 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { createClient } from '@/lib/supabase/client';
 import { Select } from '@/components/shared/Select';
-import { studentResults } from '@/data/student';
-import { Download, TrendingUp } from 'lucide-react';
+import { Download } from 'lucide-react';
+
+type Semester = 'first' | 'second';
+type GradeLetter = 'A' | 'B' | 'C' | 'D' | 'E' | 'F';
+
+type Course = {
+  code: string;
+  title: string;
+  credits: number;
+};
+
+type Session = {
+  name: string;
+};
+
+type CourseOffering = {
+  semester: Semester;
+  courses: Course;
+  sessions: Session;
+};
+
+type ResultRow = {
+  id: string;
+  grade_letter: GradeLetter;
+  grade_points: number;
+  course_offerings: CourseOffering;
+};
+
+type Option<T extends string> = Readonly<{ value: T; label: string }>;
+
+const supabase = createClient();
 
 export default function StudentResultsPage() {
-  const [selectedSemester, setSelectedSemester] = useState('');
-  const [selectedSession, setSelectedSession] = useState('');
+  const [results, setResults] = useState<ResultRow[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  const semesterOptions = Array.from(new Set(studentResults.map(r => r.semester))).map(sem => ({
-    value: sem,
-    label: sem,
-  }));
+  // Match your Select: T | ""
+  const [selectedSemester, setSelectedSemester] = useState<Semester | ''>('');
+  const [selectedSession, setSelectedSession] = useState<string | ''>('');
 
-  const sessionOptions = Array.from(new Set(studentResults.map(r => r.session))).map(session => ({
-    value: session,
-    label: session,
-  }));
+  useEffect(() => {
+    const fetchResults = async () => {
+      const { data, error } = await supabase
+        .from('results')
+        .select(`
+          id,
+          grade_letter,
+          grade_points,
+          course_offerings!inner (
+            semester,
+            courses!inner (
+              code,
+              title,
+              credits
+            ),
+            sessions!inner (
+              name
+            )
+          )
+        `)
+        .returns<ResultRow[]>();
 
-  const filteredResults = studentResults.filter(result => {
+      if (!error && data) setResults(data);
+      setLoading(false);
+    };
+
+    fetchResults();
+  }, []);
+
+  const semesterOptions = useMemo<ReadonlyArray<Option<Semester>>>(() => {
+    const values = Array.from(new Set(results.map(r => r.course_offerings.semester)));
+    return values.map(v => ({ value: v, label: v.toUpperCase() }));
+  }, [results]);
+
+  const sessionOptions = useMemo<ReadonlyArray<Option<string>>>(() => {
+    const values = Array.from(new Set(results.map(r => r.course_offerings.sessions.name)));
+    return values.map(v => ({ value: v, label: v }));
+  }, [results]);
+
+  const filteredResults = useMemo(() => {
+    return results.filter(r => {
+      const matchesSemester = selectedSemester ? r.course_offerings.semester === selectedSemester : true;
+      const matchesSession = selectedSession ? r.course_offerings.sessions.name === selectedSession : true;
+      return matchesSemester && matchesSession;
+    });
+  }, [results, selectedSemester, selectedSession]);
+
+  const semesterGPA = useMemo(() => {
+    if (!filteredResults.length) return null;
+
+    let totalPoints = 0;
+    let totalCredits = 0;
+
+    for (const r of filteredResults) {
+      const credits = r.course_offerings.courses.credits;
+      totalCredits += credits;
+      totalPoints += r.grade_points * credits;
+    }
+
+    return totalCredits ? (totalPoints / totalCredits).toFixed(2) : null;
+  }, [filteredResults]);
+
+  const cumulativeGPA = useMemo(() => {
+    if (!results.length) return null;
+
+    let totalPoints = 0;
+    let totalCredits = 0;
+
+    for (const r of results) {
+      const credits = r.course_offerings.courses.credits;
+      totalCredits += credits;
+      totalPoints += r.grade_points * credits;
+    }
+
+    return totalCredits ? (totalPoints / totalCredits).toFixed(2) : null;
+  }, [results]);
+
+  const handleDownloadPDF = () => {
+    alert('Next step: server-side PDF download');
+  };
+
+  if (loading) {
+    return <div className="py-16 text-center text-gray-600">Loading results…</div>;
+  }
+
+  if (!results.length) {
     return (
-      (selectedSemester ? result.semester === selectedSemester : true) &&
-      (selectedSession ? result.session === selectedSession : true)
+      <div className="py-20 text-center">
+        <p className="text-lg font-semibold text-gray-800">Results not published yet</p>
+        <p className="mt-1 text-sm text-gray-500">Please check back later.</p>
+      </div>
     );
-  });
+  }
 
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-gray-900">My Results</h2>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-4 items-center">
-        <Select
+      <div className="flex flex-wrap gap-4">
+        <Select<Semester>
           label="Semester"
           options={semesterOptions}
           value={selectedSemester}
-          onChange={e => setSelectedSemester(e.target.value)}
+          onChange={setSelectedSemester}
         />
-        <Select
+
+        <Select<string>
           label="Session"
           options={sessionOptions}
           value={selectedSession}
-          onChange={e => setSelectedSession(e.target.value)}
+          onChange={setSelectedSession}
         />
       </div>
 
-      {/* Desktop Table */}
-      <div className="hidden lg:block bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[180px]">Course Code</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[300px]">Course Title</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[100px]">Credits</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[80px]">Grade</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[120px]">Grade Point</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[180px]">Semester</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[120px]">Session</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[150px]">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredResults.map(result => (
-                <tr key={result.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 font-mono text-gray-900">{result.courseCode}</td>
-                  <td className="px-6 py-4">{result.courseTitle}</td>
-                  <td className="px-6 py-4">{result.credits}</td>
-                  <td className={`px-6 py-4 font-semibold ${result.grade.startsWith('A') ? 'text-green-700' : 'text-gray-900'}`}>
-                    {result.grade}
-                  </td>
-                  <td className="px-6 py-4">{result.gradePoint.toFixed(1)}</td>
-                  <td className="px-6 py-4">{result.semester}</td>
-                  <td className="px-6 py-4">{result.session}</td>
-                  <td className="px-6 py-4">
-                    <a
-                      href="#"
-                      className="flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-700 text-sm font-semibold rounded-lg hover:bg-blue-100 transition-colors"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {filteredResults.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-600">No results found</p>
+      {/* GPA SUMMARY */}
+      <div className="flex flex-wrap gap-6 rounded-xl border border-blue-100 bg-blue-50 p-4">
+        {semesterGPA && (
+          <div>
+            <p className="text-sm font-semibold text-blue-700">Semester GPA</p>
+            <p className="text-2xl font-bold text-blue-900">{semesterGPA}</p>
+          </div>
+        )}
+        {cumulativeGPA && (
+          <div>
+            <p className="text-sm font-semibold text-blue-700">Cumulative GPA</p>
+            <p className="text-2xl font-bold text-blue-900">{cumulativeGPA}</p>
           </div>
         )}
       </div>
 
+      {/* Desktop Table */}
+      <div className="hidden overflow-hidden rounded-xl border border-gray-200 bg-white lg:block">
+        <table className="w-full">
+          <thead className="border-b bg-gray-50">
+            <tr>
+              <th className="px-6 py-4 text-left">Course Code</th>
+              <th className="px-6 py-4 text-left">Course Title</th>
+              <th className="px-6 py-4 text-center">Credits</th>
+              <th className="px-6 py-4 text-center">Grade</th>
+              <th className="px-6 py-4 text-center">Grade Point</th>
+              <th className="px-6 py-4 text-center">Semester</th>
+              <th className="px-6 py-4 text-center">Session</th>
+              <th className="px-6 py-4 text-center">Actions</th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-gray-200">
+            {filteredResults.map(r => (
+              <tr key={r.id} className="hover:bg-gray-50">
+                <td className="px-6 py-4 font-mono text-gray-900">
+                  {r.course_offerings.courses.code}
+                </td>
+                <td className="px-6 py-4 text-gray-900">
+                  {r.course_offerings.courses.title}
+                </td>
+                <td className="px-6 py-4 text-center text-gray-900">
+                  {r.course_offerings.courses.credits}
+                </td>
+                <td className="px-6 py-4 text-center font-semibold text-gray-900">
+                  {r.grade_letter}
+                </td>
+                <td className="px-6 py-4 text-center text-gray-900">
+                  {r.grade_points.toFixed(1)}
+                </td>
+                <td className="px-6 py-4 text-center text-gray-900">
+                  {r.course_offerings.semester}
+                </td>
+                <td className="px-6 py-4 text-center text-gray-900">
+                  {r.course_offerings.sessions.name}
+                </td>
+                <td className="px-6 py-4 text-center">
+                  <button
+                    type="button"
+                    onClick={handleDownloadPDF}
+                    className="inline-flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {!filteredResults.length && (
+          <div className="py-12 text-center text-gray-600">No results match your filters</div>
+        )}
+      </div>
+
       {/* Mobile Cards */}
-      <div className="lg:hidden space-y-4">
-        {filteredResults.map(result => (
-          <div key={result.id} className="bg-white rounded-xl border border-gray-200 p-4 flex flex-col gap-2">
-            <div className="flex justify-between items-center">
-              <p className="font-semibold text-gray-900">{result.courseTitle}</p>
-              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${result.grade.startsWith('A') ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
-                {result.grade}
+      <div className="space-y-4 lg:hidden">
+        {filteredResults.map(r => (
+          <div key={r.id} className="rounded-xl border border-gray-200 bg-white p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-semibold text-gray-900">{r.course_offerings.courses.title}</p>
+                <p className="text-sm text-gray-600">
+                  {r.course_offerings.courses.code} • {r.course_offerings.courses.credits} credits
+                </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  {r.course_offerings.semester} • {r.course_offerings.sessions.name}
+                </p>
+              </div>
+
+              <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-700">
+                {r.grade_letter} ({r.grade_points.toFixed(1)})
               </span>
             </div>
-            <p className="text-sm text-gray-600">{result.courseCode} | {result.credits} credits</p>
-            <p className="text-xs text-gray-500">{result.semester} | {result.session}</p>
-            <a
-              href="#"
-              className="mt-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-lg font-medium hover:bg-blue-100 transition-colors text-center flex items-center justify-center gap-2"
+
+            <button
+              type="button"
+              onClick={handleDownloadPDF}
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-50 px-4 py-2 font-semibold text-blue-700 hover:bg-blue-100"
             >
-              <Download className="w-4 h-4" />
+              <Download className="h-4 w-4" />
               Download
-            </a>
+            </button>
           </div>
         ))}
 
-        {filteredResults.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-600">No results found</p>
-          </div>
+        {!filteredResults.length && (
+          <div className="py-12 text-center text-gray-600">No results match your filters</div>
         )}
       </div>
     </div>
