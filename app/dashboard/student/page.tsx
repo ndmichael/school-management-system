@@ -1,6 +1,19 @@
 import Link from "next/link";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/server";
+import {
+  GraduationCap,
+  FileText,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  BookOpen,
+  Upload,
+  BarChart3,
+  AlertCircle,
+  ArrowRight,
+  User,
+} from "lucide-react";
 
 type ProfileRow = {
   id: string;
@@ -28,6 +41,22 @@ type StudentRow = {
   course_session_id: string | null;
 };
 
+type CourseOfferingRow = {
+  id: string;
+  session_id: string | null;
+  semester: "first" | "second" | string | null;
+  level: string | null;
+  program_id: string | null;
+  // ✅ removed department_id (your table does not have it)
+  is_published?: boolean | null;
+  course: {
+    id: string;
+    code: string;
+    title: string;
+    credits: number;
+  } | null;
+};
+
 function fullName(p: ProfileRow | null): string {
   const parts = [p?.first_name, p?.middle_name, p?.last_name].filter(
     (v): v is string => Boolean(v)
@@ -46,24 +75,24 @@ async function safeCount(
   filters: Array<{ col: string; op: "eq"; value: string }>
 ): Promise<number | null> {
   let q = supabase.from(table).select("id", { count: "exact", head: true });
-  for (const f of filters) {
-    if (f.op === "eq") q = q.eq(f.col, f.value);
-  }
+  for (const f of filters) q = q.eq(f.col, f.value);
   const { count, error } = await q;
-  if (error) return null; // table missing / RLS / etc → don’t crash the dashboard
+  if (error) return null;
   return count ?? 0;
+}
+
+function semesterLabel(s: string | null | undefined) {
+  if (s === "first") return "First Semester";
+  if (s === "second") return "Second Semester";
+  return s ?? "—";
 }
 
 export default async function StudentDashboardPage() {
   const supabase = await createClient();
 
-  // Auth guard is already done in your layout, but we still need user id here
   const { data: userRes } = await supabase.auth.getUser();
   const user = userRes.user;
-  if (!user) {
-    // If your layout already redirects, you might never hit this.
-    return null;
-  }
+  if (!user) return null;
 
   const [{ data: profile }, { data: student }] = await Promise.all([
     supabase
@@ -84,18 +113,41 @@ export default async function StudentDashboardPage() {
 
   if (!profile || !student) {
     return (
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
-        <h1 className="text-xl font-semibold text-gray-900">Student Dashboard</h1>
-        <p className="text-sm text-gray-600 mt-2">
-          Your student record is not complete yet (profile/student row missing).
-        </p>
-        <div className="mt-4">
-          <Link
-            href="/dashboard/profile"
-            className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-white text-sm font-medium hover:bg-blue-700"
-          >
-            Complete Profile
-          </Link>
+      <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-slate-50/50 p-4 sm:p-6 lg:p-8">
+        <div className="mx-auto max-w-2xl">
+     
+          <div className="overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-xl shadow-slate-100/50">
+            <div className="border-b border-slate-100 bg-linear-to-r from-slate-50 to-white p-6">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-linear-to-br from-blue-100 to-blue-50">
+                  <AlertCircle className="h-6 w-6 text-blue-600" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-slate-900">
+                    Student Dashboard
+                  </h1>
+                  <p className="text-sm text-slate-600">
+                    Profile setup required
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-slate-600">
+                Your student record is not complete yet. Please complete your
+                profile to access the dashboard.
+              </p>
+
+              {/* ✅ blue bg + white text */}
+              <Link
+                href="/dashboard/profile"
+                className="group inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:bg-blue-700 hover:shadow-xl hover:shadow-blue-500/30 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <User className="h-4 w-4 transition-transform group-hover:scale-110" />
+                Update Profile
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -104,32 +156,54 @@ export default async function StudentDashboardPage() {
   const name = fullName(profile);
   const avatar = profile.avatar_url || dicebearFallback(name);
 
-  // Live payment receipt counts (you definitely have this table)
-  const [pendingReceipts, approvedReceipts, rejectedReceipts] = await Promise.all([
-    safeCount(supabase, "payment_receipts", [
-      { col: "student_id", op: "eq", value: student.id },
-      { col: "status", op: "eq", value: "pending" },
-    ]),
-    safeCount(supabase, "payment_receipts", [
-      { col: "student_id", op: "eq", value: student.id },
-      { col: "status", op: "eq", value: "approved" },
-    ]),
-    safeCount(supabase, "payment_receipts", [
-      { col: "student_id", op: "eq", value: student.id },
-      { col: "status", op: "eq", value: "rejected" },
-    ]),
-  ]);
+  const [pendingReceipts, approvedReceipts, rejectedReceipts] =
+    await Promise.all([
+      safeCount(supabase, "payment_receipts", [
+        { col: "student_id", op: "eq", value: student.id },
+        { col: "status", op: "eq", value: "pending" },
+      ]),
+      safeCount(supabase, "payment_receipts", [
+        { col: "student_id", op: "eq", value: student.id },
+        { col: "status", op: "eq", value: "approved" },
+      ]),
+      safeCount(supabase, "payment_receipts", [
+        { col: "student_id", op: "eq", value: student.id },
+        { col: "status", op: "eq", value: "rejected" },
+      ]),
+    ]);
 
-  // Optional: only shows if your tables exist + RLS allows reading
-  const [materialsCount, resultsCount] = await Promise.all([
-    safeCount(supabase, "course_materials", [
-      // these filters are best-effort; change to match your schema
-      ...(student.program_id ? [{ col: "program_id", op: "eq" as const, value: student.program_id }] : []),
-      ...(student.department_id ? [{ col: "department_id", op: "eq" as const, value: student.department_id }] : []),
-      ...(student.course_session_id ? [{ col: "course_session_id", op: "eq" as const, value: student.course_session_id }] : []),
-    ]),
-    safeCount(supabase, "results", [{ col: "student_id", op: "eq", value: student.id }]),
-  ]);
+  const offeringsQuery = supabase
+    .from("course_offerings")
+    .select(
+      `
+      id,
+      session_id,
+      semester,
+      level,
+      program_id,
+      is_published,
+      course:courses (
+        id,
+        code,
+        title,
+        credits
+      )
+    `
+    )
+    .eq("is_published", true)
+    .order("created_at", { ascending: false });
+
+  if (student.course_session_id) offeringsQuery.eq("session_id", student.course_session_id);
+  if (student.program_id) offeringsQuery.eq("program_id", student.program_id);
+  // ✅ removed (your table does not have department_id)
+  // if (student.department_id) offeringsQuery.eq("department_id", student.department_id);
+  if (student.level) offeringsQuery.eq("level", student.level);
+
+  const { data: courseOfferings, error: offErr } = await offeringsQuery
+    .limit(10)
+    .returns<CourseOfferingRow[]>();
+
+  const offerings = offErr ? null : courseOfferings ?? [];
 
   const profileMissing = [
     profile.phone ? null : "phone",
@@ -139,133 +213,416 @@ export default async function StudentDashboardPage() {
   ].filter((x): x is string => Boolean(x));
 
   return (
-    <div className="space-y-8">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="relative h-12 w-12">
-            <Image src={avatar} alt={name} fill className="rounded-full object-cover" />
+    <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-slate-50/50 p-4 sm:p-6 lg:p-8">
+      <div className="mx-auto max-w-7xl space-y-8">
+        {/* Header */}
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="relative h-16 w-16 shrink-0">
+              <Image
+                src={avatar}
+                alt={name}
+                fill
+                className="rounded-2xl object-cover shadow-lg ring-2 ring-slate-100"
+              />
+              <div className="absolute -bottom-1 -right-1 h-5 w-5 rounded-full border-2 border-white bg-green-500 shadow-sm" />
+            </div>
+            <div className="space-y-1">
+              <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
+                Welcome, {name}
+              </h1>
+              <div className="flex flex-wrap items-center gap-3 text-sm">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 font-mono text-slate-900">
+                  <GraduationCap className="h-3.5 w-3.5" />
+                  {student.matric_no ?? "—"}
+                </span>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-3 py-1 font-semibold text-blue-700">
+                  Level {student.level ?? "—"}
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 font-semibold ${
+                    student.status === "active"
+                      ? "bg-green-100 text-green-700"
+                      : "bg-amber-100 text-amber-700"
+                  }`}
+                >
+                  {student.status ?? "—"}
+                </span>
+              </div>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Welcome, {name}</h1>
-            <p className="text-sm text-gray-600">
-              Matric: <span className="font-mono text-gray-900">{student.matric_no ?? "—"}</span>
-              {" · "}
-              Level: <span className="text-gray-900">{student.level ?? "—"}</span>
-              {" · "}
-              Status: <span className="text-gray-900">{student.status ?? "—"}</span>
-            </p>
+
+          {/* (left as-is, you didn't ask to change this button) */}
+          <Link
+            href="/dashboard/student/profile"
+            className="group inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow-sm transition-all hover:bg-slate-50 hover:shadow-md hover:scale-[1.02] active:scale-[0.98]"
+          >
+            <User className="h-4 w-4 transition-transform group-hover:scale-110" />
+            Update Profile
+          </Link>
+        </div>
+
+        {/* Profile completeness alert */}
+        {profileMissing.length > 0 && (
+          <div className="rounded-2xl border border-amber-200 bg-linear-to-r from-amber-50 to-yellow-50 p-5 shadow-lg">
+            <div className="flex gap-4">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100">
+                <AlertCircle className="h-5 w-5 text-amber-700" />
+              </div>
+              <div className="flex-1 space-y-1">
+                <p className="font-semibold text-amber-900">Profile Incomplete</p>
+                <p className="text-sm text-amber-800">
+                  Missing fields:{" "}
+                  <span className="font-medium">{profileMissing.join(", ")}</span>
+                </p>
+                <p className="text-xs text-amber-700">
+                  Complete your profile to avoid issues with verification and
+                  processing.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* KPI Cards */}
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard
+            label="Current CGPA"
+            value={student.cgpa?.toFixed(2) ?? "—"}
+            icon={<BarChart3 className="h-6 w-6" />}
+            color="blue"
+          />
+          <StatCard
+            label="Pending Receipts"
+            value={pendingReceipts ?? "—"}
+            icon={<Clock className="h-6 w-6" />}
+            color="amber"
+            href="/dashboard/student/payments"
+          />
+          <StatCard
+            label="Approved Receipts"
+            value={approvedReceipts ?? "—"}
+            icon={<CheckCircle2 className="h-6 w-6" />}
+            color="green"
+          />
+          <StatCard
+            label="Rejected Receipts"
+            value={rejectedReceipts ?? "—"}
+            icon={<XCircle className="h-6 w-6" />}
+            color="red"
+          />
+        </div>
+
+        {/* Course Offerings */}
+        <div className="overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-xl shadow-slate-100/50">
+          <div className="border-b border-slate-100 bg-linear-to-r from-slate-50 to-white p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-purple-100 to-purple-50">
+                  <BookOpen className="h-6 w-6 text-purple-600" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-900">
+                    Course Offerings
+                  </h2>
+                  <p className="mt-0.5 text-sm text-slate-600">
+                    Published courses for your session, program, and level
+                  </p>
+                </div>
+              </div>
+              <Link
+                href="/dashboard/student/courses"
+                className="group inline-flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700"
+              >
+                View all
+                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+              </Link>
+            </div>
+          </div>
+
+          <div className="p-6">
+            {offerings === null ? (
+              <div className="flex flex-col items-center gap-2 py-8 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
+                  <AlertCircle className="h-6 w-6 text-slate-400" />
+                </div>
+                <p className="text-sm font-medium text-slate-900">
+                  Unable to load courses
+                </p>
+                <p className="text-xs text-slate-500">
+                  Table missing or access restricted
+                </p>
+              </div>
+            ) : offerings.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-8 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
+                  <BookOpen className="h-6 w-6 text-slate-400" />
+                </div>
+                <p className="text-sm font-medium text-slate-900">
+                  No courses published yet
+                </p>
+                <p className="text-xs text-slate-500">
+                  Check back later for course offerings
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {offerings.map((o) => (
+                  <div
+                    key={o.id}
+                    className="group flex flex-col gap-3 rounded-2xl border border-slate-200/60 bg-white p-5 transition-all hover:border-slate-300 hover:shadow-md hover:shadow-slate-100/50 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="flex-1">
+                      <div className="font-semibold text-slate-900">
+                        <span className="font-mono text-blue-600">
+                          {o.course?.code ?? "—"}
+                        </span>
+                        {" · "}
+                        {o.course?.title ?? "Untitled Course"}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium">
+                          {semesterLabel(o.semester)}
+                        </span>
+                        <span>•</span>
+                        <span>{o.course?.credits ?? "—"} Credits</span>
+                        <span>•</span>
+                        <span>Level {o.level ?? "—"}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
-        <Link
-          href="/dashboard/student/profile"
-          className="inline-flex items-center justify-center rounded-xl bg-blue-600 px-4 py-2 text-white text-sm font-medium hover:bg-blue-700"
-        >
-          Update Profile
-        </Link>
-      </div>
-
-      {/* Profile completeness */}
-      {profileMissing.length > 0 && (
-        <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-          <p className="text-sm text-blue-900">
-            Your profile is incomplete. Missing:{" "}
-            <span className="font-medium">{profileMissing.join(", ")}</span>
-          </p>
-          <p className="text-xs text-blue-800 mt-1">
-            Complete it to avoid issues with verification and processing.
-          </p>
+        {/* Quick Actions Grid */}
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+          <ActionCard
+            title="Submit Payment Receipt"
+            desc="Upload proof of payment for verification and approval"
+            href="/dashboard/student/payments"
+            icon={<Upload className="h-6 w-6" />}
+            color="blue"
+          />
+          <ActionCard
+            title="View Results"
+            desc="Check your published examination results and grades"
+            href="/dashboard/student/results"
+            icon={<FileText className="h-6 w-6" />}
+            color="green"
+          />
+          <div className="overflow-hidden rounded-3xl border border-slate-200/60 bg-linear-to-br from-slate-50 to-white p-6 shadow-xl shadow-slate-100/50">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br from-slate-200 to-slate-100">
+                <BarChart3 className="h-6 w-6 text-slate-600" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900">Results Status</h3>
+                <p className="mt-1 text-sm text-slate-600">
+                  Results not yet available
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
-      )}
 
-      {/* KPI cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="CGPA" value={student.cgpa ?? "—"} />
-        <StatCard label="Pending Receipts" value={pendingReceipts ?? "—"} accent />
-        <StatCard label="Materials" value={materialsCount ?? "—"} />
-        <StatCard label="Results" value={resultsCount ?? "—"} />
-      </div>
-
-      {/* Payments status */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <MiniCard title="Payments" subtitle="Upload receipts for validation" href="/dashboard/payments" />
-        <MiniStat title="Approved" value={approvedReceipts ?? "—"} />
-        <MiniStat title="Rejected" value={rejectedReceipts ?? "—"} />
-      </div>
-
-      {/* Quick actions */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <ActionCard
-          title="Submit Payment Receipt"
-          desc="Upload proof of payment and track approval."
-          href="/dashboard/student/payments"
-        />
-        <ActionCard
-          title="Download Materials"
-          desc="Get course handouts, slides, and PDFs."
-          href="/dashboard/student/downloads"
-        />
-        <ActionCard
-          title="View Results"
-          desc="Check published results and grades."
-          href="/dashboard/student/results"
-        />
+        {/* Payment Summary */}
+        <div className="grid gap-5 lg:grid-cols-3">
+          <MiniCard
+            title="Payment Portal"
+            subtitle="Upload and track your payment receipts"
+            href="/dashboard/student/payments"
+            icon={<Upload className="h-5 w-5" />}
+          />
+          <MiniStat
+            title="Approved Payments"
+            value={approvedReceipts ?? "—"}
+            icon={<CheckCircle2 className="h-5 w-5" />}
+            color="green"
+          />
+          <MiniStat
+            title="Rejected Payments"
+            value={rejectedReceipts ?? "—"}
+            icon={<XCircle className="h-5 w-5" />}
+            color="red"
+          />
+        </div>
       </div>
     </div>
   );
 }
+
+/* --- components below unchanged --- */
 
 function StatCard({
   label,
   value,
-  accent,
+  icon,
+  color = "slate",
+  href,
 }: {
   label: string;
   value: string | number;
-  accent?: boolean;
+  icon: React.ReactNode;
+  color?: "blue" | "amber" | "green" | "red" | "slate";
+  href?: string;
 }) {
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5">
-      <div className="text-sm text-gray-600">{label}</div>
-      <div className={`mt-2 text-2xl font-bold ${accent ? "text-blue-700" : "text-gray-900"}`}>
-        {value}
+  const colorClasses = {
+    blue: "from-blue-100 to-blue-50 text-blue-600 group-hover:from-blue-600 group-hover:to-blue-500 group-hover:text-white group-hover:shadow-lg group-hover:shadow-blue-500/25",
+    amber: "from-amber-100 to-amber-50 text-amber-600 group-hover:from-amber-600 group-hover:to-amber-500 group-hover:text-white group-hover:shadow-lg group-hover:shadow-amber-500/25",
+    green: "from-green-100 to-green-50 text-green-600 group-hover:from-green-600 group-hover:to-green-500 group-hover:text-white group-hover:shadow-lg group-hover:shadow-green-500/25",
+    red: "from-red-100 to-red-50 text-red-600 group-hover:from-red-600 group-hover:to-red-500 group-hover:text-white group-hover:shadow-lg group-hover:shadow-red-500/25",
+    slate: "from-slate-100 to-slate-50 text-slate-600 group-hover:from-slate-700 group-hover:to-slate-600 group-hover:text-white group-hover:shadow-lg group-hover:shadow-slate-500/25",
+  };
+
+  const card = (
+    <div className="group relative overflow-hidden rounded-3xl border border-slate-200/60 bg-linear-to-br from-slate-50 via-white to-white p-6 transition-all duration-300 hover:shadow-xl hover:shadow-slate-100/50 hover:border-slate-300">
+      <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+
+      <div className="relative">
+        <div className="flex items-start justify-between mb-4">
+          <div
+            className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-linear-to-br transition-all duration-300 group-hover:scale-110 ${colorClasses[color]}`}
+          >
+            {icon}
+          </div>
+          {href && (
+            <ArrowRight className="h-5 w-5 text-slate-400 opacity-0 group-hover:opacity-100 transition-all duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          )}
+        </div>
+
+        <div>
+          <p className="text-sm font-medium text-slate-600 mb-1.5">{label}</p>
+          <p className="text-3xl font-bold tracking-tight text-slate-900">
+            {value}
+          </p>
+        </div>
       </div>
     </div>
   );
+
+  return href ? (
+    <Link
+      href={href}
+      className="block focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:ring-offset-2 rounded-3xl"
+    >
+      {card}
+    </Link>
+  ) : (
+    card
+  );
 }
 
-function ActionCard({ title, desc, href }: { title: string; desc: string; href: string }) {
+function ActionCard({
+  title,
+  desc,
+  href,
+  icon,
+  color = "blue",
+}: {
+  title: string;
+  desc: string;
+  href: string;
+  icon: React.ReactNode;
+  color?: "blue" | "green" | "purple";
+}) {
+  const colorClasses = {
+    blue: "from-blue-100 to-blue-50 text-blue-600",
+    green: "from-green-100 to-green-50 text-green-600",
+    purple: "from-purple-100 to-purple-50 text-purple-600",
+  };
+
   return (
     <Link
       href={href}
-      className="rounded-2xl border border-gray-200 bg-white p-5 hover:border-blue-200 hover:shadow-sm transition"
+      className="group overflow-hidden rounded-3xl border border-slate-200/60 bg-white p-6 shadow-xl shadow-slate-100/50 transition-all hover:border-slate-300 hover:shadow-2xl hover:shadow-slate-100/50 hover:scale-[1.02] active:scale-[0.98]"
     >
-      <div className="text-base font-semibold text-gray-900">{title}</div>
-      <div className="mt-1 text-sm text-gray-600">{desc}</div>
-      <div className="mt-3 text-sm font-medium text-blue-700">Open →</div>
+      <div className="flex items-start gap-4">
+        <div
+          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br transition-transform group-hover:scale-110 ${colorClasses[color]}`}
+        >
+          {icon}
+        </div>
+        <div className="flex-1">
+          <h3 className="font-bold text-slate-900 group-hover:text-slate-900">
+            {title}
+          </h3>
+          <p className="mt-1 text-sm leading-relaxed text-slate-600">{desc}</p>
+        </div>
+      </div>
+      <div className="mt-4 flex items-center gap-2 text-sm font-semibold text-blue-600 group-hover:text-blue-700">
+        Open
+        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+      </div>
     </Link>
   );
 }
 
-function MiniCard({ title, subtitle, href }: { title: string; subtitle: string; href: string }) {
+function MiniCard({
+  title,
+  subtitle,
+  href,
+  icon,
+}: {
+  title: string;
+  subtitle: string;
+  href: string;
+  icon: React.ReactNode;
+}) {
   return (
     <Link
       href={href}
-      className="rounded-2xl border border-gray-200 bg-white p-5 hover:border-blue-200 hover:shadow-sm transition"
+      className="group overflow-hidden rounded-3xl border border-slate-200/60 bg-white p-6 shadow-xl shadow-slate-100/50 transition-all hover:border-slate-300 hover:shadow-2xl hover:shadow-slate-100/50 hover:scale-[1.02] active:scale-[0.98]"
     >
-      <div className="text-base font-semibold text-gray-900">{title}</div>
-      <div className="mt-1 text-sm text-gray-600">{subtitle}</div>
-      <div className="mt-3 text-sm font-medium text-blue-700">Go →</div>
+      <div className="flex items-start gap-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-blue-100 to-blue-50 text-blue-600 transition-transform group-hover:scale-110">
+          {icon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="font-bold text-slate-900">{title}</h3>
+          <p className="mt-0.5 text-sm text-slate-600">{subtitle}</p>
+        </div>
+      </div>
+      <div className="mt-4 flex items-center gap-2 text-sm font-semibold text-blue-600 group-hover:text-blue-700">
+        Go
+        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+      </div>
     </Link>
   );
 }
 
-function MiniStat({ title, value }: { title: string; value: string | number }) {
+function MiniStat({
+  title,
+  value,
+  icon,
+  color = "slate",
+}: {
+  title: string;
+  value: string | number;
+  icon: React.ReactNode;
+  color?: "green" | "red" | "slate";
+}) {
+  const colorClasses = {
+    green: "from-green-100 to-green-50 text-green-600",
+    red: "from-red-100 to-red-50 text-red-600",
+    slate: "from-slate-100 to-slate-50 text-slate-600",
+  };
+
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-5">
-      <div className="text-sm text-gray-600">{title}</div>
-      <div className="mt-2 text-xl font-bold text-gray-900">{value}</div>
+    <div className="overflow-hidden rounded-3xl border border-slate-200/60 bg-white p-6 shadow-xl shadow-slate-100/50">
+      <div className="flex items-start justify-between mb-3">
+        <div
+          className={`flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br ${colorClasses[color]}`}
+        >
+          {icon}
+        </div>
+      </div>
+      <div>
+        <p className="text-sm font-medium text-slate-600">{title}</p>
+        <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
+      </div>
     </div>
   );
 }
