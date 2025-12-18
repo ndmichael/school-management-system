@@ -2,12 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import PublishToggleButton from './_components/PublishToggleButton'
 import {
   Plus,
   RefreshCw,
   Eye,
-  ToggleLeft,
-  ToggleRight,
   Users,
 } from 'lucide-react';
 
@@ -213,24 +212,11 @@ export default function AdminCourseOfferingsPage() {
                     </td>
 
                     <td className="px-6 py-4">
-                      <button
-                        onClick={() =>
-                          onTogglePublish(r.course_offering_id, r.is_published)
-                        }
-                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border font-semibold text-sm hover:bg-gray-50"
-                      >
-                        {r.is_published ? (
-                          <>
-                            <ToggleRight className="w-4 h-4 text-green-600" />
-                            Published
-                          </>
-                        ) : (
-                          <>
-                            <ToggleLeft className="w-4 h-4 text-gray-500" />
-                            Unpublished
-                          </>
-                        )}
-                      </button>
+                      <PublishToggleButton
+                        offeringId={r.course_offering_id}
+                        isPublished={r.is_published}
+                    />
+
                     </td>
 
                     <td className="px-6 py-4">
