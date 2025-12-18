@@ -1,24 +1,29 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+type Program = {
+  id: string;
+  name: string;
+};
+
+type ErrorResponse = { error: string };
 
 export async function GET() {
-  const { data, error } = await supabase
-    .from("programs")
-    .select("id, name")
-    .order("name", { ascending: true });
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("programs")
+      .select("id, name")
+      .order("name", { ascending: true });
 
-  if (error) {
-    console.error("Supabase programs error:", error);
-    return NextResponse.json(
-      { error: "Failed to load programs" },
-      { status: 500 }
-    );
+    if (error) {
+      return NextResponse.json<ErrorResponse>({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json<{ programs: Program[] }>({
+      programs: (data ?? []) as Program[],
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unexpected server error";
+    return NextResponse.json<ErrorResponse>({ error: message }, { status: 500 });
   }
-
-  return NextResponse.json(data ?? []);
 }
