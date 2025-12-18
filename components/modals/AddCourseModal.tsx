@@ -1,158 +1,228 @@
 'use client';
 
-import { useState } from 'react';
-import { Modal } from './Modal';
-import { Input, Select } from '@/components/shared';
-import { programs } from '@/data/programs';
+import * as React from 'react';
+import { toast } from 'react-toastify';
+import { Input, Select, Textarea } from '@/components/shared';
 
-interface AddCourseModalProps {
-  isOpen: boolean;
+export type DepartmentOption = { id: string; name: string };
+
+type Props = {
+  open: boolean;
   onClose: () => void;
-  onSubmit: (data: any) => void;
-}
+  onCreated?: () => void;
 
-export function AddCourseModal({ isOpen, onClose, onSubmit }: AddCourseModalProps) {
-  const [formData, setFormData] = useState({
-    code: '',
-    title: '',
-    program: '',
-    level: '100 Level',
-    credits: '2',
-    semester: 'First Semester',
-    instructor: '',
+  // ✅ passed from server page (no client fetch needed)
+  departments: ReadonlyArray<DepartmentOption>;
+};
+
+type CreateCoursePayload = {
+  code: string;
+  title: string;
+  description: string | null;
+  credits: number;
+  department_id: string | null;
+};
+
+type ApiErrorShape = { error?: string; message?: string };
+
+async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, {
+    ...init,
+    cache: 'no-store',
+    headers: {
+      ...(init?.headers ?? {}),
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+    },
   });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
-  };
+  const ct = res.headers.get('content-type') ?? '';
+  const isJson = ct.includes('application/json');
+  const body: unknown = isJson ? await res.json().catch(() => null) : await res.text().catch(() => '');
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit({
-      id: `CRS${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`,
-      ...formData,
-      credits: parseInt(formData.credits),
-      students: 0,
-      status: 'active'
-    });
-    setFormData({
-      code: '',
-      title: '',
-      program: '',
-      level: '100 Level',
-      credits: '2',
-      semester: 'First Semester',
-      instructor: '',
-    });
-    onClose();
-  };
+  if (!res.ok) {
+    const maybeObj = typeof body === 'object' && body !== null ? (body as ApiErrorShape) : null;
+    const msg =
+      maybeObj?.error ||
+      maybeObj?.message ||
+      (typeof body === 'string' && body.trim() ? body.slice(0, 220) : '') ||
+      `Request failed (${res.status})`;
+    throw new Error(msg);
+  }
 
-  const programOptions = programs.map(p => ({
-    value: p.title,
-    label: p.title
-  }));
+  return body as T;
+}
 
-  const levelOptions = [
-    { value: '100 Level', label: '100 Level' },
-    { value: '200 Level', label: '200 Level' },
-    { value: '300 Level', label: '300 Level' },
-  ];
+function toSelectOptions(items: ReadonlyArray<{ id: string; name: string }>): ReadonlyArray<{ value: string; label: string }> {
+  return items.map((x) => ({ value: x.id, label: x.name }));
+}
 
-  const semesterOptions = [
-    { value: 'First Semester', label: 'First Semester' },
-    { value: 'Second Semester', label: 'Second Semester' },
-  ];
+function XIcon(props: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className={props.className ?? 'h-5 w-5'}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M18 6 6 18" />
+      <path d="M6 6l12 12" />
+    </svg>
+  );
+}
+
+export default function AddCourseModal({ open, onClose, onCreated, departments }: Props) {
+  const [submitting, setSubmitting] = React.useState(false);
+
+  const [code, setCode] = React.useState('');
+  const [title, setTitle] = React.useState('');
+  const [description, setDescription] = React.useState('');
+  const [credits, setCredits] = React.useState<number>(3);
+
+  const [departmentId, setDepartmentId] = React.useState<string>('');
+
+  const canSubmit =
+    code.trim().length > 0 && title.trim().length > 0 && Number.isFinite(credits) && credits > 0;
+
+  async function handleCreate(): Promise<void> {
+    if (!canSubmit) {
+      toast.error('Course code, title and credits are required.');
+      return;
+    }
+
+    const payload: CreateCoursePayload = {
+      code: code.trim(),
+      title: title.trim(),
+      description: description.trim() ? description.trim() : null,
+      credits: Number(credits),
+      department_id: departmentId || null,
+    };
+
+    try {
+      setSubmitting(true);
+
+      await fetchJSON<{ id: string }>('/api/admin/courses', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      toast.success('Course created');
+      onCreated?.();
+
+      setCode('');
+      setTitle('');
+      setDescription('');
+      setCredits(3);
+      setDepartmentId('');
+
+      onClose();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to create course';
+      toast.error(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!open) return null;
+
+  const departmentOptions = toSelectOptions(departments);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Add New Course" size="lg">
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Input
-            label="Course Code"
-            name="code"
-            value={formData.code}
-            onChange={handleChange}
-            placeholder="MLS301"
-            required
-          />
-          <Input
-            label="Credits"
-            name="credits"
-            type="number"
-            min="1"
-            max="6"
-            value={formData.credits}
-            onChange={handleChange}
-            required
-          />
-        </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="Close modal"
+        className="absolute inset-0 bg-black/40"
+        onClick={onClose}
+      />
 
-        <Input
-          label="Course Title"
-          name="title"
-          value={formData.title}
-          onChange={handleChange}
-          placeholder="Clinical Chemistry II"
-          required
-        />
+      <div className="relative w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Add course</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Create a course and optionally assign department.</p>
+          </div>
 
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Select
-            label="Program"
-            name="program"
-            value={formData.program}
-            onChange={handleChange}
-            options={programOptions}
-            required
-          />
-          <Select
-            label="Level"
-            name="level"
-            value={formData.level}
-            onChange={handleChange}
-            options={levelOptions}
-            required
-          />
-        </div>
-
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Select
-            label="Semester"
-            name="semester"
-            value={formData.semester}
-            onChange={handleChange}
-            options={semesterOptions}
-            required
-          />
-          <Input
-            label="Instructor"
-            name="instructor"
-            value={formData.instructor}
-            onChange={handleChange}
-            placeholder="Dr. Adebayo Johnson"
-            required
-          />
-        </div>
-
-        <div className="flex gap-4 pt-4">
-          <button
-            type="submit"
-            className="flex-1 px-6 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
-          >
-            Add Course
-          </button>
           <button
             type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl hover:bg-gray-100 disabled:opacity-60"
             onClick={onClose}
-            className="px-6 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
+            disabled={submitting}
+            aria-label="Close"
           >
-            Cancel
+            <XIcon className="h-5 w-5" />
           </button>
         </div>
-      </form>
-    </Modal>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Input
+            label="Course code"
+            required
+            value={code}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCode(e.target.value)}
+            placeholder="e.g. PHY101"
+          />
+
+          <Input
+            label="Credits"
+            required
+            type="number"
+            min={1}
+            value={credits}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCredits(Number(e.target.value))}
+          />
+
+          <div className="md:col-span-2">
+            <Input
+              label="Title"
+              required
+              value={title}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
+              placeholder="Course title"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <Textarea
+              label="Description"
+              value={description}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)}
+              placeholder="Optional"
+            />
+          </div>
+
+          <Select
+            label="Department"
+            value={departmentId}
+            onChange={(value: string | '') => setDepartmentId(value)}
+            options={departmentOptions}
+          />
+
+          <div className="md:col-span-2 mt-2 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
+              onClick={onClose}
+              disabled={submitting}
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+              onClick={handleCreate}
+              disabled={!canSubmit || submitting}
+            >
+              {submitting ? 'Creating…' : 'Add course'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
