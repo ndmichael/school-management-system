@@ -6,6 +6,15 @@ import { Input, Select, Textarea } from '@/components/shared';
 
 export type DepartmentOption = { id: string; name: string };
 
+type CourseRow = {
+  id: string;
+  code: string;
+  title: string;
+  description: string | null;
+  credits: number;
+  department_id: string | null;
+};
+
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -13,9 +22,10 @@ type Props = {
 
   // ✅ passed from server page (no client fetch needed)
   departments: ReadonlyArray<DepartmentOption>;
+  course?: CourseRow | null; // ✅ when present => edit mode
 };
 
-type CreateCoursePayload = {
+type CoursePayload = {
   code: string;
   title: string;
   description: string | null;
@@ -37,10 +47,13 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
 
   const ct = res.headers.get('content-type') ?? '';
   const isJson = ct.includes('application/json');
-  const body: unknown = isJson ? await res.json().catch(() => null) : await res.text().catch(() => '');
+  const body: unknown = isJson
+    ? await res.json().catch(() => null)
+    : await res.text().catch(() => '');
 
   if (!res.ok) {
-    const maybeObj = typeof body === 'object' && body !== null ? (body as ApiErrorShape) : null;
+    const maybeObj =
+      typeof body === 'object' && body !== null ? (body as ApiErrorShape) : null;
     const msg =
       maybeObj?.error ||
       maybeObj?.message ||
@@ -52,7 +65,9 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-function toSelectOptions(items: ReadonlyArray<{ id: string; name: string }>): ReadonlyArray<{ value: string; label: string }> {
+function toSelectOptions(
+  items: ReadonlyArray<{ id: string; name: string }>
+): ReadonlyArray<{ value: string; label: string }> {
   return items.map((x) => ({ value: x.id, label: x.name }));
 }
 
@@ -74,26 +89,55 @@ function XIcon(props: { className?: string }) {
   );
 }
 
-export default function AddCourseModal({ open, onClose, onCreated, departments }: Props) {
+export default function AddCourseModal({
+  open,
+  onClose,
+  onCreated,
+  departments,
+  course,
+}: Props) {
   const [submitting, setSubmitting] = React.useState(false);
 
   const [code, setCode] = React.useState('');
   const [title, setTitle] = React.useState('');
   const [description, setDescription] = React.useState('');
   const [credits, setCredits] = React.useState<number>(3);
-
   const [departmentId, setDepartmentId] = React.useState<string>('');
 
-  const canSubmit =
-    code.trim().length > 0 && title.trim().length > 0 && Number.isFinite(credits) && credits > 0;
+  const isEditing = Boolean(course?.id);
 
-  async function handleCreate(): Promise<void> {
+  // ✅ Prefill when editing; reset when creating
+  React.useEffect(() => {
+    if (!open) return;
+
+    if (course) {
+      setCode(course.code ?? '');
+      setTitle(course.title ?? '');
+      setDescription(course.description ?? '');
+      setCredits(typeof course.credits === 'number' ? course.credits : 3);
+      setDepartmentId(course.department_id ?? '');
+    } else {
+      setCode('');
+      setTitle('');
+      setDescription('');
+      setCredits(3);
+      setDepartmentId('');
+    }
+  }, [open, course]);
+
+  const canSubmit =
+    code.trim().length > 0 &&
+    title.trim().length > 0 &&
+    Number.isFinite(credits) &&
+    credits > 0;
+
+  async function handleSubmit(): Promise<void> {
     if (!canSubmit) {
       toast.error('Course code, title and credits are required.');
       return;
     }
 
-    const payload: CreateCoursePayload = {
+    const payload: CoursePayload = {
       code: code.trim(),
       title: title.trim(),
       description: description.trim() ? description.trim() : null,
@@ -104,23 +148,24 @@ export default function AddCourseModal({ open, onClose, onCreated, departments }
     try {
       setSubmitting(true);
 
-      await fetchJSON<{ id: string }>('/api/admin/courses', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      if (isEditing && course?.id) {
+        await fetchJSON<CourseRow>(`/api/admin/courses/${course.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        });
+        toast.success('Course updated');
+      } else {
+        await fetchJSON<{ id: string }>('/api/admin/courses', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        toast.success('Course created');
+      }
 
-      toast.success('Course created');
       onCreated?.();
-
-      setCode('');
-      setTitle('');
-      setDescription('');
-      setCredits(3);
-      setDepartmentId('');
-
       onClose();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed to create course';
+      const msg = e instanceof Error ? e.message : 'Failed to save course';
       toast.error(msg);
     } finally {
       setSubmitting(false);
@@ -143,8 +188,14 @@ export default function AddCourseModal({ open, onClose, onCreated, departments }
       <div className="relative w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">Add course</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Create a course and optionally assign department.</p>
+            <h2 className="text-lg font-semibold">
+              {isEditing ? 'Edit course' : 'Add course'}
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {isEditing
+                ? 'Update course details.'
+                : 'Create a course and optionally assign department.'}
+            </p>
           </div>
 
           <button
@@ -163,7 +214,9 @@ export default function AddCourseModal({ open, onClose, onCreated, departments }
             label="Course code"
             required
             value={code}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCode(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setCode(e.target.value)
+            }
             placeholder="e.g. PHY101"
           />
 
@@ -173,7 +226,9 @@ export default function AddCourseModal({ open, onClose, onCreated, departments }
             type="number"
             min={1}
             value={credits}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCredits(Number(e.target.value))}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setCredits(Number(e.target.value))
+            }
           />
 
           <div className="md:col-span-2">
@@ -181,7 +236,9 @@ export default function AddCourseModal({ open, onClose, onCreated, departments }
               label="Title"
               required
               value={title}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setTitle(e.target.value)
+              }
               placeholder="Course title"
             />
           </div>
@@ -190,7 +247,9 @@ export default function AddCourseModal({ open, onClose, onCreated, departments }
             <Textarea
               label="Description"
               value={description}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setDescription(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                setDescription(e.target.value)
+              }
               placeholder="Optional"
             />
           </div>
@@ -215,10 +274,10 @@ export default function AddCourseModal({ open, onClose, onCreated, departments }
             <button
               type="button"
               className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
-              onClick={handleCreate}
+              onClick={handleSubmit}
               disabled={!canSubmit || submitting}
             >
-              {submitting ? 'Creating…' : 'Add course'}
+              {submitting ? 'Saving…' : isEditing ? 'Update course' : 'Add course'}
             </button>
           </div>
         </div>
