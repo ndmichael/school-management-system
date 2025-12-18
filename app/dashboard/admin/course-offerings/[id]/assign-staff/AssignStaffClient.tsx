@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
+
 
 type StaffItem = {
   profile_id: string; // this is what we assign
@@ -130,12 +133,23 @@ export default function AssignStaffClient({ offeringId }: { offeringId: string }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Assign Staff</h2>
-        <p className="mt-1 text-sm text-gray-600">
-          Only <span className="font-semibold">active</span> staff are listed.
-        </p>
-      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+            <h2 className="text-2xl font-bold text-gray-900">Assign Staff</h2>
+            <p className="mt-1 text-sm text-gray-600">
+            Only <span className="font-semibold">active</span> staff are listed.
+            </p>
+        </div>
+
+        <Link
+            href="/dashboard/admin/course-offerings"
+            className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+        >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+        </Link>
+        </div>
+
 
       <div className="rounded-xl border border-gray-200 bg-white">
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
