@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
-import { BookOpen } from "lucide-react";
+import { BookOpen, Save } from "lucide-react";
 
 type Semester = "first" | "second";
 
@@ -11,64 +11,123 @@ type Course = { id: string; code: string; title: string };
 type Session = { id: string; name: string };
 type Program = { id: string; name: string };
 
+type InitialValues = {
+  course_id: string;
+  session_id: string;
+  semester: Semester;
+  program_id: string | null;
+  level: string | null;
+};
+
 type Props = {
   courses: Course[];
   sessions: Session[];
   programs: Program[];
+  mode?: "create" | "edit";
+  offeringId?: string; // required when mode=edit
+  initialValues?: InitialValues; // required when mode=edit
 };
 
-type ApiOk = { id: string };
+type ApiOkCreate = { id: string };
+type ApiOkGeneric = { ok: true } | { ok: boolean };
 type ApiErr = { error: string };
 
 function isApiErr(v: unknown): v is ApiErr {
-  return typeof v === "object" && v !== null && "error" in v && typeof (v as { error?: unknown }).error === "string";
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "error" in v &&
+    typeof (v as { error?: unknown }).error === "string"
+  );
 }
 
-export default function CreateOfferingForm({ courses, sessions, programs }: Props) {
+function isSemester(v: string): v is Semester {
+  return v === "first" || v === "second";
+}
+
+export default function CreateOfferingForm({
+  courses,
+  sessions,
+  programs,
+  mode = "create",
+  offeringId,
+  initialValues,
+}: Props) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // form state
   const [courseId, setCourseId] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [semester, setSemester] = useState<Semester | "">("");
   const [programId, setProgramId] = useState<string>(""); // empty => null
   const [level, setLevel] = useState<string>(""); // empty => null
 
+  const isEdit = mode === "edit";
+
+  // ✅ hydrate form from initialValues (edit mode)
+  useEffect(() => {
+    if (!isEdit || !initialValues) return;
+
+    setCourseId(initialValues.course_id);
+    setSessionId(initialValues.session_id);
+    setSemester(initialValues.semester);
+    setProgramId(initialValues.program_id ?? "");
+    setLevel(initialValues.level ?? "");
+  }, [isEdit, initialValues]);
+
   const canSubmit = useMemo(() => {
-    return courseId !== "" && sessionId !== "" && (semester === "first" || semester === "second");
+    return courseId !== "" && sessionId !== "" && isSemester(semester);
   }, [courseId, sessionId, semester]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canSubmit || isSubmitting) return;
 
+    if (isEdit && (!offeringId || !initialValues)) {
+      toast.error("Edit mode misconfigured (missing offeringId/initialValues).");
+      return;
+    }
+
     setIsSubmitting(true);
 
-    const request = fetch("/api/admin/course-offerings/new", {
-      method: "POST",
+    const payload = {
+      course_id: courseId,
+      session_id: sessionId,
+      semester: semester as Semester,
+      program_id: programId.trim() === "" ? null : programId,
+      level: level.trim() === "" ? null : level.trim(),
+    };
+
+    const url = isEdit
+      ? `/api/admin/course-offerings/${offeringId}`
+      : "/api/admin/course-offerings/new";
+
+    const method: "POST" | "PATCH" = isEdit ? "PATCH" : "POST";
+
+    const request = fetch(url, {
+      method,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        course_id: courseId,
-        session_id: sessionId,
-        semester,
-        program_id: programId.trim() === "" ? null : programId,
-        level: level.trim() === "" ? null : level.trim(),
-      }),
+      body: JSON.stringify(payload),
     }).then(async (res) => {
       const json: unknown = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg = isApiErr(json) ? json.error : `Request failed (${res.status})`;
         throw new Error(msg);
       }
-      return json as ApiOk;
+      return json as ApiOkCreate | ApiOkGeneric;
     });
 
     toast.promise(request, {
-      pending: "Creating offering…",
-      success: "Course offering created ✅",
+      pending: isEdit ? "Saving changes…" : "Creating offering…",
+      success: isEdit ? "Course offering updated ✅" : "Course offering created ✅",
       error: {
         render({ data }) {
-          return data instanceof Error ? data.message : "Failed to create offering";
+          return data instanceof Error
+            ? data.message
+            : isEdit
+              ? "Failed to update offering"
+              : "Failed to create offering";
         },
       },
     });
@@ -83,8 +142,10 @@ export default function CreateOfferingForm({ courses, sessions, programs }: Prop
   }
 
   return (
-    <form onSubmit={handleSubmit} className="overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-xl shadow-slate-100/50">
-      {/* Keep your existing UI — just bind values */}
+    <form
+      onSubmit={handleSubmit}
+      className="overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-xl shadow-slate-100/50"
+    >
       <div className="p-6 space-y-6">
         <div className="space-y-2">
           <label className="text-sm font-semibold text-slate-900">
@@ -173,8 +234,18 @@ export default function CreateOfferingForm({ courses, sessions, programs }: Prop
           disabled={!canSubmit || isSubmitting}
           className="group inline-flex items-center justify-center gap-2 rounded-xl bg-linear-to-r from-red-600 to-red-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-red-500/25 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          <BookOpen className="h-4 w-4 transition-transform group-hover:scale-110" />
-          {isSubmitting ? "Creating…" : "Create Offering"}
+          {isEdit ? (
+            <Save className="h-4 w-4 transition-transform group-hover:scale-110" />
+          ) : (
+            <BookOpen className="h-4 w-4 transition-transform group-hover:scale-110" />
+          )}
+          {isSubmitting
+            ? isEdit
+              ? "Saving…"
+              : "Creating…"
+            : isEdit
+              ? "Save Changes"
+              : "Create Offering"}
         </button>
       </div>
     </form>
