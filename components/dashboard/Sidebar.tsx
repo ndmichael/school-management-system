@@ -43,13 +43,14 @@ const roleConfig: Record<UserRole, RoleConfig> = {
       { icon: FileText, label: 'Applications', href: '/dashboard/admin/applications' },
       { icon: UserCog, label: 'Staff', href: '/dashboard/admin/staff' },
       { icon: BookOpen, label: 'Courses', href: '/dashboard/admin/courses' },
+      { icon: BookOpen, label: 'Courses Offerings', href: '/dashboard/admin/course-offerings' },
       { icon: Building2, label: 'Departments', href: '/dashboard/admin/departments' },
 
       { icon: GraduationCap, label: 'Programs', href: '/dashboard/admin/programs' },
 
       { icon: Calendar, label: 'Sessions', href: '/dashboard/admin/sessions' },
       { icon: Receipt, label: 'Receipts', href: '/dashboard/admin/receipts' },
-      { icon: FileText, label: 'Reports', href: '/dashboard/admin/reports' },
+      // { icon: FileText, label: 'Reports', href: '/dashboard/admin/reports' },
       { icon: Settings, label: 'Settings', href: '/dashboard/admin/settings' },
     ],
   },
@@ -78,7 +79,7 @@ const roleConfig: Record<UserRole, RoleConfig> = {
     items: [
       { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/academic_staff' },
       { icon: BookOpen, label: 'Courses', href: '/dashboard/academic_staff/courses' },
-      { icon: Users, label: 'Students', href: '/dashboard/academic_staff/students' },
+      // { icon: Users, label: 'Students', href: '/dashboard/academic_staff/students' },
       { icon: FileText, label: 'Results', href: '/dashboard/academic_staff/results' },
       { icon: Settings, label: 'Settings', href: '/dashboard/academic_staff/settings' },
     ],
