@@ -11,8 +11,8 @@
   --color-primary-200: #aecfff;
   --color-primary-300: #85b7ff;
   --color-primary-400: #5d9fff;
-  --color-primary-500: #3587ff;    /* main brand */
-  --color-primary-600: #0a6cff;    /* strong clinical blue */
+  --color-primary-500: #3587ff;
+  --color-primary-600: #0a6cff;
   --color-primary-700: #0856cc;
   --color-primary-800: #064199;
   --color-primary-900: #042b66;
@@ -23,11 +23,23 @@
   --color-secondary-200: #99ece6;
   --color-secondary-300: #66e0d8;
   --color-secondary-400: #33d6cb;
-  --color-secondary-500: #0fcabd;  /* main accent */
+  --color-secondary-500: #0fcabd;
   --color-secondary-600: #0aa59b;
   --color-secondary-700: #087f76;
   --color-secondary-800: #055a52;
   --color-secondary-900: #033532;
+
+  /* ✅ Admin – Action Red (Dashboard only) */
+  --color-admin-50: #fef2f2;
+  --color-admin-100: #fee2e2;
+  --color-admin-200: #fecaca;
+  --color-admin-300: #fca5a5;
+  --color-admin-400: #f87171;
+  --color-admin-500: #ef4444;
+  --color-admin-600: #dc2626; /* main admin red */
+  --color-admin-700: #b91c1c;
+  --color-admin-800: #991b1b;
+  --color-admin-900: #7f1d1d;
 
   /* Neutral Grays – UI Friendly */
   --color-gray-50: #f9fafb;
@@ -43,7 +55,7 @@
 
   /* Radius & Fonts */
   --radius-lg: 0.75rem;
-  --font-sans: 'Inter', sans-serif;
+  --font-sans: "Inter", sans-serif;
 }
 
 /* ===================================
