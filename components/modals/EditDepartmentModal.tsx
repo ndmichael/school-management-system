@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Modal } from './Modal';
 import { Input } from '@/components/shared/Input';
-import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { AdminPrimaryButton } from '@/components/shared/AdminPrimaryButton';
 import { toast } from 'react-toastify';
 import { createClient } from '@/lib/supabase/client';
 import { AlertCircle } from 'lucide-react';
@@ -98,7 +98,7 @@ export function EditDepartmentModal({
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Info bar */}
         <div className="flex gap-3 rounded-xl border border-muted bg-muted/60 p-4 text-xs text-muted-foreground">
-          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-primary" />
+          <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-admin-600" />
           <div>
             <p className="mb-1 text-sm font-semibold text-foreground">
               Update department details
@@ -149,7 +149,7 @@ export function EditDepartmentModal({
             onChange={(e) => setDescription(e.target.value)}
             rows={4}
             placeholder="Short description of this department..."
-            className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1"
+            className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-admin-600 focus-visible:ring-offset-1"
           />
         </div>
 
@@ -183,13 +183,13 @@ export function EditDepartmentModal({
 
         {/* Actions */}
         <div className="flex gap-3 border-t border-border pt-4">
-          <PrimaryButton
+          <AdminPrimaryButton
             type="submit"
             disabled={submitting}
             className="flex-1"
           >
             {submitting ? 'Saving...' : 'Save changes'}
-          </PrimaryButton>
+          </AdminPrimaryButton>
           <button
             type="button"
             onClick={onClose}

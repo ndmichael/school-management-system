@@ -1,31 +1,23 @@
-// components/modals/AddDepartmentModal.tsx
 'use client';
 
 import { useState } from 'react';
 import Image from 'next/image';
 import { Modal } from './Modal';
 import { staffData } from '@/data/admin';
-import {
-  Calendar,
-  Search,
-  AlertCircle,
-  CheckCircle,
-  Users,
-} from 'lucide-react';
-import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { Calendar, Search, AlertCircle, CheckCircle, Users } from 'lucide-react';
+import { AdminPrimaryButton } from '@/components/shared/AdminPrimaryButton';
 import { Input } from '@/components/shared/Input';
-import { toast } from 'react-toastify';
 import { createClient } from '@/lib/supabase/client';
 
-// Keep this aligned with what DepartmentsPage expects from Supabase
-// components/modals/AddDepartmentModal.tsx
-export type DepartmentRow = {
+type DepartmentRow = {
   id: string;
   code: string;
   name: string;
   description: string | null;
-  status: 'active' | 'inactive' | 'archived' | null; // ✅ match DepartmentStatus
+  is_active: boolean;
   created_at: string;
+  updated_at: string;
+  hod_profile_id: string | null;
 };
 
 
@@ -55,26 +47,17 @@ interface SearchableSelectProps {
   error?: string;
 }
 
-/**
- * Searchable HOD Select
- */
-const SearchableHODSelect = ({
-  value,
-  onChange,
-  error,
-}: SearchableSelectProps) => {
+const SearchableHODSelect = ({ value, onChange, error }: SearchableSelectProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
-  const academicStaff = staffData.filter(
-    (staff) => staff.role === 'Academic Staff'
-  );
+  const academicStaff = staffData.filter((staff) => staff.role === 'Academic Staff');
 
   const filteredStaff = academicStaff.filter((staff) =>
     [staff.name, staff.id, staff.department, staff.position]
       .join(' ')
       .toLowerCase()
-      .includes(searchTerm.toLowerCase())
+      .includes(searchTerm.toLowerCase()),
   );
 
   const selectedStaff = academicStaff.find((s) => s.id === value);
@@ -91,10 +74,8 @@ const SearchableHODSelect = ({
           onClick={() => setIsOpen((prev) => !prev)}
           className={[
             'flex w-full items-center justify-between gap-2 rounded-xl border bg-background px-3 py-2.5 text-sm',
-            'transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
-            error
-              ? 'border-destructive/70 bg-destructive/5'
-              : 'border-input hover:bg-muted/50',
+            'transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-600 focus-visible:ring-offset-1',
+            error ? 'border-destructive/70 bg-destructive/5' : 'border-input hover:bg-muted/50',
           ].join(' ')}
         >
           {selectedStaff ? (
@@ -118,22 +99,15 @@ const SearchableHODSelect = ({
               </div>
             </div>
           ) : (
-            <span className="text-sm text-muted-foreground">
-              Search and select HOD
-            </span>
+            <span className="text-sm text-muted-foreground">Search and select HOD</span>
           )}
           <Search className="ml-2 h-4 w-4 flex-shrink-0 text-muted-foreground" />
         </button>
 
         {isOpen && (
           <>
-            {/* overlay */}
-            <div
-              className="fixed inset-0 z-30 bg-black/5"
-              onClick={() => setIsOpen(false)}
-            />
+            <div className="fixed inset-0 z-30 bg-black/5" onClick={() => setIsOpen(false)} />
             <div className="absolute z-40 mt-2 w-full overflow-hidden rounded-xl border border-border bg-card shadow-xl">
-              {/* Search header */}
               <div className="sticky top-0 border-b border-border bg-card px-3 py-2.5">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -142,13 +116,12 @@ const SearchableHODSelect = ({
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder="Search by name, position, or department..."
-                    className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    className="h-9 w-full rounded-lg border border-input bg-background pl-9 pr-3 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-admin-600"
                     autoFocus
                   />
                 </div>
               </div>
 
-              {/* Results */}
               <div className="max-h-72 overflow-y-auto bg-card">
                 {filteredStaff.length > 0 ? (
                   filteredStaff.map((staff) => (
@@ -194,9 +167,7 @@ const SearchableHODSelect = ({
                   <div className="px-4 py-10 text-center text-sm text-muted-foreground">
                     <Users className="mx-auto mb-3 h-10 w-10 text-muted-foreground/30" />
                     <p className="font-medium">No staff found</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Try a different search term.
-                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">Try a different search term.</p>
                   </div>
                 )}
               </div>
@@ -215,11 +186,7 @@ const SearchableHODSelect = ({
   );
 };
 
-export function AddDepartmentModal({
-  isOpen,
-  onClose,
-  onCreated,
-}: AddDepartmentModalProps) {
+export function AddDepartmentModal({ isOpen, onClose, onCreated }: AddDepartmentModalProps) {
   const supabase = createClient();
 
   const [formData, setFormData] = useState<FormData>({
@@ -236,31 +203,19 @@ export function AddDepartmentModal({
   const validate = (): FormErrors => {
     const newErrors: FormErrors = {};
 
-    if (!formData.name.trim()) {
-      newErrors.name = 'Department name is required';
-    } else if (formData.name.trim().length < 3) {
-      newErrors.name = 'Department name must be at least 3 characters';
-    }
+    if (!formData.name.trim()) newErrors.name = 'Department name is required';
+    else if (formData.name.trim().length < 3) newErrors.name = 'Department name must be at least 3 characters';
 
-    if (!formData.code.trim()) {
-      newErrors.code = 'Department code is required';
-    } else if (formData.code.length < 2 || formData.code.length > 5) {
-      newErrors.code = 'Code must be between 2–5 characters';
-    }
+    if (!formData.code.trim()) newErrors.code = 'Department code is required';
+    else if (formData.code.length < 2 || formData.code.length > 5) newErrors.code = 'Code must be between 2–5 characters';
 
-    if (!formData.hod) {
-      newErrors.hod = 'Head of Department is required';
-    }
+    if (!formData.hod) newErrors.hod = 'Head of Department is required';
 
-    if (!formData.established) {
-      newErrors.established = 'Establishment year is required';
-    } else {
+    if (!formData.established) newErrors.established = 'Establishment year is required';
+    else {
       const year = parseInt(formData.established, 10);
-      if (Number.isNaN(year)) {
-        newErrors.established = 'Enter a valid year';
-      } else if (year < 1900 || year > currentYear) {
-        newErrors.established = `Year must be between 1900 and ${currentYear}`;
-      }
+      if (Number.isNaN(year)) newErrors.established = 'Enter a valid year';
+      else if (year < 1900 || year > currentYear) newErrors.established = `Year must be between 1900 and ${currentYear}`;
     }
 
     return newErrors;
@@ -282,37 +237,33 @@ export function AddDepartmentModal({
 
     setSubmitting(true);
 
-    const selectedStaff = staffData.find((s) => s.id === formData.hod);
-
-    // 🔑 Insert into Supabase
+    // ✅ Insert into Supabase — FIXED: use is_active instead of status
     const { data, error } = await supabase
       .from('departments')
       .insert({
         name: formData.name.trim(),
         code: formData.code.toUpperCase().trim(),
-        status: 'active',
-        // add these only if your table has them:
-        // hod_id: formData.hod,
-        // hod_name: selectedStaff?.name,
+        is_active: true,
+        // Add only if your table has them:
+        // hod_profile_id: formData.hod,
         // established_year: parseInt(formData.established, 10),
       })
-      .select('*')
-      .single();
+      .select('id, code, name, description, is_active, created_at')
+      .single<DepartmentRow>();
 
     setSubmitting(false);
 
     if (error) {
       console.error(error);
-      toast.error(error.message || 'Failed to create department');
       return;
     }
 
-    const dept = data as DepartmentRow;
+    if (!data) {
+      return;
+    }
 
-    onCreated(dept);
-    toast.success(`Department created: ${dept.code} — ${dept.name}`);
+    onCreated(data);
 
-    // reset
     setFormData({ name: '', code: '', hod: '', established: '' });
     setErrors({});
     onClose();
@@ -326,23 +277,16 @@ export function AddDepartmentModal({
     Object.keys(errors).length === 0;
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      title="Add New Department"
-      size="lg"
-    >
+    <Modal isOpen={isOpen} onClose={onClose} title="Add New Department" size="lg">
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Info Banner */}
-        <div className="flex gap-3 rounded-xl border border-primary/15 bg-primary/5 p-4">
-          <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-primary" />
+        {/* Info Banner — admin red */}
+        <div className="flex gap-3 rounded-xl border border-admin-600/15 bg-admin-600/5 p-4">
+          <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-admin-600" />
           <div className="text-xs text-muted-foreground">
-            <p className="mb-1 text-sm font-semibold text-foreground">
-              Department guidelines
-            </p>
+            <p className="mb-1 text-sm font-semibold text-foreground">Department guidelines</p>
             <p>
-              Only academic staff can be assigned as Head of Department. Codes
-              must be unique and typically 3–5 characters.
+              Only academic staff can be assigned as Head of Department. Codes must be unique and typically 3–5
+              characters.
             </p>
           </div>
         </div>
@@ -363,9 +307,7 @@ export function AddDepartmentModal({
               label="Department Code"
               required
               value={formData.code}
-              onChange={(e) =>
-                handleInputChange('code', e.target.value.toUpperCase())
-              }
+              onChange={(e) => handleInputChange('code', e.target.value.toUpperCase())}
               placeholder="e.g., MLS"
               maxLength={5}
               className="uppercase"
@@ -398,18 +340,14 @@ export function AddDepartmentModal({
               <input
                 type="number"
                 value={formData.established}
-                onChange={(e) =>
-                  handleInputChange('established', e.target.value)
-                }
+                onChange={(e) => handleInputChange('established', e.target.value)}
                 placeholder={`e.g., ${currentYear - 10}`}
                 min={1900}
                 max={currentYear}
                 className={[
                   'h-10 w-full rounded-xl border bg-background pl-9 pr-3 text-sm text-foreground',
-                  'outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
-                  errors.established
-                    ? 'border-destructive/70 bg-destructive/5'
-                    : 'border-input',
+                  'outline-none transition-colors focus-visible:ring-2 focus-visible:ring-admin-600 focus-visible:ring-offset-1',
+                  errors.established ? 'border-destructive/70 bg-destructive/5' : 'border-input',
                 ].join(' ')}
               />
             </div>
@@ -436,15 +374,11 @@ export function AddDepartmentModal({
               </div>
               <div>
                 <span className="text-muted-foreground">Code:</span>
-                <p className="font-semibold">
-                  {formData.code.toUpperCase()}
-                </p>
+                <p className="font-semibold">{formData.code.toUpperCase()}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">HOD:</span>
-                <p className="font-semibold">
-                  {staffData.find((s) => s.id === formData.hod)?.name}
-                </p>
+                <p className="font-semibold">{staffData.find((s) => s.id === formData.hod)?.name}</p>
               </div>
               <div>
                 <span className="text-muted-foreground">Established:</span>
@@ -456,13 +390,10 @@ export function AddDepartmentModal({
 
         {/* Actions */}
         <div className="flex gap-3 border-t border-border pt-4">
-          <PrimaryButton
-            type="submit"
-            disabled={submitting}
-            className="flex-1"
-          >
-            {submitting ? 'Adding...' : 'Add Department'}
-          </PrimaryButton>
+          <AdminPrimaryButton type="submit" disabled={submitting} className="flex-1" loading={submitting}>
+            Add Department
+          </AdminPrimaryButton>
+
           <button
             type="button"
             onClick={onClose}

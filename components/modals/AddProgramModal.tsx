@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Modal } from './Modal';
 import { Input } from '@/components/shared/Input';
-import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { AdminPrimaryButton } from "@/components/shared/AdminPrimaryButton";
 import { AlertCircle, CheckCircle, GraduationCap } from 'lucide-react';
 import { toast } from 'react-toastify';
 
@@ -435,13 +435,14 @@ export function AddProgramModal({
 
         {/* Actions */}
         <div className="flex gap-4 border-t border-gray-200 pt-4">
-          <PrimaryButton
-            type="submit"
-            disabled={submitting}
-            className="flex-1"
+          <AdminPrimaryButton 
+            type="submit" 
+            loading={submitting}
+            className="w-full cursor-pointer"
           >
             {submitting ? 'Creating...' : 'Add Program'}
-          </PrimaryButton>
+          </AdminPrimaryButton>
+
           <button
             type="button"
             onClick={onClose}

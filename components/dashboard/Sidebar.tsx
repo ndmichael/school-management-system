@@ -31,11 +31,11 @@ type RoleConfig = {
 
 const roleConfig: Record<UserRole, RoleConfig> = {
   admin: {
-    color: 'bg-red-600',
-    hoverColor: 'hover:bg-red-700',
-    activeColor: 'bg-red-700',
-    lightBg: 'bg-red-50',
-    textColor: 'text-red-600',
+    color: "bg-admin-600",
+    hoverColor: "hover:bg-admin-700",
+    activeColor: "bg-admin-700",
+    lightBg: "bg-admin-50",
+    textColor: "text-admin-600",
     label: 'Admin',
     items: [
       { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/admin' },

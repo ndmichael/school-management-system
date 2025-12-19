@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Modal } from './Modal';
 import { Input } from '@/components/shared/Input';
-import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { AdminPrimaryButton } from "@/components/shared/AdminPrimaryButton";
 import { AlertCircle, CheckCircle } from 'lucide-react';
 
 type ProgramType = 'certificate' | 'diploma' | 'nd' | 'hnd' | 'post_basic';
@@ -423,13 +423,14 @@ export function EditProgramModal({
 
         {/* Actions */}
         <div className="flex gap-4 border-t border-gray-200 pt-4">
-          <PrimaryButton
-            type="submit"
-            disabled={submitting}
-            className="flex-1"
+          <AdminPrimaryButton 
+            type="submit" 
+            loading={submitting}
+            className="flex-1 cursor-pointer"
           >
             {submitting ? 'Saving...' : 'Save changes'}
-          </PrimaryButton>
+          </AdminPrimaryButton>
+          
           <button
             type="button"
             onClick={onClose}
