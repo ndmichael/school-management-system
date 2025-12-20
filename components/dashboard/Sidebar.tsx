@@ -78,9 +78,7 @@ const roleConfig: Record<UserRole, RoleConfig> = {
     label: 'Academic Staff',
     items: [
       { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/academic_staff' },
-      { icon: BookOpen, label: 'Courses', href: '/dashboard/academic_staff/courses' },
-      // { icon: Users, label: 'Students', href: '/dashboard/academic_staff/students' },
-      { icon: FileText, label: 'Results', href: '/dashboard/academic_staff/results' },
+      { icon: BookOpen, label: 'My Courses', href: '/dashboard/academic_staff/courses' },
       { icon: Settings, label: 'Settings', href: '/dashboard/academic_staff/settings' },
     ],
   },
