@@ -27,10 +27,10 @@ export default function ProgramsPage() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-b from-white to-gray-50">
+    <main className="min-h-screen bg-linear-to-b from-white to-gray-50">
       
       {/* Hero Section */}
-      <section className="relative bg-gradient-to-br from-primary-600 to-secondary-600 text-white overflow-hidden">
+      <section className="relative bg-linear-to-br from-primary-600 to-secondary-600 text-white overflow-hidden">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff0a_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0a_1px,transparent_1px)] bg-[size:32px_32px]" />
         
         <div className="relative max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 py-24">
