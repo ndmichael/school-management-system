@@ -249,14 +249,16 @@ export default function ProfileClient({ userId, authEmail, initialProfile, stude
               <label className="text-xs text-gray-500">Gender</label>
               <div className="mt-1">
                 <Select
-                  value={form.gender}
-                  onValueChange={(v: string) => setForm((p) => ({ ...p, gender: v }))}
-                  placeholder="Select gender"
+                  label="Gender"
+                  value={form.gender ?? ""}
+                  onChange={(v) => setForm((p) => ({ ...p, gender: v || "" }))}
                   options={[
                     { label: "Male", value: "male" },
                     { label: "Female", value: "female" },
                   ]}
+                  required
                 />
+
               </div>
             </div>
 

@@ -82,13 +82,13 @@ export default function StudentDownloadsPage() {
           label="Course"
           options={coursesOptions}
           value={selectedCourse}
-          onChange={e => setSelectedCourse(e.target.value)}
+          onChange={(value) => setSelectedCourse(value)}
         />
         <Select
           label="Semester"
           options={semesterOptions}
           value={selectedSemester}
-          onChange={e => setSelectedSemester(e.target.value)}
+          onChange={(value) => setSelectedCourse(value)}
         />
         <Input
           label="Search"
