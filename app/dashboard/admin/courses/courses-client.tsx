@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { toast } from 'react-toastify';
-import AddCourseModal, { DepartmentOption } from '@/components/modals/AddCourseModal';
+import {AddCourseModal, DepartmentOption } from '@/components/modals/AddCourseModal';
 
 type CourseRow = {
   id: string;
