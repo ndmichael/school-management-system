@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { toPublicImageSrc } from "@/lib/storage-images";
+import { createClient } from "@/lib/supabase/client";
+
 import Image from "next/image";
 import { Search, Filter, Plus, Edit, Trash2, Eye } from "lucide-react";
 import { toast } from "react-toastify";
@@ -24,7 +27,7 @@ export interface StaffRow {
     last_name: string;
     email: string;
     phone: string | null;
-    avatar_url: string | null;
+    avatar_file: { bucket: string; path: string } | null;
   } | null;
 }
 
@@ -55,6 +58,8 @@ async function readErrorMessage(res: Response): Promise<string> {
 const PAGE_SIZE = 10;
 
 export default function StaffPage() {
+  const supabase = useMemo(() => createClient(), []);
+
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -249,7 +254,7 @@ export default function StaffPage() {
                           <div className="flex items-center gap-3">
                             <div className="relative w-10 h-10 rounded-full overflow-hidden bg-gray-200">
                               <Image
-                                src={s.profiles?.avatar_url || "/avatar.png"}
+                                src={toPublicImageSrc(supabase, s.profiles?.avatar_file, "/avatar.png")}
                                 alt="Staff avatar"
                                 fill
                                 className="object-cover"

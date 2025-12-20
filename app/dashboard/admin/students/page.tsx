@@ -1,20 +1,19 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, type ReactNode } from "react";
+import Image from "next/image";
 import { Search, Filter, Eye, Edit, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 
-// Stats
 import { StatCard } from "@/components/shared/StatCard";
-
-// ---- View Details Modal ----
 import { ViewStudentDetailsModal } from "@/components/modals/students/ViewStudentDetailsModal";
-
-// ---- Edit Flow ----
 import { EditStudentSelectModal } from "@/components/modals/students/EditStudentSelectModal";
 import { EditProfileModal } from "@/components/modals/students/EditProfileModal";
 import { EditAcademicModal } from "@/components/modals/students/EditAcademicModal";
 import { EditGuardianModal } from "@/components/modals/students/EditGuardianModal";
+
+import { toPublicImageSrc, type StoredFile } from "@/lib/storage-images";
+import { createClient } from "@/lib/supabase/client";
 
 export interface StudentRow {
   id: string;
@@ -28,6 +27,7 @@ export interface StudentRow {
     middle_name: string | null;
     last_name: string;
     email: string;
+    avatar_file: StoredFile | null;
   } | null;
 
   programs: { name: string | null } | null;
@@ -35,13 +35,26 @@ export interface StudentRow {
   sessions: { name: string | null } | null;
 }
 
+type StudentsListResponse = { students?: StudentRow[]; error?: string };
+
+async function readErrorMessage(res: Response): Promise<string> {
+  const ct = res.headers.get("content-type") ?? "";
+  if (ct.includes("application/json")) {
+    const body = (await res.json().catch(() => null)) as { error?: string; message?: string } | null;
+    return body?.error || body?.message || `Request failed (${res.status})`;
+  }
+  const txt = await res.text().catch(() => "");
+  return txt.trim() ? txt.slice(0, 220) : `Request failed (${res.status})`;
+}
+
 export default function AdminStudentsPage() {
+  const supabase = useMemo(() => createClient(), []);
+
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [loading, setLoading] = useState(false);
 
-  // ----------------- Modal states -----------------
   const [viewId, setViewId] = useState<string | null>(null);
   const [editSelectId, setEditSelectId] = useState<string | null>(null);
 
@@ -49,7 +62,6 @@ export default function AdminStudentsPage() {
   const [editAcademicId, setEditAcademicId] = useState<string | null>(null);
   const [editGuardianId, setEditGuardianId] = useState<string | null>(null);
 
-  // ----------------- LOAD STUDENTS -----------------
   const load = useCallback(async () => {
     try {
       setLoading(true);
@@ -62,22 +74,22 @@ export default function AdminStudentsPage() {
         cache: "no-store",
       });
 
-      if (!res.ok) throw new Error("Failed to load students");
+      if (!res.ok) throw new Error(await readErrorMessage(res));
 
-      const json = await res.json();
-      setStudents(json.students || []);
-    } catch (err: any) {
-      toast.error(err.message);
+      const json = (await res.json()) as StudentsListResponse;
+      setStudents(Array.isArray(json.students) ? json.students : []);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to load students";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   }, [search, filterStatus]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
-  // ----------------- DELETE -----------------
   async function deleteStudent(id: string) {
     if (!confirm("Are you sure you want to delete this student?")) return;
 
@@ -89,7 +101,6 @@ export default function AdminStudentsPage() {
     toast.success("Student deleted");
   }
 
-  // ----------------- Stats -----------------
   const total = students.length;
   const activeCount = students.filter((s) => s.status === "active").length;
   const suspendedCount = students.filter((s) => s.status === "suspended").length;
@@ -118,7 +129,7 @@ export default function AdminStudentsPage() {
             placeholder="Search students..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && load()}
+            onKeyDown={(e) => e.key === "Enter" && void load()}
             className="w-full pl-10 pr-4 py-3 border rounded-xl text-sm"
           />
         </div>
@@ -137,10 +148,7 @@ export default function AdminStudentsPage() {
             <option value="graduated">Graduated</option>
           </select>
 
-          <button
-            onClick={load}
-            className="px-4 py-3 bg-red-600 text-white rounded-xl text-sm"
-          >
+          <button onClick={() => void load()} className="px-4 py-3 bg-red-600 text-white rounded-xl text-sm">
             Apply
           </button>
         </div>
@@ -163,7 +171,9 @@ export default function AdminStudentsPage() {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={6} className="p-6 text-center">Loading...</td>
+                <td colSpan={6} className="p-6 text-center">
+                  Loading...
+                </td>
               </tr>
             )}
 
@@ -171,10 +181,23 @@ export default function AdminStudentsPage() {
               students.map((s) => (
                 <tr key={s.id} className="border-b hover:bg-gray-50">
                   <Td>
-                    <p className="font-semibold">
-                      {s.profiles?.first_name} {s.profiles?.last_name}
-                    </p>
-                    <p className="text-xs text-gray-500">{s.profiles?.email}</p>
+                    <div className="flex items-center gap-3">
+                      <div className="relative w-10 h-10 rounded-full overflow-hidden bg-gray-200">
+                        <Image
+                          src={toPublicImageSrc(supabase, s.profiles?.avatar_file, "/avatar.png")}
+                          alt="Student avatar"
+                          fill
+                          sizes="40px"
+                          className="object-cover"
+                        />
+                      </div>
+                      <div>
+                        <p className="font-semibold">
+                          {s.profiles?.first_name ?? ""} {s.profiles?.last_name ?? ""}
+                        </p>
+                        <p className="text-xs text-gray-500">{s.profiles?.email ?? "—"}</p>
+                      </div>
+                    </div>
                   </Td>
 
                   <Td>{s.matric_no}</Td>
@@ -187,31 +210,17 @@ export default function AdminStudentsPage() {
 
                   <Td className="text-right">
                     <div className="flex justify-end items-center gap-2">
-
-                      {/* VIEW */}
-                      <button
-                        className="p-2 hover:bg-gray-100 rounded-lg"
-                        onClick={() => setViewId(s.id)}
-                      >
+                      <button className="p-2 hover:bg-gray-100 rounded-lg" onClick={() => setViewId(s.id)}>
                         <Eye className="w-4 h-4 text-gray-700" />
                       </button>
 
-                      {/* EDIT */}
-                      <button
-                        className="p-2 hover:bg-gray-100 rounded-lg"
-                        onClick={() => setEditSelectId(s.id)}
-                      >
+                      <button className="p-2 hover:bg-gray-100 rounded-lg" onClick={() => setEditSelectId(s.id)}>
                         <Edit className="w-4 h-4 text-gray-700" />
                       </button>
 
-                      {/* DELETE */}
-                      <button
-                        className="p-2 hover:bg-red-50 rounded-lg"
-                        onClick={() => deleteStudent(s.id)}
-                      >
+                      <button className="p-2 hover:bg-red-50 rounded-lg" onClick={() => void deleteStudent(s.id)}>
                         <Trash2 className="w-4 h-4 text-red-600" />
                       </button>
-
                     </div>
                   </Td>
                 </tr>
@@ -224,38 +233,44 @@ export default function AdminStudentsPage() {
       <div className="lg:hidden space-y-4">
         {students.map((s) => (
           <div key={s.id} className="bg-white border rounded-xl p-4">
-            <p className="font-semibold">{s.profiles?.first_name} {s.profiles?.last_name}</p>
-            <p className="text-xs text-gray-500">{s.profiles?.email}</p>
+            <div className="flex items-center gap-3">
+              <div className="relative w-10 h-10 rounded-full overflow-hidden bg-gray-200">
+                <Image
+                  src={toPublicImageSrc(supabase, s.profiles?.avatar_file, "/avatar.png")}
+                  alt="Student avatar"
+                  fill
+                  sizes="40px"
+                  className="object-cover"
+                />
+              </div>
 
-            <p className="mt-2 text-sm"><strong>Matric:</strong> {s.matric_no}</p>
-            <p className="text-sm"><strong>Program:</strong> {s.programs?.name || "-"}</p>
+              <div>
+                <p className="font-semibold">
+                  {s.profiles?.first_name ?? ""} {s.profiles?.last_name ?? ""}
+                </p>
+                <p className="text-xs text-gray-500">{s.profiles?.email ?? "—"}</p>
+              </div>
+            </div>
+
+            <p className="mt-2 text-sm">
+              <strong>Matric:</strong> {s.matric_no}
+            </p>
+            <p className="text-sm">
+              <strong>Program:</strong> {s.programs?.name || "-"}
+            </p>
 
             <div className="flex items-center gap-3 mt-3">
-
-              {/* VIEW */}
-              <button
-                className="p-2 bg-gray-100 rounded"
-                onClick={() => setViewId(s.id)}
-              >
+              <button className="p-2 bg-gray-100 rounded" onClick={() => setViewId(s.id)}>
                 <Eye className="w-4 h-4" />
               </button>
 
-              {/* EDIT */}
-              <button
-                className="p-2 bg-gray-100 rounded"
-                onClick={() => setEditSelectId(s.id)}
-              >
+              <button className="p-2 bg-gray-100 rounded" onClick={() => setEditSelectId(s.id)}>
                 <Edit className="w-4 h-4" />
               </button>
 
-              {/* DELETE */}
-              <button
-                className="p-2 bg-red-50 rounded"
-                onClick={() => deleteStudent(s.id)}
-              >
+              <button className="p-2 bg-red-50 rounded" onClick={() => void deleteStudent(s.id)}>
                 <Trash2 className="w-4 h-4 text-red-600" />
               </button>
-
             </div>
           </div>
         ))}
@@ -263,16 +278,10 @@ export default function AdminStudentsPage() {
 
       {/* ---------------- MODALS ---------------- */}
 
-      {/* VIEW DETAILS */}
       {viewId && (
-        <ViewStudentDetailsModal
-          isOpen={true}
-          studentId={viewId}
-          onClose={() => setViewId(null)}
-        />
+        <ViewStudentDetailsModal isOpen={true} studentId={viewId} onClose={() => setViewId(null)} />
       )}
 
-      {/* EDIT SELECT */}
       {editSelectId && (
         <EditStudentSelectModal
           isOpen={true}
@@ -287,43 +296,24 @@ export default function AdminStudentsPage() {
         />
       )}
 
-      {/* PROFILE EDIT */}
       {editProfileId && (
-        <EditProfileModal
-          isOpen={true}
-          studentId={editProfileId}
-          onClose={() => setEditProfileId(null)}
-          onUpdated={load}
-        />
+        <EditProfileModal isOpen={true} studentId={editProfileId} onClose={() => setEditProfileId(null)} onUpdated={load} />
       )}
 
-      {/* ACADEMIC EDIT */}
       {editAcademicId && (
-        <EditAcademicModal
-          isOpen={true}
-          studentId={editAcademicId}
-          onClose={() => setEditAcademicId(null)}
-          onUpdated={load}
-        />
+        <EditAcademicModal isOpen={true} studentId={editAcademicId} onClose={() => setEditAcademicId(null)} onUpdated={load} />
       )}
 
-      {/* GUARDIAN EDIT */}
       {editGuardianId && (
-        <EditGuardianModal
-          isOpen={true}
-          studentId={editGuardianId}
-          onClose={() => setEditGuardianId(null)}
-          onUpdated={load}
-        />
+        <EditGuardianModal isOpen={true} studentId={editGuardianId} onClose={() => setEditGuardianId(null)} onUpdated={load} />
       )}
-
     </div>
   );
 }
 
 /* ---------------- Reusable Components ---------------- */
 
-function Th({ children, className = "" }: any) {
+function Th({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <th className={`px-4 py-3 text-left text-xs font-semibold text-gray-700 ${className}`}>
       {children}
@@ -331,7 +321,7 @@ function Th({ children, className = "" }: any) {
   );
 }
 
-function Td({ children, className = "" }: any) {
+function Td({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <td className={`px-4 py-3 ${className}`}>{children}</td>;
 }
 

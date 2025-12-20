@@ -8,6 +8,7 @@ type CourseRow = {
   id: string;
   code: string;
   title: string;
+  description: string | null; // ✅ FIX: match AddCourseModal expectation
   credits: number;
   department_id: string | null;
 };
@@ -87,6 +88,8 @@ export default function CoursesClient({ departments }: Props) {
   async function loadCourses(): Promise<void> {
     try {
       setLoading(true);
+
+      // ✅ IMPORTANT: /api/admin/courses must return `description`
       const res = await fetchJSON<ListResponse<CourseRow>>('/api/admin/courses');
       setCourses(unwrapList(res));
     } catch (e) {
@@ -122,9 +125,7 @@ export default function CoursesClient({ departments }: Props) {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Courses</h1>
-          <p className="text-sm text-muted-foreground">
-            Create, edit, and delete courses.
-          </p>
+          <p className="text-sm text-muted-foreground">Create, edit, and delete courses.</p>
         </div>
 
         <button

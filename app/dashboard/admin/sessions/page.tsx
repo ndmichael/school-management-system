@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import type { SessionRow, SessionUI, SessionStatus } from "@/types/session";
+
 import { 
   Search, 
   Plus, 
@@ -18,33 +20,6 @@ import { AddSessionModal } from '@/components/modals/AddSessionModal';
 import { ViewSessionModal } from '@/components/modals/ViewSessionModal';
 import { EditSessionModal } from '@/components/modals/EditSessionModal';
 
-type SessionStatus = 'active' | 'completed' | 'upcoming';
-
-type SessionRow = {
-  id: string;
-  name: string;
-  start_date: string;
-  end_date: string;
-  registration_start_date: string | null;
-  registration_end_date: string | null;
-  application_fee: number | null;
-  max_applications: number | null;
-  is_active: boolean | null;
-  current_semester: string | null;   
-  students_count: number | null; 
-  created_at: string;
-  updated_at: string;
-};
-
-type SessionUI = {
-  id: string;
-  name: string;
-  startDate: string;
-  endDate: string;
-  status: SessionStatus;
-  currentSemester: string;
-  students: number; // placeholder for now
-};
 
 function mapRowToSession(row: SessionRow): SessionUI {
   const today = new Date();
@@ -94,7 +69,22 @@ export default function SessionsPage() {
 
       const { data, error } = await supabase
         .from('sessions')
-        .select('*')
+        .select(`
+            id,
+            name,
+            start_date,
+            end_date,
+            registration_start_date,
+            registration_end_date,
+            application_fee,
+            max_applications,
+            is_active,
+            current_semester,
+            students_count,
+            created_at,
+            updated_at
+          `)
+
         .order('start_date', { ascending: false });
 
       if (error) {
@@ -128,6 +118,7 @@ export default function SessionsPage() {
     setSessions((prev) => [ui, ...prev]);
     toast.success(`Session created: ${ui.name}`);
   };
+
 
   // 🔹 new: update handler (like handleProgramUpdated)
   const handleSessionUpdated = (row: SessionRow) => {
