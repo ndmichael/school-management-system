@@ -13,7 +13,7 @@ import {
   Trash2,
 } from 'lucide-react';
 
-import { PrimaryButton } from '@/components/shared/PrimaryButton';
+import { AdminPrimaryButton } from '@/components/shared/AdminPrimaryButton';
 import { AddDepartmentModal } from '@/components/modals/AddDepartmentModal';
 import { EditDepartmentModal } from '@/components/modals/EditDepartmentModal';
 
@@ -152,9 +152,9 @@ export default function DepartmentsPage() {
         more later.
       </p>
       <div className="mt-4">
-        <PrimaryButton onClick={() => setIsAddModalOpen(true)}>
+        <AdminPrimaryButton onClick={() => setIsAddModalOpen(true)}>
           Create department
-        </PrimaryButton>
+        </AdminPrimaryButton>
       </div>
     </div>
   );
@@ -220,12 +220,12 @@ export default function DepartmentsPage() {
             <Plus className="h-5 w-5" />
           </Button>
 
-          <PrimaryButton
+          <AdminPrimaryButton
             className="hidden md:inline-flex"
             onClick={() => setIsAddModalOpen(true)}
           >
             New department
-          </PrimaryButton>
+          </AdminPrimaryButton>
         </div>
       </div>
 
@@ -338,7 +338,7 @@ export default function DepartmentsPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 rounded-xl"
+                          className="h-8 w-8 rounded-xl text-slate-500 hover:text-primary-600"
                           onClick={() => setEditingDept(dept)}
                         >
                           <Edit className="h-3.5 w-3.5" />
@@ -346,7 +346,7 @@ export default function DepartmentsPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 rounded-xl text-destructive hover:bg-destructive/10"
+                          className="h-8 w-8 rounded-xl text-red-600 hover:text-red-700"
                           onClick={() => handleDelete(dept.id)}
                           disabled={deletingId === dept.id}
                         >
