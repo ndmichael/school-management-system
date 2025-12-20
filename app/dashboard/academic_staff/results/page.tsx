@@ -39,7 +39,24 @@ export default function AcademicStaffResultsPage() {
   const [busyOfferingId, setBusyOfferingId] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchAssignedOfferings = async () => {
+    const fetchAssignedOfferings = async (): Promise<void> => {
+      setLoading(true);
+
+      const { data: auth, error: authErr } = await supabase.auth.getUser();
+      console.log("AUTH UID:", auth.user?.id);
+      if (authErr || !auth.user?.id) {
+        setRows([]);
+        setLoading(false);
+        return;
+      }
+
+      const uid = auth.user.id;
+      const raw = await supabase
+  .from("course_offering_staff")
+  .select("id, course_offering_id, staff_profile_id");
+
+console.log("RAW ASSIGNMENTS:", raw.data, raw.error);
+
       const { data, error } = await supabase
         .from('course_offering_staff')
         .select(`
@@ -52,9 +69,12 @@ export default function AcademicStaffResultsPage() {
             sessions!inner ( name, is_active )
           )
         `)
+        .eq('staff_profile_id', uid) // ✅ critical fix
         .returns<AssignmentRow[]>();
 
       if (!error && data) setRows(data);
+      else setRows([]);
+
       setLoading(false);
     };
 
@@ -62,16 +82,16 @@ export default function AcademicStaffResultsPage() {
   }, []);
 
   const activeSessionName = useMemo(() => {
-    const active = rows.find(r => r.course_offerings.sessions.is_active === true);
+    const active = rows.find((r) => r.course_offerings.sessions.is_active === true);
     return active?.course_offerings.sessions.name ?? null;
   }, [rows]);
 
-  const togglePublish = async (offeringId: string, nextValue: boolean) => {
+  const togglePublish = async (offeringId: string, nextValue: boolean): Promise<void> => {
     setBusyOfferingId(offeringId);
 
     // optimistic UI
-    setRows(prev =>
-      prev.map(r =>
+    setRows((prev) =>
+      prev.map((r) =>
         r.course_offerings.id === offeringId
           ? { ...r, course_offerings: { ...r.course_offerings, is_published: nextValue } }
           : r
@@ -84,9 +104,9 @@ export default function AcademicStaffResultsPage() {
       .eq('id', offeringId);
 
     if (error) {
-      // rollback if blocked by RLS or other error
-      setRows(prev =>
-        prev.map(r =>
+      // rollback
+      setRows((prev) =>
+        prev.map((r) =>
           r.course_offerings.id === offeringId
             ? { ...r, course_offerings: { ...r.course_offerings, is_published: !nextValue } }
             : r
@@ -156,28 +176,18 @@ export default function AcademicStaffResultsPage() {
               </thead>
 
               <tbody className="divide-y divide-gray-200">
-                {rows.map(r => {
+                {rows.map((r) => {
                   const offering = r.course_offerings;
                   const isPublished = offering.is_published === true;
                   const isBusy = busyOfferingId === offering.id;
 
                   return (
                     <tr key={r.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 font-mono text-gray-900">
-                        {offering.courses.code}
-                      </td>
-                      <td className="px-6 py-4 text-gray-900">
-                        {offering.courses.title}
-                      </td>
-                      <td className="px-6 py-4 text-gray-900">
-                        {offering.courses.credits}
-                      </td>
-                      <td className="px-6 py-4 text-gray-900">
-                        {String(offering.semester)}
-                      </td>
-                      <td className="px-6 py-4 text-gray-900">
-                        {offering.sessions.name}
-                      </td>
+                      <td className="px-6 py-4 font-mono text-gray-900">{offering.courses.code}</td>
+                      <td className="px-6 py-4 text-gray-900">{offering.courses.title}</td>
+                      <td className="px-6 py-4 text-gray-900">{offering.courses.credits}</td>
+                      <td className="px-6 py-4 text-gray-900">{String(offering.semester)}</td>
+                      <td className="px-6 py-4 text-gray-900">{offering.sessions.name}</td>
 
                       <td className="px-6 py-4">
                         <button
@@ -219,12 +229,6 @@ export default function AcademicStaffResultsPage() {
               </tbody>
             </table>
           </div>
-
-          {rows.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-gray-600">No offerings found</p>
-            </div>
-          ) : null}
         </div>
       )}
     </div>
