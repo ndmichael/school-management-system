@@ -36,19 +36,21 @@ type CourseOfferingDetails = {
   session: Session;
 };
 
+type StudentProfile = {
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+};
+
 type StudentRowRaw = {
   id: string;
   matric_no: string;
   level: string | null;
   program_id: string | null;
   profile_id: string;
-  profiles:
-    | {
-        first_name: string;
-        middle_name: string | null;
-        last_name: string;
-      }
-    | null;
+
+  // IMPORTANT: supabase join can be object OR array OR null
+  profile: StudentProfile | StudentProfile[] | null;
 };
 
 type Student = {
@@ -57,11 +59,7 @@ type Student = {
   level: string | null;
   program_id: string | null;
   profile_id: string;
-  profile: {
-    first_name: string;
-    middle_name: string | null;
-    last_name: string;
-  };
+  profile: StudentProfile;
 };
 
 type ResultRow = { student_profile_id: string };
@@ -74,7 +72,12 @@ type PageRow = {
 const supabase = createClient();
 
 function isPromise<T>(v: unknown): v is Promise<T> {
-  return typeof v === 'object' && v !== null && 'then' in v && typeof (v as { then?: unknown }).then === 'function';
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    'then' in v &&
+    typeof (v as { then?: unknown }).then === 'function'
+  );
 }
 
 function firstOf<T>(v: T | T[] | null | undefined): T | null {
@@ -82,17 +85,52 @@ function firstOf<T>(v: T | T[] | null | undefined): T | null {
   return Array.isArray(v) ? v[0] ?? null : v;
 }
 
-function fullName(p: Student['profile']): string {
-  const mid = p.middle_name?.trim();
-  return [p.first_name, mid && mid.length > 0 ? mid : null, p.last_name]
-    .filter((x): x is string => typeof x === 'string' && x.length > 0)
-    .join(' ');
-}
-
 function clampPct(n: number): number {
   if (n < 0) return 0;
   if (n > 100) return 100;
   return n;
+}
+
+function isStudentProfile(v: unknown): v is StudentProfile {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+  return (
+    typeof o.first_name === 'string' &&
+    typeof o.last_name === 'string' &&
+    (o.middle_name === null || typeof o.middle_name === 'string')
+  );
+}
+
+function firstProfile(v: StudentProfile | StudentProfile[] | null): StudentProfile | null {
+  if (!v) return null;
+  return Array.isArray(v) ? v[0] ?? null : v;
+}
+
+function isStudentRowRaw(v: unknown): v is StudentRowRaw {
+  if (!v || typeof v !== 'object') return false;
+  const o = v as Record<string, unknown>;
+
+  const prof = o.profile;
+  const profileOk =
+    prof === null ||
+    isStudentProfile(prof) ||
+    (Array.isArray(prof) && (prof.length === 0 || isStudentProfile(prof[0])));
+
+  return (
+    typeof o.id === 'string' &&
+    typeof o.matric_no === 'string' &&
+    (o.level === null || typeof o.level === 'string') &&
+    (o.program_id === null || typeof o.program_id === 'string') &&
+    typeof o.profile_id === 'string' &&
+    profileOk
+  );
+}
+
+function fullName(p: StudentProfile): string {
+  const mid = p.middle_name?.trim();
+  return [p.first_name, mid && mid.length > 0 ? mid : null, p.last_name]
+    .filter((x): x is string => typeof x === 'string' && x.length > 0)
+    .join(' ');
 }
 
 export default function AcademicStaffOfferingResultsPage({
@@ -137,7 +175,7 @@ export default function AcademicStaffOfferingResultsPage({
         if (assignErr) throw new Error(assignErr.message);
         if (!assignment) throw new Error('You are not assigned to this course offering.');
 
-        // Offering details (use simple relationship names)
+        // Offering details
         const { data: offRaw, error: offErr } = await supabase
           .from('course_offerings')
           .select(
@@ -187,7 +225,7 @@ export default function AcademicStaffOfferingResultsPage({
           session,
         };
 
-        // Eligible students (same logic as your admin counts)
+        // Eligible students
         let studentsQuery = supabase
           .from('students')
           .select(
@@ -197,7 +235,7 @@ export default function AcademicStaffOfferingResultsPage({
             level,
             program_id,
             profile_id,
-            profiles!students_profile_id_fkey ( first_name, middle_name, last_name )
+            profile:profiles!students_profile_id_fkey ( first_name, middle_name, last_name )
           `
           )
           .eq('course_session_id', offeringDetails.session_id)
@@ -214,18 +252,24 @@ export default function AcademicStaffOfferingResultsPage({
         const { data: studentsRaw, error: stErr } = await studentsQuery;
         if (stErr) throw new Error(stErr.message);
 
-        const students: Student[] = (Array.isArray(studentsRaw) ? (studentsRaw as StudentRowRaw[]) : [])
-          .filter((s) => s.profiles !== null)
-          .map((s) => ({
-            id: s.id,
-            matric_no: s.matric_no,
-            level: s.level,
-            program_id: s.program_id,
-            profile_id: s.profile_id,
-            profile: s.profiles as Student['profile'],
-          }));
+        const students: Student[] = (Array.isArray(studentsRaw) ? studentsRaw : [])
+          .filter(isStudentRowRaw)
+          .map((s) => {
+            const profile = firstProfile(s.profile);
+            if (!profile) return null;
 
-        // Submitted results (your column is student_profile_id)
+            return {
+              id: s.id,
+              matric_no: s.matric_no,
+              level: s.level,
+              program_id: s.program_id,
+              profile_id: s.profile_id,
+              profile,
+            } satisfies Student;
+          })
+          .filter((x): x is Student => x !== null);
+
+        // Submitted results
         const { data: resultsRaw, error: resErr } = await supabase
           .from('results')
           .select('student_profile_id')
