@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal } from './Modal';
 import { Input } from '@/components/shared/Input';
 import { AdminPrimaryButton } from '@/components/shared/AdminPrimaryButton';
 import { toast } from 'react-toastify';
 import { createClient } from '@/lib/supabase/client';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle, Search, Users } from 'lucide-react';
 
 type Department = {
   id: string;
@@ -17,6 +17,14 @@ type Department = {
   created_at: string;
   updated_at: string;
   hod_profile_id: string | null;
+};
+
+type StaffOption = {
+  profile_id: string;
+  staff_id: string;
+  name: string;
+  email: string;
+  designation: string | null;
 };
 
 interface EditDepartmentModalProps {
@@ -30,26 +38,181 @@ interface FormErrors {
   code?: string;
 }
 
-export function EditDepartmentModal({
-  department,
-  onClose,
-  onSaved,
-}: EditDepartmentModalProps) {
+function SearchableHODSelect(props: {
+  options: StaffOption[];
+  loading: boolean;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const { options, loading, value, onChange } = props;
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+
+  const filtered = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    if (!term) return options;
+    return options.filter((s) => {
+      const hay = `${s.name} ${s.email} ${s.staff_id} ${s.designation ?? ''}`.toLowerCase();
+      return hay.includes(term);
+    });
+  }, [options, q]);
+
+  const selected = options.find((s) => s.profile_id === value) ?? null;
+
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-xs font-medium text-muted-foreground">
+        Head of Department <span className="text-muted-foreground/60">(optional)</span>
+      </label>
+
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setOpen((p) => !p)}
+          className={[
+            'flex w-full items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-sm',
+            'bg-white opacity-100', // solid dropdown trigger
+            'transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-admin-600 focus-visible:ring-offset-1',
+            'border-input hover:bg-slate-50',
+          ].join(' ')}
+        >
+          {selected ? (
+            <div className="min-w-0 flex-1 text-left">
+              <div className="truncate text-sm font-semibold text-foreground">{selected.name}</div>
+              <div className="truncate text-xs text-muted-foreground">
+                {selected.staff_id} · {selected.email}
+              </div>
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              {loading ? 'Loading staff…' : 'Select Head of Department (optional)'}
+            </span>
+          )}
+
+          <Search className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+        </button>
+
+        {open && (
+          <>
+            <div className="fixed inset-0 z-30 bg-black/10" onClick={() => setOpen(false)} />
+            <div className="absolute z-40 mt-2 w-full overflow-hidden rounded-xl border border-border bg-white opacity-100 shadow-xl">
+              <div className="border-b border-border bg-white px-3 py-2.5 opacity-100">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="Search by name, staff ID, email..."
+                    className="h-9 w-full rounded-lg border border-input bg-white pl-9 pr-3 text-xs text-foreground outline-none opacity-100 focus-visible:ring-2 focus-visible:ring-admin-600"
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              <div className="max-h-72 overflow-y-auto bg-white opacity-100">
+                {loading ? (
+                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">Loading…</div>
+                ) : filtered.length > 0 ? (
+                  <>
+                    {/* Clear selection */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onChange('');
+                        setOpen(false);
+                        setQ('');
+                      }}
+                      className="flex w-full items-center gap-2 border-b border-border/50 bg-white px-4 py-3 text-left text-sm font-semibold text-slate-700 opacity-100 hover:bg-slate-50"
+                    >
+                      Clear HOD (None)
+                    </button>
+
+                    {filtered.map((s) => (
+                      <button
+                        key={s.profile_id}
+                        type="button"
+                        onClick={() => {
+                          onChange(s.profile_id);
+                          setOpen(false);
+                          setQ('');
+                        }}
+                        className="flex w-full items-start gap-3 border-b border-border/40 bg-white px-4 py-3 text-left opacity-100 last:border-b-0 hover:bg-slate-50"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold text-foreground">{s.name}</div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            {s.staff_id} · {s.email}
+                          </div>
+                          {s.designation && (
+                            <div className="text-[11px] text-muted-foreground/80">{s.designation}</div>
+                          )}
+                        </div>
+
+                        {s.profile_id === value && (
+                          <CheckCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" />
+                        )}
+                      </button>
+                    ))}
+                  </>
+                ) : (
+                  <div className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    <Users className="mx-auto mb-3 h-10 w-10 text-muted-foreground/30" />
+                    <p className="font-medium">No staff found</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Try a different search term.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function EditDepartmentModal({ department, onClose, onSaved }: EditDepartmentModalProps) {
   const supabase = createClient();
 
   const [name, setName] = useState(department.name);
   const [code, setCode] = useState(department.code);
   const [description, setDescription] = useState(department.description ?? '');
   const [isActive, setIsActive] = useState(department.is_active);
+
+  const [hodProfileId, setHodProfileId] = useState<string>(department.hod_profile_id ?? '');
+  const [staffOptions, setStaffOptions] = useState<StaffOption[]>([]);
+  const [staffLoading, setStaffLoading] = useState(false);
+
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const run = async (): Promise<void> => {
+      setStaffLoading(true);
+      const res = await fetch('/api/admin/staff/academic', { cache: 'no-store' });
+      const json: unknown = await res.json().catch(() => []);
+      setStaffLoading(false);
+
+      if (!res.ok) {
+        const msg =
+          typeof json === 'object' && json !== null && 'error' in json
+            ? String((json as { error: unknown }).error)
+            : 'Failed to load staff list';
+        toast.error(msg);
+        setStaffOptions([]);
+        return;
+      }
+
+      setStaffOptions(Array.isArray(json) ? (json as StaffOption[]) : []);
+    };
+
+    run();
+  }, []);
 
   const validate = (): FormErrors => {
     const e: FormErrors = {};
     if (!name.trim()) e.name = 'Department name is required';
     if (!code.trim()) e.code = 'Department code is required';
-    if (code.trim().length < 2 || code.trim().length > 5)
-      e.code = 'Code must be between 2–5 characters';
+    if (code.trim().length < 2 || code.trim().length > 5) e.code = 'Code must be between 2–5 characters';
     return e;
   };
 
@@ -70,6 +233,7 @@ export function EditDepartmentModal({
         code: code.toUpperCase().trim(),
         description: description.trim() || null,
         is_active: isActive,
+        hod_profile_id: hodProfileId.trim() === '' ? null : hodProfileId, // ✅ update HOD
       })
       .eq('id', department.id)
       .select('*')
@@ -89,24 +253,14 @@ export function EditDepartmentModal({
   };
 
   return (
-    <Modal
-      isOpen={true}
-      onClose={onClose}
-      title="Edit Department"
-      size="lg"
-    >
+    <Modal isOpen={true} onClose={onClose} title="Edit Department" size="lg">
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Info bar */}
         <div className="flex gap-3 rounded-xl border border-muted bg-muted/60 p-4 text-xs text-muted-foreground">
           <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-admin-600" />
           <div>
-            <p className="mb-1 text-sm font-semibold text-foreground">
-              Update department details
-            </p>
-            <p>
-              Changes will apply immediately to how this department appears
-              across the portal.
-            </p>
+            <p className="mb-1 text-sm font-semibold text-foreground">Update department details</p>
+            <p>Changes will apply immediately to how this department appears across the portal.</p>
           </div>
         </div>
 
@@ -139,6 +293,14 @@ export function EditDepartmentModal({
           />
         </div>
 
+        {/* HOD selector */}
+        <SearchableHODSelect
+          options={staffOptions}
+          loading={staffLoading}
+          value={hodProfileId}
+          onChange={setHodProfileId}
+        />
+
         {/* Description */}
         <div className="space-y-1.5">
           <label className="block text-xs font-medium text-muted-foreground">
@@ -149,7 +311,7 @@ export function EditDepartmentModal({
             onChange={(e) => setDescription(e.target.value)}
             rows={4}
             placeholder="Short description of this department..."
-            className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm text-foreground outline-none shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-admin-600 focus-visible:ring-offset-1"
+            className="w-full rounded-xl border border-input bg-white px-3 py-2 text-sm text-foreground outline-none opacity-100 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-admin-600 focus-visible:ring-offset-1"
           />
         </div>
 
@@ -157,10 +319,9 @@ export function EditDepartmentModal({
         <div className="flex items-center justify-between rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm">
           <div>
             <p className="font-medium text-foreground">Department status</p>
-            <p className="text-xs text-muted-foreground">
-              Inactive departments will be hidden from student-facing flows.
-            </p>
+            <p className="text-xs text-muted-foreground">Inactive departments will be hidden from student-facing flows.</p>
           </div>
+
           <button
             type="button"
             onClick={() => setIsActive((prev) => !prev)}
@@ -171,25 +332,17 @@ export function EditDepartmentModal({
                 : 'border-slate-400 bg-slate-400/10 text-slate-700',
             ].join(' ')}
           >
-            <span
-              className={[
-                'mr-1 h-2 w-2 rounded-full',
-                isActive ? 'bg-emerald-500' : 'bg-slate-400',
-              ].join(' ')}
-            />
+            <span className={['mr-1 h-2 w-2 rounded-full', isActive ? 'bg-emerald-500' : 'bg-slate-400'].join(' ')} />
             {isActive ? 'Active' : 'Inactive'}
           </button>
         </div>
 
         {/* Actions */}
         <div className="flex gap-3 border-t border-border pt-4">
-          <AdminPrimaryButton
-            type="submit"
-            disabled={submitting}
-            className="flex-1"
-          >
+          <AdminPrimaryButton type="submit" disabled={submitting} className="flex-1" loading={submitting}>
             {submitting ? 'Saving...' : 'Save changes'}
           </AdminPrimaryButton>
+
           <button
             type="button"
             onClick={onClose}

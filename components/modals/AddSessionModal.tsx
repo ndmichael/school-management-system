@@ -7,20 +7,7 @@ import { Input } from '@/components/shared/Input';
 import { AdminPrimaryButton } from '@/components/shared/AdminPrimaryButton';
 import { AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
-
-type SessionRow = {
-  id: string;
-  name: string;
-  start_date: string;
-  end_date: string;
-  registration_start_date: string | null;
-  registration_end_date: string | null;
-  application_fee: number | null;
-  max_applications: number | null;
-  is_active: boolean | null;
-  created_at: string;
-  updated_at: string;
-};
+import type { SessionRow } from "@/types/session";
 
 interface AddSessionModalProps {
   isOpen: boolean;
@@ -182,7 +169,12 @@ export function AddSessionModal({
 
     if (error) throw error;
 
-    onCreated(data as SessionRow);
+    onCreated({
+  ...(data as SessionRow),
+      current_semester: (data as SessionRow).current_semester ?? null,
+      students_count: (data as SessionRow).students_count ?? null,
+    });
+
     toast.success('Session created successfully');
     resetForm();
     onClose();
