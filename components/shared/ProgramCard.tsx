@@ -5,15 +5,16 @@ import Image from 'next/image';
 import { ArrowRight, Clock, Users, Award } from 'lucide-react';
 
 interface ProgramCardProps {
+  id?: string; // optional in case you want to build href from id later
   title: string;
   description: string;
   duration: string;
   students: string;
   level: string;
   image: string;
-  href: string;
+  href?: string;          // ✅ optional
   featured?: boolean;
-  onSelect: () => void;
+  onSelect?: () => void;  // ✅ optional
 }
 
 export function ProgramCard({
@@ -25,18 +26,30 @@ export function ProgramCard({
   image,
   href,
   featured = false,
-  onSelect
+  onSelect,
 }: ProgramCardProps) {
+  const safeHref = href ?? '#';
+
   return (
-    <div 
+    <div
       onClick={onSelect}
       className={`group relative cursor-pointer bg-white rounded-2xl overflow-hidden border transition-all duration-300 hover:shadow-2xl hover:-translate-y-1 ${
-      featured ? 'border-primary-200 shadow-lg' : 'border-gray-200 shadow-md'
-    }`}>
+        featured ? 'border-primary-200 shadow-lg' : 'border-gray-200 shadow-md'
+      }`}
+      role={onSelect ? 'button' : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onKeyDown={
+        onSelect
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') onSelect();
+            }
+          : undefined
+      }
+    >
       {/* Image */}
-      <div className="relative h-56 overflow-hidden bg-gradient-to-br from-primary-100 to-secondary-100">
-        <Image 
-          src={image} 
+      <div className="relative h-56 overflow-hidden bg-linear-to-br from-primary-100 to-secondary-100">
+        <Image
+          src={image}
           alt={title}
           fill
           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
@@ -77,8 +90,12 @@ export function ProgramCard({
 
         {/* CTA */}
         <Link
-          href={href ?? "#"}
-          onClick={onSelect}
+          href={safeHref}
+          onClick={(e) => {
+            // If no real link, prevent useless navigation
+            if (safeHref === '#') e.preventDefault();
+            onSelect?.();
+          }}
           className="inline-flex items-center gap-2 text-primary-600 font-semibold text-sm group-hover:gap-3 transition-all"
         >
           <span>View Program</span>
