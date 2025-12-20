@@ -48,7 +48,7 @@ const Step3Guardian: FC<Step3Props> = ({ data, setData }) => {
         <Select<Gender>
           label="Guardian Gender"
           value={data.guardianGender}
-          onChange={(val) => setData({ guardianGender: val })}
+          onChange={(val) => setData({ guardianGender: val === "" ? undefined : val })}
           options={genders.map((g) => ({
             value: g,
             label: g.charAt(0).toUpperCase() + g.slice(1),
@@ -62,7 +62,7 @@ const Step3Guardian: FC<Step3Props> = ({ data, setData }) => {
         <Select<GuardianStatus>
           label="Guardian Status"
           value={data.guardianStatus}
-          onChange={(val) => setData({ guardianStatus: val })}
+          onChange={(val) => setData({ guardianStatus: val === "" ? undefined : val })}
           options={statuses.map((s) => ({
             value: s,
             label: s.charAt(0).toUpperCase() + s.slice(1),

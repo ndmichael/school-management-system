@@ -45,10 +45,10 @@ const Step2OriginProgram: FC<Step2Props> = ({ data, setData, programs }) => {
       </div>
 
       {/* Religion */}
-      <Select<Religion>
+      <Select
         label="Religion"
-        value={data.religion}
-        onChange={(val) => setData({ religion: val })}
+        value={data.religion ?? ""}
+        onChange={(val) => setData({ religion: val === "" ? undefined : val })}
         options={religions}
         required
       />
@@ -85,7 +85,7 @@ const Step2OriginProgram: FC<Step2Props> = ({ data, setData, programs }) => {
       <Select<AdmissionType>
         label="Admission Type"
         value={data.admissionType}
-        onChange={(val) => setData({ admissionType: val })}
+        onChange={(val) => setData({ admissionType: val === "" ? undefined : val })}
         options={[
           { value: "fresh", label: "FRESH ADMISSION" },
           { value: "direct_entry", label: "DIRECT ENTRY" },

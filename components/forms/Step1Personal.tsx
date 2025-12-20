@@ -43,7 +43,7 @@ const Step1Personal: FC<Step1Props> = ({ data, setData }) => {
         <Select<Gender>
           label="Gender"
           value={data.gender}
-          onChange={(val) => setData({ gender: val })}
+          onChange={(val) => setData({ gender: val === "" ? undefined : val })}
           options={genders.map((g) => ({
             value: g,
             label: g.charAt(0).toUpperCase() + g.slice(1),
