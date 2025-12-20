@@ -2,20 +2,18 @@
 const nextConfig = {
   images: {
     remotePatterns: [
-      // Avatar generator
       {
         protocol: "https",
         hostname: "api.dicebear.com",
       },
-      // Unsplash
       {
         protocol: "https",
         hostname: "images.unsplash.com",
       },
-      // Supabase storage (applications bucket)
       {
+        // Any Supabase project, any public bucket
         protocol: "https",
-        hostname: "hcwlgzarrweenvdacddj.supabase.co",
+        hostname: "**.supabase.co",
         pathname: "/storage/v1/object/public/**",
       },
     ],
