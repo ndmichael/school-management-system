@@ -111,7 +111,9 @@ export function AddStudentModal({ isOpen, onClose, onSubmit }: AddStudentModalPr
             label="Program"
             name="program"
             value={formData.program}
-            onChange={handleChange}
+            onChange={(value) =>
+              setFormData((prev) => ({ ...prev, program: value }))
+            }
             options={programOptions}
             required
           />
@@ -119,7 +121,9 @@ export function AddStudentModal({ isOpen, onClose, onSubmit }: AddStudentModalPr
             label="Level"
             name="level"
             value={formData.level}
-            onChange={handleChange}
+            onChange={(value) =>
+              setFormData((prev) => ({ ...prev, level: value }))
+            }
             options={levelOptions}
             required
           />

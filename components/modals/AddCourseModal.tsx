@@ -89,7 +89,7 @@ function XIcon(props: { className?: string }) {
   );
 }
 
-export default function AddCourseModal({
+export function AddCourseModal({
   open,
   onClose,
   onCreated,

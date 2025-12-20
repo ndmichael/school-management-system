@@ -22,6 +22,28 @@ export function ViewSessionModal({ isOpen, onClose, session }: ViewSessionModalP
         })
       : 'Not set';
 
+  // ✅ safe optional field readers (no `any`)
+  const getOptionalString = (obj: unknown, key: string): string | null => {
+    if (obj && typeof obj === 'object' && key in obj) {
+      const value = (obj as Record<string, unknown>)[key];
+      return typeof value === 'string' ? value : null;
+    }
+    return null;
+  };
+
+  const getOptionalNumber = (obj: unknown, key: string): number | null => {
+    if (obj && typeof obj === 'object' && key in obj) {
+      const value = (obj as Record<string, unknown>)[key];
+      return typeof value === 'number' ? value : null;
+    }
+    return null;
+  };
+
+  const registrationStartDate = getOptionalString(session, 'registrationStartDate');
+  const registrationEndDate = getOptionalString(session, 'registrationEndDate');
+  const applicationFee = getOptionalNumber(session, 'applicationFee');
+  const maxApplications = getOptionalNumber(session, 'maxApplications');
+
   const shortYear = session.name.split(' ')[0];
   const subtitle = session.name.replace(shortYear, '').trim() || 'Academic Session';
 
@@ -78,10 +100,9 @@ export function ViewSessionModal({ isOpen, onClose, session }: ViewSessionModalP
               <Clock className="h-4 w-4" />
               <span className="font-medium">Registration window</span>
             </div>
-            {session.registrationStartDate && session.registrationEndDate ? (
+            {registrationStartDate && registrationEndDate ? (
               <p className="text-gray-900">
-                {formatDate(session.registrationStartDate)} –{' '}
-                {formatDate(session.registrationEndDate)}
+                {formatDate(registrationStartDate)} – {formatDate(registrationEndDate)}
               </p>
             ) : (
               <p className="text-xs text-gray-500">Not configured</p>
@@ -106,7 +127,7 @@ export function ViewSessionModal({ isOpen, onClose, session }: ViewSessionModalP
             <div className="flex items-center gap-2">
               <CreditCard className="h-4 w-4 text-gray-400" />
               <span className="text-lg font-semibold text-gray-900">
-                {session.applicationFee != null ? session.applicationFee.toLocaleString() : 'Not set'}
+                {applicationFee != null ? applicationFee.toLocaleString() : 'Not set'}
               </span>
             </div>
           </div>
@@ -114,7 +135,7 @@ export function ViewSessionModal({ isOpen, onClose, session }: ViewSessionModalP
           <div className="rounded-xl border border-gray-200 bg-white p-4">
             <div className="mb-1 text-xs text-gray-500">Max applications</div>
             <span className="text-lg font-semibold text-gray-900">
-              {session.maxApplications != null ? session.maxApplications.toLocaleString() : 'Not set'}
+              {maxApplications != null ? maxApplications.toLocaleString() : 'Not set'}
             </span>
           </div>
         </div>
@@ -123,8 +144,8 @@ export function ViewSessionModal({ isOpen, onClose, session }: ViewSessionModalP
         <div className="flex items-start gap-2 rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs text-gray-600">
           <AlertCircle className="mt-0.5 h-4 w-4 text-gray-400" />
           <p>
-            These settings control application windows and how this session is highlighted
-            across the portal. You can change them anytime from the Edit session action.
+            These settings control application windows and how this session is highlighted across
+            the portal. You can change them anytime from the Edit session action.
           </p>
         </div>
       </div>
