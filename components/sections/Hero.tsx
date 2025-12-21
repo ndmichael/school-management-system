@@ -65,7 +65,7 @@ export function Hero() {
             <div className="space-y-3">
               {features.map((feature, index) => (
                 <div key={index} className="flex items-center gap-3 text-gray-700">
-                  <div className="flex-shrink-0 w-6 h-6 bg-gradient-to-br from-secondary-100 to-secondary-50 rounded-full flex items-center justify-center">
+                  <div className="shrink-0 w-6 h-6 bg-linear-to-br from-secondary-100 to-secondary-50 rounded-full flex items-center justify-center">
                     <CheckCircle2 className="w-4 h-4 text-secondary-600" />
                   </div>
                   <span className="font-medium">{feature}</span>
@@ -74,7 +74,7 @@ export function Hero() {
             </div>
 
             <div className="flex flex-wrap gap-4 pt-4">
-              <PrimaryButton href="/auth/register">
+              <PrimaryButton href="/register">
                 Get Started Free
               </PrimaryButton>
               
