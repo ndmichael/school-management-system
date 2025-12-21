@@ -123,7 +123,7 @@ export function Navbar() {
             {/* Mobile CTA */}
             <div className="pt-4 space-y-2">
               <Link
-                href="/auth/login"
+                href="/login"
                 className="block w-full text-center px-4 py-3 border border-gray-300 rounded-lg font-medium hover:bg-gray-50"
                 onClick={() => setIsMobileMenuOpen(false)}
               >
