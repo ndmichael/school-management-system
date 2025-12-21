@@ -1,11 +1,11 @@
 "use client";
 
-import { FC, ChangeEvent, useState } from "react";
+import { FC, ChangeEvent, useMemo, useState } from "react";
 import { ApplicationFormData } from "@/types/applications";
 import { Input } from "@/components/shared";
 import Image from "next/image";
 import { toast } from "react-toastify";
-import { supabase } from "@/lib/supabase/supabase"; // ✅ adjust if your file is different
+import { createClient } from "@/lib/supabase/client"; // ✅ use your createBrowserClient wrapper
 
 interface Step4Props {
   data: ApplicationFormData;
@@ -13,37 +13,39 @@ interface Step4Props {
 }
 
 const MAX_DOCS = 4;
-const MAX_FILE_SIZE_MB = 1; // 1 MB per file
+const MAX_FILE_SIZE_MB = 1;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
+const BUCKET = "applications";
 const PASSPORT_FOLDER = "passports";
 const DOCUMENTS_FOLDER = "documents";
 
 const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
+  const supabase = useMemo(() => createClient(), []);
   const [uploading, setUploading] = useState(false);
 
-  // 🔹 derive from parent state
-  const passportPreview = data.passportImageId || "";
-  const previewImages = data.supportingDocuments || [];
+  const passportPath = data.passportPath || "";
+  const supportingPaths = data.supportingPaths || [];
 
-  const uploadFileToStorage = async (
-    file: File,
-    folder: string
-  ): Promise<string | null> => {
-    // size guard
+  const publicUrlFromPath = (path: string) => {
+    if (!path) return "";
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    return data?.publicUrl ?? "";
+  };
+
+  const uploadFileToStorage = async (file: File, folder: string): Promise<string | null> => {
     if (file.size > MAX_FILE_SIZE_BYTES) {
-      toast.error(
-        `File "${file.name}" is too large. Max allowed is ${MAX_FILE_SIZE_MB}MB.`
-      );
+      toast.error(`File "${file.name}" is too large. Max ${MAX_FILE_SIZE_MB}MB.`);
       return null;
     }
 
     const ext = file.name.split(".").pop() || "bin";
     const filePath = `${folder}/${crypto.randomUUID()}.${ext}`;
 
-    const { error } = await supabase.storage
-      .from("applications")
-      .upload(filePath, file);
+    const { error } = await supabase.storage.from(BUCKET).upload(filePath, file, {
+      upsert: false,
+      contentType: file.type || undefined,
+    });
 
     if (error) {
       console.error("Supabase upload error:", error);
@@ -51,75 +53,62 @@ const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
       return null;
     }
 
-    const { data: publicUrlData } = supabase.storage
-      .from("applications")
-      .getPublicUrl(filePath);
-
-    return publicUrlData?.publicUrl ?? null;
+    return filePath; // ✅ store path only
   };
 
   const handlePassportChange = async (e: ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.[0]) return;
-
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
+    if (!file) return;
 
     setUploading(true);
-    const url = await uploadFileToStorage(file, PASSPORT_FOLDER);
+    const path = await uploadFileToStorage(file, PASSPORT_FOLDER);
     setUploading(false);
 
-    if (!url) return;
-
-    setData({ passportImageId: url });
-    toast.success("Passport uploaded successfully.");
+    if (!path) return;
+    setData({ passportPath: path });
+    toast.success("Passport uploaded.");
   };
 
-  const handleSupportingFilesChange = async (
-    e: ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleSupportingFilesChange = async (e: ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
 
     const filesArray = Array.from(e.target.files);
-    const existingCount = previewImages.length;
-    const availableSlots = MAX_DOCS - existingCount;
+    const availableSlots = MAX_DOCS - supportingPaths.length;
 
     if (availableSlots <= 0) {
-      toast.error(`You can upload a maximum of ${MAX_DOCS} documents.`);
+      toast.error(`Max ${MAX_DOCS} documents allowed.`);
       return;
     }
 
     const filesToUpload = filesArray.slice(0, availableSlots);
 
     setUploading(true);
-    const uploadedUrls: string[] = [];
+    const uploaded: string[] = [];
 
     for (const file of filesToUpload) {
-      const url = await uploadFileToStorage(file, DOCUMENTS_FOLDER);
-      if (url) uploadedUrls.push(url);
+      const path = await uploadFileToStorage(file, DOCUMENTS_FOLDER);
+      if (path) uploaded.push(path);
     }
+
     setUploading(false);
 
-    if (!uploadedUrls.length) return;
+    if (!uploaded.length) return;
 
-    const merged = [...previewImages, ...uploadedUrls];
-
-    setData({ supportingDocuments: merged });
-
-    toast.success(`${uploadedUrls.length} document(s) uploaded.`);
+    setData({ supportingPaths: [...supportingPaths, ...uploaded] });
+    toast.success(`${uploaded.length} document(s) uploaded.`);
   };
 
   const removeSupportingFile = (index: number) => {
-    const updated = previewImages.filter((_, i) => i !== index);
-    setData({ supportingDocuments: updated });
-
-    toast.info("File removed from application (not deleted from storage).");
+    setData({ supportingPaths: supportingPaths.filter((_, i) => i !== index) });
+    toast.info("Removed (not deleted from storage).");
   };
 
-  const isImageUrl = (url: string) =>
-    /\.(jpe?g|png|webp|gif)$/i.test(url.split("?")[0]);
+  const isImageUrl = (url: string) => /\.(jpe?g|png|webp|gif)$/i.test(url.split("?")[0]);
+
+  const passportPreviewUrl = passportPath ? publicUrlFromPath(passportPath) : "";
 
   return (
     <div className="space-y-6">
-      {/* Passport upload */}
       <div className="space-y-2">
         <Input
           label="Passport Photograph"
@@ -129,59 +118,52 @@ const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
           required
           disabled={uploading}
         />
-        {passportPreview && isImageUrl(passportPreview) && (
+
+        {passportPreviewUrl && isImageUrl(passportPreviewUrl) && (
           <div className="mt-2 w-32 h-32 relative">
-            <Image
-              src={passportPreview}
-              alt="Passport preview"
-              fill
-              className="object-cover rounded border"
-            />
+            <Image src={passportPreviewUrl} alt="Passport preview" fill className="object-cover rounded border" />
           </div>
         )}
       </div>
 
-      {/* Supporting docs */}
       <div className="space-y-2">
         <Input
           label="Upload Supporting Documents"
           type="file"
           multiple
+          accept="image/*,application/pdf"
           onChange={handleSupportingFilesChange}
           disabled={uploading}
         />
 
-        {previewImages.length > 0 && (
+        {supportingPaths.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-2">
-            {previewImages.map((src, idx) => (
-              <div key={idx} className="relative border p-1 rounded">
-                {isImageUrl(src) ? (
-                  <Image
-                    src={src}
-                    alt={`file-${idx}`}
-                    width={150}
-                    height={150}
-                    className="object-cover rounded"
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-[150px] text-xs text-gray-700 bg-gray-100 rounded">
-                    Document {idx + 1}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  className="absolute top-1 right-1 bg-red-500 text-white px-2 py-1 rounded text-xs"
-                  onClick={() => removeSupportingFile(idx)}
-                >
-                  X
-                </button>
-              </div>
-            ))}
+            {supportingPaths.map((path, idx) => {
+              const url = publicUrlFromPath(path);
+              return (
+                <div key={idx} className="relative border p-1 rounded">
+                  {url && isImageUrl(url) ? (
+                    <Image src={url} alt={`file-${idx}`} width={150} height={150} className="object-cover rounded" />
+                  ) : (
+                    <div className="flex items-center justify-center h-[150px] text-xs text-gray-700 bg-gray-100 rounded">
+                      Document {idx + 1}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    className="absolute top-1 right-1 bg-red-500 text-white px-2 py-1 rounded text-xs"
+                    onClick={() => removeSupportingFile(idx)}
+                  >
+                    X
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* Attestation */}
       <div className="space-y-2">
         <Input
           label="Attestation Date"
@@ -191,39 +173,9 @@ const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
           required
           disabled={uploading}
         />
-        <p className="text-xs text-gray-600">
-          By selecting this date, you confirm that all information provided is
-          accurate and complete to the best of your knowledge.
-        </p>
       </div>
 
-      {uploading && (
-        <p className="text-sm text-blue-600">Uploading files, please wait…</p>
-      )}
-
-      {/* Review summary */}
-      <div className="mt-4 p-4 border rounded space-y-2 bg-gray-50 text-sm">
-        <h3 className="font-semibold text-lg">Review your information</h3>
-        <p>
-          <strong>Name:</strong> {data.firstName}{" "}
-          {data.middleName ? `${data.middleName} ` : ""}
-          {data.lastName}
-        </p>
-        <p>
-          <strong>Program:</strong> {data.programId || "Not selected"}
-        </p>
-        <p>
-          <strong>Admission Type:</strong> {data.admissionType}
-        </p>
-        <p>
-          <strong>Guardian:</strong> {data.guardianFirstName}{" "}
-          {data.guardianLastName}
-        </p>
-        <p>
-          <strong>Uploaded supporting files:</strong>{" "}
-          {previewImages.length || 0}
-        </p>
-      </div>
+      {uploading && <p className="text-sm text-blue-600">Uploading…</p>}
     </div>
   );
 };
