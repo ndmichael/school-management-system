@@ -5,7 +5,10 @@ export type GuardianStatus = "father" | "mother" | "guardian" | "other";
 export type Religion = "muslim" | "christian" | "other";
 export type AdmissionType = "fresh" | "direct_entry";
 
-
+/**
+ * Store ONLY storage paths in form state (recommended).
+ * Example: "passports/uuid.png", "documents/uuid.pdf"
+ */
 export interface ApplicationFormData {
   firstName: string;
   middleName?: string | null;
@@ -34,12 +37,18 @@ export interface ApplicationFormData {
   guardianFirstName: string;
   guardianMiddleName?: string | null;
   guardianLastName: string;
-  guardianGender: Gender;              // or a separate GuardianGender type if you prefer
+  guardianGender: Gender;
   guardianStatus: GuardianStatus;
   guardianPhone: string;
-
-  passportImageId: string;
-  supportingDocuments: string[];
+  guardianEmail?: string | null;
 
   attestationDate: string;
+
+  // ✅ NEW (fixes your TS errors)
+  passportPath: string;
+  supportingPaths: string[];
+
+  // ✅ Legacy (keep so older code doesn’t break if still referenced anywhere)
+  passportImageId?: string;
+  supportingDocuments?: string[];
 }
