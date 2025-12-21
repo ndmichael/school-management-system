@@ -3,10 +3,29 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 type ConvertParams = { id: string };
 
-export async function POST(
-  _req: Request,
-  context: { params: Promise<ConvertParams> }
-) {
+function isDuplicateAuthMessage(msg: string) {
+  const m = msg.toLowerCase();
+  return (
+    m.includes("already registered") ||
+    m.includes("already exists") ||
+    m.includes("user already registered") ||
+    m.includes("duplicate")
+  );
+}
+
+function getBaseUrl(req: Request) {
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") ?? "http";
+
+  if (!host) return "http://localhost:3000";
+
+  const isLocal = host.includes("localhost") || host.startsWith("127.0.0.1");
+  const scheme = isLocal ? "http" : proto;
+
+  return `${scheme}://${host}`;
+}
+
+export async function POST(req: Request, context: { params: Promise<ConvertParams> }) {
   let createdAuthUserId: string | null = null;
 
   try {
@@ -52,11 +71,17 @@ export async function POST(
       .single();
 
     if (appErr || !app) {
-      return NextResponse.json({ error: appErr?.message ?? "Application not found." }, { status: 404 });
+      return NextResponse.json(
+        { error: appErr?.message ?? "Application not found." },
+        { status: 404 }
+      );
     }
 
     if (app.status !== "accepted") {
-      return NextResponse.json({ error: "Application must be accepted before conversion." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Application must be accepted before conversion." },
+        { status: 400 }
+      );
     }
 
     if (app.converted_to_student) {
@@ -68,12 +93,7 @@ export async function POST(
       return NextResponse.json({ error: "Application email is missing." }, { status: 400 });
     }
 
-    // ==========================
-    // A) 409 pre-check (Auth exists)
-    // ==========================
-    // Supabase JS Admin API doesn't have getUserByEmail in some versions,
-    // so we do a safe pre-check via profiles table (email is NOT NULL in your schema).
-    // If you also enforce unique email on profiles, this is strong.
+    // 409 pre-check (profile exists by email)
     const { data: existingProfile, error: profCheckErr } = await supabaseAdmin
       .from("profiles")
       .select("id")
@@ -83,6 +103,7 @@ export async function POST(
     if (profCheckErr) {
       return NextResponse.json({ error: profCheckErr.message }, { status: 400 });
     }
+
     if (existingProfile?.id) {
       return NextResponse.json(
         { error: "A user with this email already exists. Resolve the existing account first." },
@@ -98,7 +119,10 @@ export async function POST(
       .single();
 
     if (programErr || !program?.code) {
-      return NextResponse.json({ error: programErr?.message ?? "Program not found." }, { status: 400 });
+      return NextResponse.json(
+        { error: programErr?.message ?? "Program not found." },
+        { status: 400 }
+      );
     }
 
     // 3) Session year segment
@@ -109,15 +133,16 @@ export async function POST(
       .single();
 
     if (sessionErr || !session?.name) {
-      return NextResponse.json({ error: sessionErr?.message ?? "Session not found." }, { status: 400 });
+      return NextResponse.json(
+        { error: sessionErr?.message ?? "Session not found." },
+        { status: 400 }
+      );
     }
 
     const [startYear] = String(session.name).split("/");
     const yy = String(startYear).slice(-2);
 
-    // ==========================
-    // Collision-safe matric (DB function w/ advisory lock)
-    // ==========================
+    // 4) Matric (RPC)
     const { data: matricNo, error: matricErr } = await supabaseAdmin.rpc(
       "generate_student_matric_no",
       {
@@ -134,23 +159,32 @@ export async function POST(
       );
     }
 
-    // 4) Create auth user (pending/confirmed choice)
-    const tempPassword = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    // 5) Invite auth user (Supabase sends invite via your SMTP)
+    const redirectTo = new URL("/callback", getBaseUrl(req)).toString();
 
-    const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password: tempPassword,
-      email_confirm: false, // keep false until you add invite/reset flow
-      user_metadata: { onboarding_status: "pending", main_role: "student" },
-    });
+    const { data: inviteRes, error: inviteErr } =
+      await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+        data: { onboarding_status: "pending", main_role: "student" },
+        redirectTo,
+      });
 
-    if (authErr || !authUser.user) {
-      return NextResponse.json({ error: authErr?.message ?? "Failed to create auth user." }, { status: 400 });
+    if (inviteErr) {
+      const msg = inviteErr.message ?? "Failed to invite auth user.";
+      const isDup = isDuplicateAuthMessage(msg);
+
+      return NextResponse.json(
+        { error: isDup ? "User already exists" : msg },
+        { status: isDup ? 409 : 400 }
+      );
     }
 
-    createdAuthUserId = authUser.user.id;
+    if (!inviteRes?.user?.id) {
+      return NextResponse.json({ error: "Invite succeeded but no user id returned." }, { status: 400 });
+    }
 
-    // 5) Create profile
+    createdAuthUserId = inviteRes.user.id;
+
+    // 6) Create profile
     const { data: profile, error: profileErr2 } = await supabaseAdmin
       .from("profiles")
       .insert({
@@ -168,20 +202,22 @@ export async function POST(
         religion: app.religion,
         address: app.address,
         main_role: "student",
-        // onboarding_status: "pending" // only if you added this column
+        onboarding_status: "pending",
       })
       .select("id")
       .single();
 
     if (profileErr2 || !profile) {
-      // B) Cleanup consistency: remove auth user if profile fails
       await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
       createdAuthUserId = null;
 
-      return NextResponse.json({ error: profileErr2?.message ?? "Failed to create profile." }, { status: 400 });
+      return NextResponse.json(
+        { error: profileErr2?.message ?? "Failed to create profile." },
+        { status: 400 }
+      );
     }
 
-    // 6) Create student
+    // 7) Create student
     const { data: student, error: studentErr } = await supabaseAdmin
       .from("students")
       .insert({
@@ -203,15 +239,17 @@ export async function POST(
       .single();
 
     if (studentErr || !student) {
-      // B) Cleanup consistency: remove profile + auth user if student fails
       await supabaseAdmin.from("profiles").delete().eq("id", profile.id);
       await supabaseAdmin.auth.admin.deleteUser(profile.id);
       createdAuthUserId = null;
 
-      return NextResponse.json({ error: studentErr?.message ?? "Failed to create student." }, { status: 400 });
+      return NextResponse.json(
+        { error: studentErr?.message ?? "Failed to create student." },
+        { status: 400 }
+      );
     }
 
-    // 7) Mark application converted
+    // 8) Mark application converted
     const { error: updateErr } = await supabaseAdmin
       .from("applications")
       .update({
@@ -222,22 +260,26 @@ export async function POST(
       .eq("id", applicationId);
 
     if (updateErr) {
-      // If this fails, you can decide whether to cleanup or leave student created.
-      // Production option: keep student created and surface error for manual fix.
       return NextResponse.json(
         { error: `Student created but failed to update application: ${updateErr.message}` },
         { status: 400 }
       );
     }
 
+    // Optional: activate profile
+    await supabaseAdmin
+      .from("profiles")
+      .update({ onboarding_status: "active" })
+      .eq("id", profile.id);
+
     return NextResponse.json({
       success: true,
       studentId: student.id,
       matricNo: student.matric_no,
-      tempPassword, // show to admin for now; later replace with invite/reset link
+      inviteQueued: true,
+      redirectTo,
     });
   } catch (err) {
-    // last resort cleanup if auth created but something threw
     if (createdAuthUserId) {
       await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
     }
