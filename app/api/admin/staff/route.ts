@@ -1,6 +1,28 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+function isDuplicateAuthMessage(msg: string) {
+  const m = msg.toLowerCase();
+  return (
+    m.includes("already registered") ||
+    m.includes("already exists") ||
+    m.includes("user already registered") ||
+    m.includes("duplicate")
+  );
+}
+
+function getBaseUrl(req: Request) {
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") ?? "http";
+
+  if (!host) return "http://localhost:3000";
+
+  const isLocal = host.includes("localhost") || host.startsWith("127.0.0.1");
+  const scheme = isLocal ? "http" : proto;
+
+  return `${scheme}://${host}`;
+}
+
 // =====================================================
 // GET — list staff (filters + joins)
 // =====================================================
@@ -13,11 +35,13 @@ export async function GET(req: Request) {
 
   let query = supabaseAdmin
     .from("staff")
-    .select(`
+    .select(
+      `
       *,
       profiles:profile_id(*),
       departments(*)
-    `)
+    `
+    )
     .order("created_at", { ascending: false });
 
   if (search) {
@@ -26,25 +50,18 @@ export async function GET(req: Request) {
     );
   }
 
-  if (role && role !== "all") {
-    query = query.eq("profiles.main_role", role);
-  }
-
-  if (status && status !== "all") {
-    query = query.eq("status", status);
-  }
+  if (role && role !== "all") query = query.eq("profiles.main_role", role);
+  if (status && status !== "all") query = query.eq("status", status);
 
   const { data, error } = await query;
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   return NextResponse.json({ staff: data ?? [] });
 }
 
 // =====================================================
-// POST — create staff (AUTH → PROFILE → STAFF)
+// POST — create staff (Supabase Invite Email → PROFILE → STAFF)
+// Supabase sends email via your configured SMTP (Resend).
 // =====================================================
 export async function POST(req: Request) {
   let createdAuthUserId: string | null = null;
@@ -73,10 +90,8 @@ export async function POST(req: Request) {
     const designation = typeof body.designation === "string" ? body.designation.trim() : null;
     const specialization =
       typeof body.specialization === "string" ? body.specialization.trim() : null;
-    const department_id =
-      typeof body.department_id === "string" ? body.department_id : null;
-    const hire_date =
-      typeof body.hire_date === "string" ? body.hire_date : null;
+    const department_id = typeof body.department_id === "string" ? body.department_id : null;
+    const hire_date = typeof body.hire_date === "string" ? body.hire_date : null;
 
     if (!first_name || !last_name || !email || !main_role) {
       return NextResponse.json(
@@ -85,37 +100,33 @@ export async function POST(req: Request) {
       );
     }
 
+    const redirectTo = new URL("/callback", getBaseUrl(req)).toString();
+
     // -------------------------------------------------
-    // 1️⃣ CREATE AUTH USER (Supabase enforces uniqueness)
+    // 1) INVITE AUTH USER (Supabase sends the invite email)
     // -------------------------------------------------
-    const tempPassword = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const { data: inviteRes, error: inviteErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+      email,
+      {
+        data: { onboarding_status: "pending", main_role },
+        redirectTo,
+      }
+    );
 
-    const { data: authUser, error: authErr } =
-      await supabaseAdmin.auth.admin.createUser({
-        email,
-        password: tempPassword,
-        email_confirm: false,
-        user_metadata: { onboarding_status: "pending", main_role },
-      });
-
-    if (authErr) {
-      const isDuplicate =
-        authErr.message?.toLowerCase().includes("already registered");
-
-      return NextResponse.json(
-        { error: isDuplicate ? "User already exists" : authErr.message },
-        { status: isDuplicate ? 409 : 400 }
-      );
+    if (inviteErr) {
+      const msg = inviteErr.message ?? "Invite failed";
+      const isDup = isDuplicateAuthMessage(msg);
+      return NextResponse.json({ error: isDup ? "User already exists" : msg }, { status: isDup ? 409 : 400 });
     }
 
-    if (!authUser?.user) {
-      return NextResponse.json({ error: "Auth user creation failed" }, { status: 400 });
+    const user = inviteRes?.user;
+    if (!user?.id) {
+      return NextResponse.json({ error: "Auth invite failed (no user id)" }, { status: 400 });
     }
-
-    createdAuthUserId = authUser.user.id;
+    createdAuthUserId = user.id;
 
     // -------------------------------------------------
-    // 2️⃣ CREATE PROFILE
+    // 2) CREATE PROFILE
     // -------------------------------------------------
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
@@ -141,6 +152,7 @@ export async function POST(req: Request) {
 
     if (profileErr || !profile) {
       await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
+      createdAuthUserId = null;
       return NextResponse.json(
         { error: profileErr?.message ?? "Failed to create profile" },
         { status: 400 }
@@ -148,7 +160,7 @@ export async function POST(req: Request) {
     }
 
     // -------------------------------------------------
-    // 3️⃣ STAFF ID GENERATION
+    // 3) STAFF ID GENERATION
     // -------------------------------------------------
     let deptCode = "GEN";
     if (department_id) {
@@ -163,17 +175,30 @@ export async function POST(req: Request) {
     const year = hire_date ? new Date(hire_date).getFullYear() : new Date().getFullYear();
     const yy = String(year).slice(-2);
 
-    const { count } = await supabaseAdmin
+    // null-safe count query
+    const baseCountQuery = supabaseAdmin
       .from("staff")
       .select("id", { count: "exact", head: true })
-      .eq("department_id", department_id)
       .like("staff_id", `%/${yy}/%`);
+
+    const countQuery = department_id
+      ? baseCountQuery.eq("department_id", department_id)
+      : baseCountQuery.is("department_id", null);
+
+    const { count, error: countErr } = await countQuery;
+
+    if (countErr) {
+      await supabaseAdmin.from("profiles").delete().eq("id", profile.id);
+      await supabaseAdmin.auth.admin.deleteUser(profile.id);
+      createdAuthUserId = null;
+      return NextResponse.json({ error: countErr.message }, { status: 400 });
+    }
 
     const seq = String((count ?? 0) + 1).padStart(4, "0");
     const staff_id = `STF/${deptCode}/${yy}/${seq}`;
 
     // -------------------------------------------------
-    // 4️⃣ CREATE STAFF
+    // 4) CREATE STAFF
     // -------------------------------------------------
     const { data: staff, error: staffErr } = await supabaseAdmin
       .from("staff")
@@ -192,6 +217,8 @@ export async function POST(req: Request) {
     if (staffErr || !staff) {
       await supabaseAdmin.from("profiles").delete().eq("id", profile.id);
       await supabaseAdmin.auth.admin.deleteUser(profile.id);
+      createdAuthUserId = null;
+
       return NextResponse.json(
         { error: staffErr?.message ?? "Failed to create staff record" },
         { status: 400 }
@@ -199,7 +226,7 @@ export async function POST(req: Request) {
     }
 
     // -------------------------------------------------
-    // 5️⃣ ACTIVATE PROFILE
+    // 5) ACTIVATE PROFILE (optional)
     // -------------------------------------------------
     await supabaseAdmin
       .from("profiles")
@@ -209,7 +236,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       staffId: staff.staff_id,
-      tempPassword, // temporary until invite flow
+      inviteQueued: true,
+      redirectTo,
       staff,
     });
   } catch (err) {
