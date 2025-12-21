@@ -1,216 +1,227 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase/admin";
+import { createClient } from "@/lib/supabase/server";
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
+const BUCKET = "applications";
 
-  const search = searchParams.get("search")?.trim() || "";
-  const role = searchParams.get("role") || "all"; // academic_staff | non_academic_staff | all
-  const status = searchParams.get("status") || "all";
+type JsonObject = Record<string, unknown>;
 
-  let query = supabaseAdmin
-    .from("staff")
-    .select(
-      `
-        id,
-        staff_id,
-        designation,
-        specialization,
-        status,
-        department_id,
-        created_at,
-        profiles:profile_id(
-          id,
-          first_name,
-          last_name,
-          email,
-          phone,
-          avatar_url,
-          main_role
-        ),
-        departments(id, name, code)
-      `
-    )
-    .order("created_at", { ascending: false });
+function isObject(v: unknown): v is JsonObject {
+  return typeof v === "object" && v !== null;
+}
 
-  if (search) {
-    query = query.or(
-      `staff_id.ilike.%${search}%,designation.ilike.%${search}%,specialization.ilike.%${search}%`
-    );
+function getString(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+function getOptionalString(v: unknown): string | null {
+  const s = getString(v).trim();
+  return s ? s : null;
+}
+
+function getOptionalStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((x) => (typeof x === "string" ? x.trim() : ""))
+    .filter((x): x is string => Boolean(x));
+}
+
+/**
+ * Accepts either:
+ * - raw storage path: "passports/abc.png"
+ * - public URL: "https://.../storage/v1/object/public/applications/passports/abc.png"
+ * Returns normalized storage path (without leading "/"), or null.
+ */
+function normalizeStoragePath(input: unknown, bucket: string): string | null {
+  const s = getString(input).trim();
+  if (!s) return null;
+
+  // URL case
+  try {
+    const u = new URL(s);
+    const marker = `/storage/v1/object/public/${bucket}/`;
+    const idx = u.pathname.indexOf(marker);
+    if (idx !== -1) {
+      const extracted = u.pathname.slice(idx + marker.length);
+      const path = decodeURIComponent(extracted).replace(/^\/+/, "");
+      return path ? path : null;
+    }
+  } catch {
+    // not a URL -> treat as path
   }
 
-  if (role !== "all") {
-    query = query.eq("profiles.main_role", role);
-  }
-
-  if (status !== "all") {
-    query = query.eq("status", status);
-  }
-
-  const { data, error } = await query;
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-
-  return NextResponse.json({ staff: data ?? [] });
+  // plain path
+  const path = s.replace(/^\/+/, "");
+  return path ? path : null;
 }
 
 export async function POST(req: Request) {
-  let createdAuthUserId: string | null = null;
-
   try {
-    const body = (await req.json()) as Record<string, unknown>;
+    const raw: unknown = await req.json();
+    if (!isObject(raw)) {
+      return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
+    }
 
-    const first_name = typeof body.first_name === "string" ? body.first_name.trim() : "";
-    const middle_name = typeof body.middle_name === "string" ? body.middle_name.trim() : null;
-    const last_name = typeof body.last_name === "string" ? body.last_name.trim() : "";
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-    const phone = typeof body.phone === "string" ? body.phone.trim() : null;
+    // Pull values safely (NO any)
+    const email = getString(raw.email).trim().toLowerCase();
+    const firstName = getString(raw.firstName).trim();
+    const lastName = getString(raw.lastName).trim();
+    const programId = getString(raw.programId).trim();
+    const nin = getString(raw.nin).trim();
 
-    const gender = typeof body.gender === "string" ? body.gender : null;
-    const date_of_birth = typeof body.date_of_birth === "string" ? body.date_of_birth : null;
-    const nin = typeof body.nin === "string" ? body.nin.trim() : null;
-    const address = typeof body.address === "string" ? body.address.trim() : null;
-    const state_of_origin = typeof body.state_of_origin === "string" ? body.state_of_origin.trim() : null;
-    const lga_of_origin = typeof body.lga_of_origin === "string" ? body.lga_of_origin.trim() : null;
-    const religion = typeof body.religion === "string" ? body.religion.trim() : null;
+    if (!email || !firstName || !lastName || !programId || !nin) {
+      return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
+    }
 
-    const main_role = typeof body.main_role === "string" ? body.main_role : "";
-    const designation = typeof body.designation === "string" ? body.designation.trim() : null;
-    const specialization = typeof body.specialization === "string" ? body.specialization.trim() : null;
-    const department_id = typeof body.department_id === "string" ? body.department_id : null;
-    const hire_date = typeof body.hire_date === "string" ? body.hire_date : null;
+    // Passport: accept either passportPath or passportImageId (and allow URL or path)
+    const passportPath =
+      normalizeStoragePath(raw.passportPath, BUCKET) ??
+      normalizeStoragePath(raw.passportImageId, BUCKET);
 
-    if (!first_name || !last_name || !email || !main_role) {
+    if (!passportPath) {
+      return NextResponse.json({ error: "Passport is required." }, { status: 400 });
+    }
+
+    // Supporting docs: accept either supportingPaths or supportingDocuments
+    const supportingPathsRaw =
+      getOptionalStringArray(raw.supportingPaths).length > 0
+        ? getOptionalStringArray(raw.supportingPaths)
+        : getOptionalStringArray(raw.supportingDocuments);
+
+    const supportingPaths = supportingPathsRaw
+      .map((v) => normalizeStoragePath(v, BUCKET))
+      .filter((x): x is string => Boolean(x));
+
+    const admissionType = getString(raw.admissionType).trim();
+    if (admissionType === "direct_entry") {
+      const prevSchool = getString(raw.previousSchool).trim();
+      const prevQual = getString(raw.previousQualification).trim();
+      if (!prevSchool || !prevQual) {
+        return NextResponse.json(
+          { error: "Previous school and qualification are required for Direct Entry." },
+          { status: 400 }
+        );
+      }
+    }
+
+    const supabase = await createClient();
+
+    // 1) active session
+    const { data: activeSession, error: sessionError } = await supabase
+      .from("sessions")
+      .select("id")
+      .eq("is_active", true)
+      .order("start_date", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (sessionError || !activeSession) {
+      return NextResponse.json({ error: "No active session configured." }, { status: 400 });
+    }
+
+    // 2) derive department_id from program (applications.department_id is NOT NULL)
+    const { data: programRow, error: programErr } = await supabase
+      .from("programs")
+      .select("department_id")
+      .eq("id", programId)
+      .single();
+
+    if (programErr || !programRow?.department_id) {
       return NextResponse.json(
-        { error: "Missing required fields: first_name, last_name, email, main_role" },
+        { error: "Selected program is missing department mapping." },
         { status: 400 }
       );
     }
 
-    // 0) 409 pre-check (profiles email)
-    const { data: existingProfile, error: profCheckErr } = await supabaseAdmin
-      .from("profiles")
-      .select("id")
-      .eq("email", email)
-      .maybeSingle();
+    const departmentId = programRow.department_id as string;
 
-    if (profCheckErr) return NextResponse.json({ error: profCheckErr.message }, { status: 400 });
-    if (existingProfile) return NextResponse.json({ error: "Email already exists." }, { status: 409 });
+    // 3) Insert application (passport_file stored as {bucket,path})
+    const applicationPayload = {
+      application_no: crypto.randomUUID(),
 
-    // 1) Create AUTH (pending)
-    const tempPassword = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+      session_id: activeSession.id,
+      program_id: programId,
+      department_id: departmentId,
 
-    const { data: authUser, error: authErr } = await supabaseAdmin.auth.admin.createUser({
+      first_name: firstName,
+      middle_name: getOptionalString(raw.middleName),
+      last_name: lastName,
+
+      gender: getString(raw.gender),
+      date_of_birth: getString(raw.dateOfBirth),
+
       email,
-      password: tempPassword,
-      email_confirm: false,
-      user_metadata: { onboarding_status: "pending", main_role },
-    });
+      phone: getOptionalString(raw.phone),
+      nin,
+      special_needs: getOptionalString(raw.specialNeeds),
 
-    if (authErr || !authUser.user) {
-      // If email already exists in auth, Supabase returns an error here -> treat as 409
-      const msg = authErr?.message ?? "Failed to create authentication user.";
-      const status = msg.toLowerCase().includes("already") ? 409 : 400;
-      return NextResponse.json({ error: msg }, { status });
-    }
+      state_of_origin: getString(raw.stateOfOrigin),
+      lga_of_origin: getString(raw.lgaOfOrigin),
+      religion: getString(raw.religion),
+      address: getString(raw.address),
 
-    createdAuthUserId = authUser.user.id;
+      class_applied_for: getString(raw.classAppliedFor),
+      application_type: getString(raw.admissionType),
+      previous_school: getOptionalString(raw.previousSchool),
+      previous_qualification: getOptionalString(raw.previousQualification),
 
-    // 2) Create PROFILE
-    const { data: profile, error: profileErr } = await supabaseAdmin
-      .from("profiles")
-      .insert({
-        id: createdAuthUserId,
-        first_name,
-        middle_name,
-        last_name,
-        email,
-        phone,
-        gender,
-        date_of_birth,
-        nin,
-        address,
-        state_of_origin,
-        lga_of_origin,
-        religion,
-        main_role,
-      })
-      .select("id")
+      guardian_first_name: getString(raw.guardianFirstName),
+      guardian_middle_name: getOptionalString(raw.guardianMiddleName),
+      guardian_last_name: getString(raw.guardianLastName),
+      guardian_gender: getString(raw.guardianGender),
+      guardian_status: getString(raw.guardianStatus),
+      guardian_phone: getString(raw.guardianPhone),
+      guardian_email: getOptionalString(raw.guardianEmail),
+
+      // store as timestamptz if provided (your form is usually YYYY-MM-DD)
+      attestation_date: getString(raw.attestationDate)
+        ? new Date(getString(raw.attestationDate)).toISOString()
+        : null,
+
+      passport_file: { bucket: BUCKET, path: passportPath },
+      signature_file: null,
+
+      status: "pending",
+    };
+
+    const { data: app, error: appErr } = await supabase
+      .from("applications")
+      .insert(applicationPayload)
+      .select("id, application_no, status, created_at")
       .single();
 
-    if (profileErr || !profile) {
-      await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
-      return NextResponse.json({ error: profileErr?.message ?? "Failed to create profile." }, { status: 400 });
+    if (appErr || !app) {
+      return NextResponse.json(
+        { error: appErr?.message ?? "Failed to create application." },
+        { status: 400 }
+      );
     }
 
-    // 3) Dept code (optional)
-    let deptCode = "GEN";
-    if (department_id) {
-      const { data: dept, error: deptErr } = await supabaseAdmin
-        .from("departments")
-        .select("code")
-        .eq("id", department_id)
-        .maybeSingle();
+    // 4) Insert supporting docs into application_documents
+    if (supportingPaths.length > 0) {
+      const docsPayload = supportingPaths.map((p) => ({
+        application_id: app.id,
+        file: { bucket: BUCKET, path: p },
+      }));
 
-      if (deptErr) {
-        await supabaseAdmin.from("profiles").delete().eq("id", profile.id);
-        await supabaseAdmin.auth.admin.deleteUser(profile.id);
-        return NextResponse.json({ error: deptErr.message }, { status: 400 });
+      const { error: docsErr } = await supabase
+        .from("application_documents")
+        .insert(docsPayload);
+
+      if (docsErr) {
+        return NextResponse.json(
+          {
+            success: true,
+            application: app,
+            warning: `Application saved but documents failed: ${docsErr.message}`,
+          },
+          { status: 200 }
+        );
       }
-      if (dept?.code) deptCode = dept.code;
     }
 
-    // 4) Year segment
-    const hireYear = hire_date ? new Date(hire_date).getFullYear() : new Date().getFullYear();
-    const yy = String(hireYear).slice(-2);
-
-    // 5) Collision-safe sequence via DB function
-    const seqKey = `staff:${deptCode}`;
-    const { data: seqVal, error: seqErr } = await supabaseAdmin.rpc("next_sequence", {
-      p_seq_key: seqKey,
-      p_seq_year: yy,
-    });
-
-    if (seqErr || typeof seqVal !== "number") {
-      await supabaseAdmin.from("profiles").delete().eq("id", profile.id);
-      await supabaseAdmin.auth.admin.deleteUser(profile.id);
-      return NextResponse.json({ error: seqErr?.message ?? "Failed to allocate staff sequence." }, { status: 400 });
-    }
-
-    const nextSeq = String(seqVal).padStart(4, "0");
-    const staffId = `STF/${deptCode}/${yy}/${nextSeq}`;
-
-    // 6) Insert STAFF
-    const { data: staff, error: staffErr } = await supabaseAdmin
-      .from("staff")
-      .insert({
-        profile_id: profile.id,
-        staff_id: staffId,
-        designation,
-        specialization,
-        department_id,
-        hire_date,
-        status: "active",
-      })
-      .select("id, staff_id, profile_id, created_at")
-      .single();
-
-    if (staffErr || !staff) {
-      await supabaseAdmin.from("profiles").delete().eq("id", profile.id);
-      await supabaseAdmin.auth.admin.deleteUser(profile.id);
-      return NextResponse.json({ error: staffErr?.message ?? "Failed to create staff record." }, { status: 400 });
-    }
-
-    return NextResponse.json({
-      success: true,
-      staffId: staff.staff_id,
-      tempPassword, // show in admin UI (your “option 1”)
-      staff,
-    });
-  } catch (err) {
-    if (createdAuthUserId) await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Unexpected server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, application: app });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Invalid request";
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
 }
