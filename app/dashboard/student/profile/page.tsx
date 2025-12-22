@@ -1,3 +1,4 @@
+// app/dashboard/student/profile/page.tsx
 import { redirect } from "next/navigation";
 import ProfileClient from "./profile-client";
 import { createClient } from "@/lib/supabase/server";
@@ -36,42 +37,37 @@ export default async function ProfilePage() {
   const user = userRes.user;
   if (!user) redirect("/login");
 
-  const [{ data: profile, error: pErr }, { data: student, error: sErr }] =
-    await Promise.all([
-      supabase
-        .from("profiles")
-        .select(
-          "id, first_name, middle_name, last_name, email, phone, avatar_file, date_of_birth, gender, address, state_of_origin, lga_of_origin"
-        )
-        .eq("id", user.id)
-        .single<ProfileRow>(),
-      supabase
-        .from("students")
-        .select("id, profile_id, matric_no, level, cgpa, enrollment_date, status")
-        .eq("profile_id", user.id)
-        .maybeSingle<StudentRow>(),
-    ]);
+  const profileRes = await supabase
+    .from("profiles")
+    .select(
+      "id, first_name, middle_name, last_name, email, phone, avatar_file, date_of_birth, gender, address, state_of_origin, lga_of_origin"
+    )
+    .eq("id", user.id)
+    .maybeSingle();
 
-  if (pErr || !profile) {
+  const studentRes = await supabase
+    .from("students")
+    .select("id, profile_id, matric_no, level, cgpa, enrollment_date, status")
+    .eq("profile_id", user.id)
+    .maybeSingle();
+
+  if (profileRes.error || !profileRes.data) {
     return (
       <div className="bg-white rounded-2xl p-6 border border-gray-200">
         <p className="text-sm text-gray-700">Profile not found.</p>
-        {pErr?.message ? (
-          <p className="text-xs text-gray-500 mt-1">{pErr.message}</p>
+        {profileRes.error?.message ? (
+          <p className="text-xs text-gray-500 mt-1">{profileRes.error.message}</p>
         ) : null}
       </div>
     );
   }
 
-  // student can be null
-  void sErr;
-
   return (
     <ProfileClient
       userId={user.id}
-      authEmail={user.email ?? profile.email ?? ""}
-      initialProfile={profile}
-      student={student ?? null}
+      authEmail={user.email ?? profileRes.data.email ?? ""}
+      initialProfile={profileRes.data as ProfileRow}
+      student={(studentRes.data as StudentRow) ?? null}
     />
   );
 }
