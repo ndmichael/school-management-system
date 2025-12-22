@@ -53,7 +53,7 @@ export function Hero() {
             <h1 className="text-4xl lg:text-5xl xl:text-6xl font-bold leading-tight">
               <span className="block text-gray-900">Empowering</span>
               <span className="block bg-linear-to-r from-primary-600 via-secondary-500 to-primary-600 bg-clip-text text-transparent">
-                Tomorrow's
+                Tomorrow&quot;s
               </span>
               <span className="block text-gray-900">Healthcare Heroes</span>
             </h1>
