@@ -3,6 +3,56 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 
 type ConvertParams = { id: string };
 
+type StoredFile = { bucket: string; path: string };
+
+type ApplicationRow = {
+  id: string;
+  status: string;
+  converted_to_student: boolean;
+  student_id: string | null;
+
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+  email: string;
+  phone: string | null;
+  gender: string | null;
+  date_of_birth: string | null;
+
+  state_of_origin: string | null;
+  lga_of_origin: string | null;
+  nin: string | null;
+  religion: string | null;
+  address: string | null;
+
+  guardian_first_name: string | null;
+  guardian_last_name: string | null;
+  guardian_phone: string | null;
+  guardian_status: string | null;
+
+  program_id: string;
+  department_id: string;
+  session_id: string;
+
+  passport_file: unknown; // jsonb from DB
+};
+
+type ProgramRow = { code: string };
+type SessionRow = { name: string };
+type ProfileIdRow = { id: string };
+type StudentInsertReturn = { id: string; matric_no: string };
+
+type JsonRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is JsonRecord {
+  return typeof v === "object" && v !== null;
+}
+
+function isStoredFile(v: unknown): v is StoredFile {
+  if (!isRecord(v)) return false;
+  return typeof v.bucket === "string" && typeof v.path === "string" && v.bucket.trim() !== "" && v.path.trim() !== "";
+}
+
 function isDuplicateAuthMessage(msg: string) {
   const m = msg.toLowerCase();
   return (
@@ -16,7 +66,6 @@ function isDuplicateAuthMessage(msg: string) {
 function getBaseUrl(req: Request) {
   const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
   const proto = req.headers.get("x-forwarded-proto") ?? "http";
-
   if (!host) return "http://localhost:3000";
 
   const isLocal = host.includes("localhost") || host.startsWith("127.0.0.1");
@@ -35,10 +84,11 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
       return NextResponse.json({ error: "Missing application id." }, { status: 400 });
     }
 
-    // 1) Load application
+    // 1) Load application (includes passport_file)
     const { data: app, error: appErr } = await supabaseAdmin
       .from("applications")
-      .select(`
+      .select(
+        `
         id,
         status,
         converted_to_student,
@@ -65,23 +115,20 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
 
         program_id,
         department_id,
-        session_id
-      `)
+        session_id,
+
+        passport_file
+      `
+      )
       .eq("id", applicationId)
-      .single();
+      .single<ApplicationRow>();
 
     if (appErr || !app) {
-      return NextResponse.json(
-        { error: appErr?.message ?? "Application not found." },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: appErr?.message ?? "Application not found." }, { status: 404 });
     }
 
     if (app.status !== "accepted") {
-      return NextResponse.json(
-        { error: "Application must be accepted before conversion." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Application must be accepted before conversion." }, { status: 400 });
     }
 
     if (app.converted_to_student) {
@@ -93,12 +140,21 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
       return NextResponse.json({ error: "Application email is missing." }, { status: 400 });
     }
 
+    // ✅ Require passport_file to exist and be a valid {bucket,path}, because we will use it as avatar_file
+    if (!isStoredFile(app.passport_file)) {
+      return NextResponse.json(
+        { error: "Application passport_file is missing or invalid. Cannot set student avatar." },
+        { status: 400 }
+      );
+    }
+    const avatarFile: StoredFile = app.passport_file;
+
     // 409 pre-check (profile exists by email)
     const { data: existingProfile, error: profCheckErr } = await supabaseAdmin
       .from("profiles")
       .select("id")
       .eq("email", email)
-      .maybeSingle();
+      .maybeSingle<ProfileIdRow>();
 
     if (profCheckErr) {
       return NextResponse.json({ error: profCheckErr.message }, { status: 400 });
@@ -116,41 +172,27 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
       .from("programs")
       .select("code")
       .eq("id", app.program_id)
-      .single();
+      .single<ProgramRow>();
 
     if (programErr || !program?.code) {
-      return NextResponse.json(
-        { error: programErr?.message ?? "Program not found." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: programErr?.message ?? "Program not found." }, { status: 400 });
     }
 
-    // 3) Session year segment
+    // 3) Session (kept because you may still use it elsewhere / auditing)
     const { data: session, error: sessionErr } = await supabaseAdmin
       .from("sessions")
       .select("name")
       .eq("id", app.session_id)
-      .single();
+      .single<SessionRow>();
 
     if (sessionErr || !session?.name) {
-      return NextResponse.json(
-        { error: sessionErr?.message ?? "Session not found." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: sessionErr?.message ?? "Session not found." }, { status: 400 });
     }
 
-    const [startYear] = String(session.name).split("/");
-    const yy = String(startYear).slice(-2);
-
-    // 4) Matric (RPC)
-    const { data: matricNo, error: matricErr } = await supabaseAdmin.rpc(
-      "generate_student_matric_no",
-      {
-        p_program_id: app.program_id,
-        p_program_code: program.code,
-        p_yy: yy,
-      }
-    );
+    // 4) Matric (RPC) — uses your current function signature: generate_student_matric_no(p_prefix text)
+    const { data: matricNo, error: matricErr } = await supabaseAdmin.rpc("generate_student_matric_no", {
+      p_prefix: program.code,
+    });
 
     if (matricErr || !matricNo) {
       return NextResponse.json(
@@ -159,14 +201,13 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
       );
     }
 
-    // 5) Invite auth user (Supabase sends invite via your SMTP)
+    // 5) Invite auth user (Supabase sends invite email)
     const redirectTo = new URL("/callback", getBaseUrl(req)).toString();
 
-    const { data: inviteRes, error: inviteErr } =
-      await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        data: { onboarding_status: "pending", main_role: "student" },
-        redirectTo,
-      });
+    const { data: inviteRes, error: inviteErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      data: { onboarding_status: "pending", main_role: "student" },
+      redirectTo,
+    });
 
     if (inviteErr) {
       const msg = inviteErr.message ?? "Failed to invite auth user.";
@@ -178,13 +219,14 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
       );
     }
 
-    if (!inviteRes?.user?.id) {
+    const invitedUserId = inviteRes?.user?.id ?? null;
+    if (!invitedUserId) {
       return NextResponse.json({ error: "Invite succeeded but no user id returned." }, { status: 400 });
     }
 
-    createdAuthUserId = inviteRes.user.id;
+    createdAuthUserId = invitedUserId;
 
-    // 6) Create profile
+    // 6) Create profile (✅ avatar_file copied from passport_file)
     const { data: profile, error: profileErr2 } = await supabaseAdmin
       .from("profiles")
       .insert({
@@ -203,18 +245,18 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
         address: app.address,
         main_role: "student",
         onboarding_status: "pending",
+
+        // ✅ HERE:
+        avatar_file: avatarFile,
       })
       .select("id")
-      .single();
+      .single<ProfileIdRow>();
 
     if (profileErr2 || !profile) {
       await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
       createdAuthUserId = null;
 
-      return NextResponse.json(
-        { error: profileErr2?.message ?? "Failed to create profile." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: profileErr2?.message ?? "Failed to create profile." }, { status: 400 });
     }
 
     // 7) Create student
@@ -236,17 +278,14 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
         guardian_status: app.guardian_status,
       })
       .select("id, matric_no")
-      .single();
+      .single<StudentInsertReturn>();
 
     if (studentErr || !student) {
       await supabaseAdmin.from("profiles").delete().eq("id", profile.id);
       await supabaseAdmin.auth.admin.deleteUser(profile.id);
       createdAuthUserId = null;
 
-      return NextResponse.json(
-        { error: studentErr?.message ?? "Failed to create student." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: studentErr?.message ?? "Failed to create student." }, { status: 400 });
     }
 
     // 8) Mark application converted
@@ -267,17 +306,16 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
     }
 
     // Optional: activate profile
-    await supabaseAdmin
-      .from("profiles")
-      .update({ onboarding_status: "active" })
-      .eq("id", profile.id);
+    await supabaseAdmin.from("profiles").update({ onboarding_status: "active" }).eq("id", profile.id);
 
     return NextResponse.json({
       success: true,
       studentId: student.id,
       matricNo: student.matric_no,
+      studentEmail: email,
       inviteQueued: true,
       redirectTo,
+      avatarFile, // helpful for debugging
     });
   } catch (err) {
     if (createdAuthUserId) {
