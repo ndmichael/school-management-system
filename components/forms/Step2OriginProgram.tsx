@@ -1,11 +1,7 @@
 "use client";
 
 import { FC } from "react";
-import {
-  ApplicationFormData,
-  AdmissionType,
-  Religion,
-} from "@/types/applications";
+import type { ApplicationFormData, AdmissionType, Religion } from "@/types/applications";
 import { Input, Select } from "@/components/shared";
 
 interface Step2Props {
@@ -13,8 +9,6 @@ interface Step2Props {
   setData: (newData: Partial<ApplicationFormData>) => void;
   programs: { id: string; name: string }[];
 }
-
-const admissionTypes: AdmissionType[] = ["fresh", "direct_entry"];
 
 const religions: { value: Religion; label: string }[] = [
   { value: "muslim", label: "Muslim" },
@@ -44,11 +38,14 @@ const Step2OriginProgram: FC<Step2Props> = ({ data, setData, programs }) => {
         />
       </div>
 
-      {/* Religion */}
-      <Select
+      {/* Religion (required enum) */}
+      <Select<Religion>
         label="Religion"
-        value={data.religion ?? ""}
-        onChange={(val) => setData({ religion: val === "" ? undefined : val })}
+        value={data.religion}
+        onChange={(val) => {
+          if (val === "") return; // don’t allow undefined/empty for required enum
+          setData({ religion: val });
+        }}
         options={religions}
         required
       />
@@ -81,11 +78,14 @@ const Step2OriginProgram: FC<Step2Props> = ({ data, setData, programs }) => {
         />
       </div>
 
-      {/* Admission Type */}
+      {/* Admission Type (required enum) */}
       <Select<AdmissionType>
         label="Admission Type"
         value={data.admissionType}
-        onChange={(val) => setData({ admissionType: val === "" ? undefined : val })}
+        onChange={(val) => {
+          if (val === "") return; // don’t allow undefined/empty for required enum
+          setData({ admissionType: val });
+        }}
         options={[
           { value: "fresh", label: "FRESH ADMISSION" },
           { value: "direct_entry", label: "DIRECT ENTRY" },
@@ -107,9 +107,7 @@ const Step2OriginProgram: FC<Step2Props> = ({ data, setData, programs }) => {
             label="Previous Qualification"
             placeholder="e.g. WAEC, Diploma, Certificate"
             value={data.previousQualification || ""}
-            onChange={(e) =>
-              setData({ previousQualification: e.target.value })
-            }
+            onChange={(e) => setData({ previousQualification: e.target.value })}
           />
         </div>
       )}
