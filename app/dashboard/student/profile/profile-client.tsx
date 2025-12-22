@@ -5,7 +5,8 @@ import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "react-toastify";
 
-type StoredFile = { bucket: string; path: string };
+import ChangePasswordCard from "@/components/security/ChangePasswordCard";
+import { toPublicImageSrc, type StoredFile } from "@/lib/storage-images";
 
 type ProfileRow = {
   id: string;
@@ -78,11 +79,9 @@ function parseApiResponse(json: unknown): ApiOk | ApiErr {
     const p = json.profile;
     if (!isRecord(p)) return { error: "Invalid profile returned." };
 
-    // minimal structural checks
     const id = readString(p.id);
     if (!id) return { error: "Invalid profile returned." };
 
-    // Build ProfileRow safely (no any)
     const profile: ProfileRow = {
       id,
       first_name: readString(p.first_name),
@@ -102,31 +101,23 @@ function parseApiResponse(json: unknown): ApiOk | ApiErr {
   return { error: "Unexpected server response." };
 }
 
-export default function ProfileClient({
+export default function SettingsClient({
   userId,
   authEmail,
   initialProfile,
   student,
 }: Props) {
   const supabase = useMemo(() => createClient(), []);
-
   const [profile, setProfile] = useState<ProfileRow>(initialProfile);
 
-  // ✅ Only editable fields
+  // ✅ Only student-editable fields
   const [phone, setPhone] = useState(profile.phone ?? "");
   const [address, setAddress] = useState(profile.address ?? "");
-  const [stateOfOrigin, setStateOfOrigin] = useState(
-    profile.state_of_origin ?? ""
-  );
+  const [stateOfOrigin, setStateOfOrigin] = useState(profile.state_of_origin ?? "");
   const [lgaOfOrigin, setLgaOfOrigin] = useState(profile.lga_of_origin ?? "");
 
   const [isSaving, startSaving] = useTransition();
   const [isUploading, setIsUploading] = useState(false);
-
-  // Password (A: current + new)
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
 
   const displayName = useMemo(() => {
     const parts = [profile.first_name, profile.middle_name, profile.last_name]
@@ -135,14 +126,15 @@ export default function ProfileClient({
     return parts.length ? parts.join(" ") : "Student";
   }, [profile.first_name, profile.middle_name, profile.last_name]);
 
+  const emailForPassword = useMemo(() => {
+    const v = (authEmail || profile.email || "").trim();
+    return v;
+  }, [authEmail, profile.email]);
+
   const avatarSrc = useMemo(() => {
     const fallback = dicebearFallback(displayName);
-    const v = profile.avatar_file;
-    if (!v) return fallback;
-
-    // Your API restricts avatar_file to avatars bucket anyway.
-    const { data } = supabase.storage.from(v.bucket).getPublicUrl(v.path);
-    return data.publicUrl || fallback;
+    // Uses your existing helper (supports StoredFile)
+    return toPublicImageSrc(supabase, profile.avatar_file, fallback);
   }, [displayName, profile.avatar_file, supabase]);
 
   async function patchProfile(payload: PatchPayload): Promise<void> {
@@ -153,21 +145,19 @@ export default function ProfileClient({
     });
 
     const json: unknown = await res.json().catch(() => null);
-
     const parsed = parseApiResponse(json);
-    if ("error" in parsed) {
-      throw new Error(parsed.error);
-    }
 
-    // Even if res.ok is false, backend should return {error}, but handle both.
     if (!res.ok) {
+      if ("error" in parsed) throw new Error(parsed.error);
       throw new Error("Failed to update profile.");
     }
+
+    if ("error" in parsed) throw new Error(parsed.error);
 
     setProfile(parsed.profile);
   }
 
-  function onSave() {
+  function onSave(): void {
     startSaving(async () => {
       try {
         await patchProfile({
@@ -176,31 +166,28 @@ export default function ProfileClient({
           state_of_origin: stateOfOrigin.trim() ? stateOfOrigin.trim() : null,
           lga_of_origin: lgaOfOrigin.trim() ? lgaOfOrigin.trim() : null,
         });
-        toast.success("Profile updated.");
+        toast.success("Settings updated.");
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to update profile.");
+        toast.error(e instanceof Error ? e.message : "Failed to update settings.");
       }
     });
   }
 
-  async function onAvatarChange(file: File | null) {
+  async function onAvatarChange(file: File | null): Promise<void> {
     if (!file) return;
 
     setIsUploading(true);
     try {
-      if (file.size > 5 * 1024 * 1024) {
-        throw new Error("Max file size is 5MB.");
-      }
+      if (!file.type.startsWith("image/")) throw new Error("Please select an image file.");
+      if (file.size > 5 * 1024 * 1024) throw new Error("Max file size is 5MB.");
 
       const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
       const path = `${userId}/${crypto.randomUUID()}.${ext}`;
 
-      const { error: upErr } = await supabase.storage
-        .from("avatars")
-        .upload(path, file, {
-          upsert: false,
-          contentType: file.type || undefined,
-        });
+      const { error: upErr } = await supabase.storage.from("avatars").upload(path, file, {
+        upsert: true,
+        contentType: file.type || undefined,
+      });
 
       if (upErr) throw new Error(upErr.message);
 
@@ -213,39 +200,14 @@ export default function ProfileClient({
     }
   }
 
-  async function onChangePassword() {
-    try {
-      const email = authEmail.trim();
-      if (!email) throw new Error("Missing account email.");
-      if (!currentPassword) throw new Error("Enter your current password.");
-      if (!newPassword) throw new Error("Enter a new password.");
-      if (newPassword.length < 8) throw new Error("New password must be at least 8 characters.");
-      if (newPassword !== confirmNewPassword) throw new Error("Passwords do not match.");
-
-      // Re-auth (Option A)
-      const { error: signErr } = await supabase.auth.signInWithPassword({
-        email,
-        password: currentPassword,
-      });
-      if (signErr) throw new Error(signErr.message);
-
-      const { error: updErr } = await supabase.auth.updateUser({
-        password: newPassword,
-      });
-      if (updErr) throw new Error(updErr.message);
-
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmNewPassword("");
-
-      toast.success("Password updated.");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to change password.");
-    }
-  }
-
   return (
     <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+        <p className="text-sm text-gray-600 mt-1">Manage your profile, photo, and security.</p>
+      </div>
+
       {/* Summary */}
       <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
         <div className="flex items-center gap-5">
@@ -270,7 +232,11 @@ export default function ProfileClient({
                   accept="image/*"
                   className="hidden"
                   disabled={isUploading}
-                  onChange={(e) => onAvatarChange(e.target.files?.[0] ?? null)}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null;
+                    void onAvatarChange(f);
+                    e.currentTarget.value = "";
+                  }}
                 />
               </label>
             </div>
@@ -282,13 +248,13 @@ export default function ProfileClient({
       <div className="grid md:grid-cols-2 gap-6">
         {/* Student-editable profile */}
         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
-          <h3 className="text-lg font-semibold mb-4">Profile (Student editable)</h3>
+          <h3 className="text-lg font-semibold mb-4">Profile</h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <ReadOnly label="First name" value={profile.first_name ?? "—"} />
             <ReadOnly label="Middle name" value={profile.middle_name ?? "—"} />
             <ReadOnly label="Last name" value={profile.last_name ?? "—"} />
-            <ReadOnly label="Email" value={authEmail || profile.email || "—"} />
+            <ReadOnly label="Email" value={emailForPassword || "—"} />
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
@@ -318,42 +284,17 @@ export default function ProfileClient({
           </div>
         </div>
 
-        {/* Change password */}
-        <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
-          <h3 className="text-lg font-semibold mb-4">Security</h3>
-
-          <div className="space-y-3">
-            <Field
-              label="Current password"
-              value={currentPassword}
-              onChange={setCurrentPassword}
-              type="password"
-            />
-            <Field
-              label="New password"
-              value={newPassword}
-              onChange={setNewPassword}
-              type="password"
-            />
-            <Field
-              label="Confirm new password"
-              value={confirmNewPassword}
-              onChange={setConfirmNewPassword}
-              type="password"
-            />
-
-            <button
-              onClick={onChangePassword}
-              className="mt-2 inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-white text-sm font-medium hover:bg-slate-800"
-            >
-              Change password
-            </button>
-
-            <p className="text-xs text-gray-500">
-              Use at least 8 characters. Avoid reusing old passwords.
+        {/* Security (reused, secure) */}
+        {emailForPassword ? (
+          <ChangePasswordCard email={emailForPassword} />
+        ) : (
+          <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
+            <h3 className="text-lg font-semibold mb-2">Security</h3>
+            <p className="text-sm text-gray-600">
+              Cannot change password because your email is missing on this account.
             </p>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -368,7 +309,7 @@ function Field({
   label: string;
   value: string;
   onChange: (v: string) => void;
-  type?: "text" | "password";
+  type?: "text";
 }) {
   return (
     <div>
