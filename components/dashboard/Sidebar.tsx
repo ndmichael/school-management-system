@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import Image from "next/image";
 import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard,
@@ -64,9 +65,9 @@ const roleConfig: Record<UserRole, RoleConfig> = {
     items: [
       { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/student' },
       { icon: Receipt, label: 'Payments', href: '/dashboard/student/payments' },
-      { icon: FileText, label: 'Downloads', href: '/dashboard/student/downloads' },
+      // { icon: FileText, label: 'Downloads', href: '/dashboard/student/downloads' },
       { icon: FileText, label: 'Results', href: '/dashboard/student/results' },
-      { icon: Users, label: 'Profile', href: '/dashboard/student/profile' },
+      { icon: Users, label: 'Profile', href: '/dashboard/student/settings' },
     ],
   },
   academic_staff: {
@@ -133,19 +134,17 @@ export function Sidebar({ user }: SidebarProps) {
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="p-6 border-b border-gray-200">
-            <Link href="/" className="flex items-center gap-3 group">
-              <div
-                className={`w-10 h-10 ${config.color} rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform`}
-              >
-                <GraduationCap className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <span className="text-lg font-bold text-gray-900">SYK School</span>
-                <p className="text-xs text-gray-600">{config.label}</p>
-              </div>
-            </Link>
+          <div className="relative w-full h-17 py-10">
+            <Image
+              src="/brand/logo.png"
+              alt="SYK School of Health Tech"
+              fill
+              sizes="100vw"
+              className="object-cover"
+              priority
+            />
           </div>
+
 
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto p-4 space-y-1">
