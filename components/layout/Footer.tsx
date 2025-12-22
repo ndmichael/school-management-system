@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import Image from "next/image";
 import { 
-  GraduationCap,
   Mail,
   Phone,
   MapPin,
@@ -65,10 +65,13 @@ export function Footer() {
           <div className="lg:col-span-2 space-y-6">
             <Link href="/" className="inline-flex items-center gap-3 group">
               <div className="relative">
-                <div className="absolute inset-0 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-xl blur-md opacity-50 group-hover:opacity-75 transition-opacity" />
-                <div className="relative w-14 h-14 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform shadow-xl">
-                  <GraduationCap className="w-8 h-8 text-white" />
-                </div>
+                <Image
+                  src="/brand/syk-icon-color-1024.png"
+                  alt="SYK Health Tech"
+                  width={80}
+                  height={80}
+                  priority
+                />
               </div>
               <div>
                 <span className="text-2xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">

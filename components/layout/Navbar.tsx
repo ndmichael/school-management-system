@@ -2,9 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from "next/image";
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { GraduationCap, Menu, X } from 'lucide-react';
+import {  Menu, X } from 'lucide-react';
 
 export function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -51,20 +52,13 @@ export function Navbar() {
         <div className="flex items-center justify-between h-20">
           
           {/* LOGO */}
-          <Link href="/" className="flex items-center gap-3 group">
-            <div className="relative">
-              <div className="absolute inset-0 bg-gradient-to-r from-primary-600 to-secondary-500 rounded-xl blur-md opacity-40 group-hover:opacity-60 transition-opacity" />
-              <div className="relative w-12 h-12 bg-gradient-to-br from-primary-600 to-secondary-500 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform">
-                <GraduationCap className="w-7 h-7 text-white" />
-              </div>
-            </div>
-            <div className="hidden sm:block">
-              <span className="text-xl font-bold bg-gradient-to-r from-primary-600 to-secondary-600 bg-clip-text text-transparent">
-                SYK School of Health Tech
-              </span>
-              <p className="text-xs text-gray-600 -mt-1 tracking-wide">Portal</p>
-            </div>
-          </Link>
+          <Image
+            src="/brand/logo.png"
+            alt="SYK Health Tech"
+            width={140}
+            height={40}
+            priority
+          />
 
           {/* DESKTOP NAV */}
           <div className="hidden lg:flex items-center gap-4">
