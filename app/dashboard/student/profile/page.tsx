@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import ProfileClient from "./profile-client";
 import { createClient } from "@/lib/supabase/server";
 
+type StoredFile = { bucket: string; path: string };
+
 type ProfileRow = {
   id: string;
   first_name: string | null;
@@ -9,8 +11,8 @@ type ProfileRow = {
   last_name: string | null;
   email: string | null;
   phone: string | null;
-  avatar_url: string | null;
-  date_of_birth: string | null; // date comes back as string
+  avatar_file: StoredFile | null;
+  date_of_birth: string | null;
   gender: string | null;
   address: string | null;
   state_of_origin: string | null;
@@ -34,31 +36,36 @@ export default async function ProfilePage() {
   const user = userRes.user;
   if (!user) redirect("/login");
 
-  const [{ data: profile, error: pErr }, { data: student, error: sErr }] = await Promise.all([
-    supabase
-      .from("profiles")
-      .select(
-        "id, first_name, middle_name, last_name, email, phone, avatar_url, date_of_birth, gender, address, state_of_origin, lga_of_origin"
-      )
-      .eq("id", user.id)
-      .single<ProfileRow>(),
-    supabase
-      .from("students")
-      .select("id, profile_id, matric_no, level, cgpa, enrollment_date, status")
-      .eq("profile_id", user.id)
-      .single<StudentRow>(),
-  ]);
+  const [{ data: profile, error: pErr }, { data: student, error: sErr }] =
+    await Promise.all([
+      supabase
+        .from("profiles")
+        .select(
+          "id, first_name, middle_name, last_name, email, phone, avatar_file, date_of_birth, gender, address, state_of_origin, lga_of_origin"
+        )
+        .eq("id", user.id)
+        .single<ProfileRow>(),
+      supabase
+        .from("students")
+        .select("id, profile_id, matric_no, level, cgpa, enrollment_date, status")
+        .eq("profile_id", user.id)
+        .maybeSingle<StudentRow>(),
+    ]);
 
   if (pErr || !profile) {
     return (
       <div className="bg-white rounded-2xl p-6 border border-gray-200">
         <p className="text-sm text-gray-700">Profile not found.</p>
-        {pErr?.message ? <p className="text-xs text-gray-500 mt-1">{pErr.message}</p> : null}
+        {pErr?.message ? (
+          <p className="text-xs text-gray-500 mt-1">{pErr.message}</p>
+        ) : null}
       </div>
     );
   }
 
-  // student is optional here (but usually exists)
+  // student can be null
+  void sErr;
+
   return (
     <ProfileClient
       userId={user.id}
