@@ -1,6 +1,8 @@
+import Image from 'next/image';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { toPublicImageSrc, type StoredFile } from '@/lib/storage-images';
 import {
   BookOpen,
   ClipboardCheck,
@@ -9,6 +11,15 @@ import {
   Users,
   ChevronRight,
 } from 'lucide-react';
+
+type ProfileRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  avatar_file: StoredFile | null;
+  main_role: 'admin' | 'student' | 'academic_staff' | 'non_academic_staff';
+};
 
 type QueueRow = {
   course_offering_id: string;
@@ -21,9 +32,39 @@ type QueueRow = {
   eligible_students: number;
   submitted_results: number;
   pending_results: number;
-  // (optional if your RPC returns it; safe to ignore if not)
   session_active?: boolean | null;
 };
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+function isString(v: unknown): v is string {
+  return typeof v === 'string';
+}
+function isNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+function isBoolOrNull(v: unknown): v is boolean | null {
+  return v === null || typeof v === 'boolean';
+}
+
+function isQueueRow(v: unknown): v is QueueRow {
+  if (!isRecord(v)) return false;
+
+  return (
+    isString(v.course_offering_id) &&
+    isString(v.course_code) &&
+    isString(v.course_title) &&
+    isNumber(v.credits) &&
+    isString(v.session_name) &&
+    isString(v.semester) &&
+    isBoolOrNull(v.is_published) &&
+    isNumber(v.eligible_students) &&
+    isNumber(v.submitted_results) &&
+    isNumber(v.pending_results) &&
+    (v.session_active === undefined || isBoolOrNull(v.session_active))
+  );
+}
 
 function badgeClass(kind: 'purple' | 'blue' | 'orange' | 'green' | 'gray'): string {
   switch (kind) {
@@ -40,6 +81,11 @@ function badgeClass(kind: 'purple' | 'blue' | 'orange' | 'green' | 'gray'): stri
   }
 }
 
+function dicebearFallback(seed: string): string {
+  const safe = encodeURIComponent(seed || 'Staff');
+  return `https://api.dicebear.com/9.x/avataaars/svg?seed=${safe}&backgroundColor=b6e3f4`;
+}
+
 export default async function AcademicStaffDashboard() {
   const supabase = await createClient();
 
@@ -49,33 +95,52 @@ export default async function AcademicStaffDashboard() {
     error: authErr,
   } = await supabase.auth.getUser();
 
-  if (authErr || !user) {
-    redirect('/login');
+  if (authErr || !user) redirect('/login');
+
+  // 2) load staff profile (for name + avatar)
+  const { data: profile, error: profErr } = await supabase
+    .from('profiles')
+    .select('id, first_name, last_name, email, avatar_file, main_role')
+    .eq('id', user.id)
+    .maybeSingle<ProfileRow>();
+
+  if (profErr || !profile) {
+    return (
+      <div className="rounded-2xl border border-gray-200 bg-white p-6">
+        <p className="text-sm text-gray-700">Profile not found.</p>
+        {profErr?.message ? <p className="mt-1 text-xs text-gray-500">{profErr.message}</p> : null}
+      </div>
+    );
   }
 
-  // 2) backend data (your RPC already calculates eligible/submitted/pending)
-  const { data, error } = await supabase.rpc('get_grade_submission_queue');
+  // optional: guard role (recommended)
+  if (profile.main_role !== 'academic_staff') {
+    redirect('/dashboard');
+  }
 
-  const rows: QueueRow[] = Array.isArray(data) ? (data as QueueRow[]) : [];
+  const staffName = `${profile.first_name ?? ''} ${profile.last_name ?? ''}`.trim() || 'Academic Staff';
+  const avatar =
+    toPublicImageSrc(supabase, profile.avatar_file, '') ||
+    dicebearFallback(staffName);
 
-  // If RPC fails, still render a nice page (don’t crash)
+  // 3) dashboard queue (RPC)
+  const { data: rpcData, error } = await supabase.rpc('get_grade_submission_queue');
+
+  const rows: QueueRow[] = Array.isArray(rpcData) ? rpcData.filter(isQueueRow) : [];
   const safeRows = error ? [] : rows;
 
   const assignedCourses = safeRows.length;
+  const eligibleStudents = safeRows.reduce((sum, r) => sum + r.eligible_students, 0);
+  const pendingGrades = safeRows.reduce((sum, r) => sum + r.pending_results, 0);
 
-  const eligibleStudents = safeRows.reduce((sum, r) => sum + (r.eligible_students ?? 0), 0);
-  const pendingGrades = safeRows.reduce((sum, r) => sum + (r.pending_results ?? 0), 0);
-
-  // Prefer active session first if your RPC includes it, otherwise keep order as-is
   const scheduleList = [...safeRows].sort((a, b) => {
     const aActive = a.session_active === true ? 1 : 0;
     const bActive = b.session_active === true ? 1 : 0;
     return bActive - aActive;
   });
 
-  // Queue: show top 6 “most pending first”
   const gradeQueue = [...safeRows]
-    .sort((a, b) => (b.pending_results ?? 0) - (a.pending_results ?? 0))
+    .sort((a, b) => b.pending_results - a.pending_results)
     .slice(0, 6);
 
   const stats = [
@@ -108,14 +173,21 @@ export default async function AcademicStaffDashboard() {
       <div className="relative overflow-hidden rounded-2xl bg-linear-to-br from-purple-600 via-purple-700 to-indigo-600 p-8 text-white">
         <div className="absolute right-0 top-0 h-64 w-64 rounded-full bg-white/10 blur-3xl" />
         <div className="absolute bottom-0 left-0 h-96 w-96 rounded-full bg-white/5 blur-3xl" />
-        <div className="relative">
-          <h2 className="text-3xl font-bold mb-2">Academic Staff</h2>
-          <p className="text-purple-100 mb-6">
-            Manage your assigned courses and submit grades.
-          </p>
+
+        <div className="relative flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="relative h-14 w-14 overflow-hidden rounded-2xl border border-white/20 bg-white/10">
+              <Image src={avatar} alt={staffName} fill sizes="56px" className="object-cover" />
+            </div>
+            <div>
+              <h2 className="text-3xl font-bold leading-tight">Academic Staff</h2>
+              <p className="text-purple-100">
+                Welcome, <span className="font-semibold text-white">{staffName}</span>
+              </p>
+            </div>
+          </div>
 
           <div className="flex flex-wrap gap-3">
-            {/* If you don’t have schedule page, point it to /courses for now */}
             <Link
               href="/dashboard/academic_staff/courses"
               className="px-6 py-2.5 bg-white text-purple-700 rounded-lg font-semibold hover:bg-purple-50 transition-colors"
@@ -130,13 +202,13 @@ export default async function AcademicStaffDashboard() {
               Grade Submission
             </Link>
           </div>
-
-          {error ? (
-            <p className="mt-4 text-sm text-white/90">
-              ⚠️ Could not load dashboard stats ({error.message})
-            </p>
-          ) : null}
         </div>
+
+        {error ? (
+          <p className="relative mt-4 text-sm text-white/90">
+            ⚠️ Could not load dashboard stats ({error.message})
+          </p>
+        ) : null}
       </div>
 
       {/* Stats */}
@@ -163,7 +235,7 @@ export default async function AcademicStaffDashboard() {
 
       {/* Main Grid */}
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* Assigned Offerings (replacing fake “Today’s schedule”) */}
+        {/* Assigned Offerings */}
         <div className="lg:col-span-2 rounded-2xl border border-gray-200 bg-white p-6 overflow-hidden">
           <div className="mb-6 flex items-center justify-between gap-4">
             <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
@@ -180,9 +252,7 @@ export default async function AcademicStaffDashboard() {
           </div>
 
           {scheduleList.length === 0 ? (
-            <div className="py-10 text-center text-gray-600">
-              No assigned offerings yet.
-            </div>
+            <div className="py-10 text-center text-gray-600">No assigned offerings yet.</div>
           ) : (
             <div className="space-y-4">
               {scheduleList.slice(0, 6).map((r) => {
@@ -220,7 +290,7 @@ export default async function AcademicStaffDashboard() {
                         <span className="capitalize">{r.semester} semester</span>
                         <span className="flex items-center gap-1">
                           <Users className="h-3.5 w-3.5" />
-                          {r.eligible_students ?? 0} eligible
+                          {r.eligible_students} eligible
                         </span>
                       </div>
                     </div>
@@ -246,14 +316,11 @@ export default async function AcademicStaffDashboard() {
           </h3>
 
           {gradeQueue.length === 0 ? (
-            <div className="py-10 text-center text-gray-600">
-              Nothing in your queue yet.
-            </div>
+            <div className="py-10 text-center text-gray-600">Nothing in your queue yet.</div>
           ) : (
             <div className="space-y-4">
               {gradeQueue.map((item) => {
-                const pending = item.pending_results ?? 0;
-                const complete = pending <= 0;
+                const complete = item.pending_results <= 0;
 
                 return (
                   <div
@@ -275,7 +342,7 @@ export default async function AcademicStaffDashboard() {
                           complete ? badgeClass('green') : badgeClass('orange')
                         }`}
                       >
-                        {complete ? 'Complete' : `${pending} pending`}
+                        {complete ? 'Complete' : `${item.pending_results} pending`}
                       </span>
                     </div>
 
