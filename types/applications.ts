@@ -6,16 +6,23 @@ export type Religion = "muslim" | "christian" | "other";
 export type AdmissionType = "fresh" | "direct_entry";
 
 /**
- * Store ONLY storage paths in form state (recommended).
- * Example: "passports/uuid.png", "documents/uuid.pdf"
+ * Stored in DB jsonb columns (passport_file, signature_file, application_documents.file)
  */
+export type StorageFileRef = {
+  bucket: string;         // e.g. "applications"
+  path: string;           // e.g. "passports/uuid.png"
+  contentType?: string;   // e.g. "image/png"
+  size?: number;          // bytes
+  originalName?: string;  // original filename
+};
+
 export interface ApplicationFormData {
   firstName: string;
   middleName?: string | null;
   lastName: string;
 
   gender: Gender;
-  dateOfBirth: string;
+  dateOfBirth: string; // YYYY-MM-DD (DB: date)
 
   email: string;
   phone: string;
@@ -29,6 +36,8 @@ export interface ApplicationFormData {
 
   programId: string;
   classAppliedFor: string;
+
+  // You’re using this to populate DB: application_type
   admissionType: AdmissionType;
 
   previousSchool?: string;
@@ -42,13 +51,10 @@ export interface ApplicationFormData {
   guardianPhone: string;
   guardianEmail?: string | null;
 
-  attestationDate: string;
+  attestationDate: string; // YYYY-MM-DD (DB: timestamptz)
 
-  // ✅ NEW (fixes your TS errors)
-  passportPath: string;
-  supportingPaths: string[];
-
-  // ✅ Legacy (keep so older code doesn’t break if still referenced anywhere)
-  passportImageId?: string;
-  supportingDocuments?: string[];
+  // ✅ Option B: JSON file refs
+  passportFile: StorageFileRef | null;
+  signatureFile: StorageFileRef | null;
+  supportingFiles: StorageFileRef[];
 }
