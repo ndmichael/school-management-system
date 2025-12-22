@@ -1,19 +1,25 @@
 export const contactInfo = [
   {
     type: 'Phone',
-    value: '+234 801 234 5678',
-    href: 'tel:+2348012345678',
+    value: '+234 901 897 8280',
+    href: 'tel:+2349018978280',
+    description: 'Mon-Fri, 8am-5pm'
+  },
+  {
+    type: 'Phone',
+    value: '+234 903 593 9506',
+    href: 'tel:+2349035939506',
     description: 'Mon-Fri, 8am-5pm'
   },
   {
     type: 'Email',
-    value: 'info@sykschool.edu.ng',
-    href: 'mailto:info@sykschool.edu.ng',
+    value: 'sykschoolofhealthtech@gmail.com',
+    href: 'mailto:sykschoolofhealthtech@gmail.com',
     description: 'We reply within 24 hours'
   },
   {
     type: 'Address',
-    value: 'Abuja, FCT, Nigeria',
+    value: 'No, 3. Rogo Road,Karaye ,Kano State',
     href: '#',
     description: 'Visit our campus'
   }
