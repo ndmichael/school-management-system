@@ -72,12 +72,12 @@ export function Footer() {
               </div>
               <div>
                 <span className="text-2xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-                  SYK School
+                  Sarkin-Yarkin Karaye
                 </span>
-                <p className="text-sm text-gray-400">of Health Technology</p>
+                <p className="text-sm text-gray-400">School of Health Technology</p>
               </div>
             </Link>
-
+            <p><b>Motto:&quot;The Race For Excellence Has NO Finish Line&quot;</b></p>
             <p className="text-gray-400 leading-relaxed text-base max-w-sm">
               Empowering the next generation of healthcare professionals through excellence in education and practical training.
             </p>
@@ -85,11 +85,19 @@ export function Footer() {
             {/* Contact Info */}
             <div className="space-y-3 pt-2">
               <Link 
-                href="tel:+2348012345678" 
+                href="tel:+2349018978280" 
                 className="flex items-center gap-3 text-sm text-gray-400 hover:text-white transition-colors"
               >
                 <Phone className="w-4 h-4" />
-                <span>+234 801 234 5678</span>
+                <span>+234 901 897 8280</span>
+              </Link>
+
+              <Link 
+                href="tel:+2349035939506" 
+                className="flex items-center gap-3 text-sm text-gray-400 hover:text-white transition-colors"
+              >
+                <Phone className="w-4 h-4" />
+                <span>+234 903 593 9506</span>
               </Link>
 
               <Link 
@@ -97,12 +105,12 @@ export function Footer() {
                 className="flex items-center gap-3 text-sm text-gray-400 hover:text-white transition-colors"
               >
                 <Mail className="w-4 h-4" />
-                <span>info@sykschool.edu.ng</span>
+                <span>sykschoolofhealthtech@gmail.com</span>
               </Link>
 
               <div className="flex items-center gap-3 text-sm text-gray-400">
                 <MapPin className="w-4 h-4" />
-                <span>Abuja, FCT, Nigeria</span>
+                <span>No, 3. Rogo Road,Karaye ,Kano State.</span>
               </div>
             </div>
 
