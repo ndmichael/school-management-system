@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 const BUCKET = "applications";
 
@@ -18,40 +18,25 @@ function getOptionalString(v: unknown): string | null {
   return s ? s : null;
 }
 
-function getOptionalStringArray(v: unknown): string[] {
-  if (!Array.isArray(v)) return [];
-  return v
-    .map((x) => (typeof x === "string" ? x.trim() : ""))
-    .filter((x): x is string => Boolean(x));
+type FileRef = { bucket: string; path: string };
+
+function isFileRef(v: unknown): v is FileRef {
+  return (
+    isObject(v) &&
+    typeof v.bucket === "string" &&
+    typeof v.path === "string" &&
+    v.bucket.length > 0 &&
+    v.path.length > 0
+  );
 }
 
-/**
- * Accepts either:
- * - raw storage path: "passports/abc.png"
- * - public URL: "https://.../storage/v1/object/public/applications/passports/abc.png"
- * Returns normalized storage path (without leading "/"), or null.
- */
-function normalizeStoragePath(input: unknown, bucket: string): string | null {
-  const s = getString(input).trim();
-  if (!s) return null;
+function getFileRef(v: unknown): FileRef | null {
+  return isFileRef(v) ? v : null;
+}
 
-  // URL case
-  try {
-    const u = new URL(s);
-    const marker = `/storage/v1/object/public/${bucket}/`;
-    const idx = u.pathname.indexOf(marker);
-    if (idx !== -1) {
-      const extracted = u.pathname.slice(idx + marker.length);
-      const path = decodeURIComponent(extracted).replace(/^\/+/, "");
-      return path ? path : null;
-    }
-  } catch {
-    // not a URL -> treat as path
-  }
-
-  // plain path
-  const path = s.replace(/^\/+/, "");
-  return path ? path : null;
+function getFileRefArray(v: unknown): FileRef[] {
+  if (!Array.isArray(v)) return [];
+  return v.map(getFileRef).filter((x): x is FileRef => Boolean(x));
 }
 
 export async function POST(req: Request) {
@@ -61,7 +46,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
     }
 
-    // Pull values safely (NO any)
+    // Required fields
     const email = getString(raw.email).trim().toLowerCase();
     const firstName = getString(raw.firstName).trim();
     const lastName = getString(raw.lastName).trim();
@@ -72,25 +57,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
     }
 
-    // Passport: accept either passportPath or passportImageId (and allow URL or path)
-    const passportPath =
-      normalizeStoragePath(raw.passportPath, BUCKET) ??
-      normalizeStoragePath(raw.passportImageId, BUCKET);
+    // Required uploads (Option B)
+    const passportFile = getFileRef(raw.passportFile);
+    const signatureFile = getFileRef(raw.signatureFile);
+    const supportingFiles = getFileRefArray(raw.supportingFiles);
 
-    if (!passportPath) {
+    if (!passportFile || passportFile.bucket !== BUCKET) {
       return NextResponse.json({ error: "Passport is required." }, { status: 400 });
     }
 
-    // Supporting docs: accept either supportingPaths or supportingDocuments
-    const supportingPathsRaw =
-      getOptionalStringArray(raw.supportingPaths).length > 0
-        ? getOptionalStringArray(raw.supportingPaths)
-        : getOptionalStringArray(raw.supportingDocuments);
+    if (!signatureFile || signatureFile.bucket !== BUCKET) {
+      return NextResponse.json({ error: "Signature is required." }, { status: 400 });
+    }
 
-    const supportingPaths = supportingPathsRaw
-      .map((v) => normalizeStoragePath(v, BUCKET))
-      .filter((x): x is string => Boolean(x));
-
+    // Direct entry checks
     const admissionType = getString(raw.admissionType).trim();
     if (admissionType === "direct_entry") {
       const prevSchool = getString(raw.previousSchool).trim();
@@ -103,7 +83,8 @@ export async function POST(req: Request) {
       }
     }
 
-    const supabase = await createClient();
+    // ✅ Use service role client (bypasses RLS)
+    const supabase = supabaseAdmin;
 
     // 1) active session
     const { data: activeSession, error: sessionError } = await supabase
@@ -132,15 +113,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const departmentId = programRow.department_id as string;
-
-    // 3) Insert application (passport_file stored as {bucket,path})
+    // 3) Insert application
     const applicationPayload = {
       application_no: crypto.randomUUID(),
 
       session_id: activeSession.id,
       program_id: programId,
-      department_id: departmentId,
+      department_id: programRow.department_id,
 
       first_name: firstName,
       middle_name: getOptionalString(raw.middleName),
@@ -172,13 +151,12 @@ export async function POST(req: Request) {
       guardian_phone: getString(raw.guardianPhone),
       guardian_email: getOptionalString(raw.guardianEmail),
 
-      // store as timestamptz if provided (your form is usually YYYY-MM-DD)
       attestation_date: getString(raw.attestationDate)
         ? new Date(getString(raw.attestationDate)).toISOString()
         : null,
 
-      passport_file: { bucket: BUCKET, path: passportPath },
-      signature_file: null,
+      passport_file: passportFile,
+      signature_file: signatureFile,
 
       status: "pending",
     };
@@ -196,16 +174,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4) Insert supporting docs into application_documents
-    if (supportingPaths.length > 0) {
-      const docsPayload = supportingPaths.map((p) => ({
+    // 4) Insert supporting docs into application_documents (if any)
+    if (supportingFiles.length > 0) {
+      const docsPayload = supportingFiles.map((f) => ({
         application_id: app.id,
-        file: { bucket: BUCKET, path: p },
+        file: f,
       }));
 
-      const { error: docsErr } = await supabase
-        .from("application_documents")
-        .insert(docsPayload);
+      const { error: docsErr } = await supabase.from("application_documents").insert(docsPayload);
 
       if (docsErr) {
         return NextResponse.json(
