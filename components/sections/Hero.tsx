@@ -45,14 +45,14 @@ export function Hero() {
             isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10'
           }`}>
             
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-primary-50 to-secondary-50 border border-primary-100 text-primary-700 text-sm font-semibold">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-linear-to-r from-primary-50 to-secondary-50 border border-primary-100 text-primary-700 text-sm font-semibold">
               <Sparkles className="w-4 h-4" />
               <span>Welcome to SYK</span>
             </div>
 
             <h1 className="text-4xl lg:text-5xl xl:text-6xl font-bold leading-tight">
               <span className="block text-gray-900">Empowering</span>
-              <span className="block bg-gradient-to-r from-primary-600 via-secondary-500 to-primary-600 bg-clip-text text-transparent">
+              <span className="block bg-linear-to-r from-primary-600 via-secondary-500 to-primary-600 bg-clip-text text-transparent">
                 Tomorrow's
               </span>
               <span className="block text-gray-900">Healthcare Heroes</span>
@@ -74,7 +74,7 @@ export function Hero() {
             </div>
 
             <div className="flex flex-wrap gap-4 pt-4">
-              <PrimaryButton href="/register">
+              <PrimaryButton href="/apply">
                 Get Started Free
               </PrimaryButton>
               
@@ -89,7 +89,7 @@ export function Hero() {
                 return (
                   <div key={index} className="group cursor-pointer">
                     <div className="flex flex-col gap-2">
-                      <div className="w-9 h-9 bg-gradient-to-br from-primary-100 to-secondary-100 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
+                      <div className="w-9 h-9 bg-linear-to-br from-primary-100 to-secondary-100 rounded-lg flex items-center justify-center group-hover:scale-110 transition-transform">
                         <Icon className="w-5 h-5 text-primary-600" />
                       </div>
                       <p className="text-2xl font-bold text-gray-900 group-hover:text-primary-600 transition-colors">
@@ -110,9 +110,9 @@ export function Hero() {
             <div className="relative max-w-[500px] mx-auto lg:ml-auto lg:mr-0">
               
               <div className="relative rounded-2xl overflow-hidden shadow-2xl group">
-                <div className="absolute inset-0 bg-gradient-to-br from-primary-600/10 via-transparent to-secondary-600/10 group-hover:opacity-0 transition-opacity duration-500 z-10" />
+                <div className="absolute inset-0 bg-linear-to-br from-primary-600/10 via-transparent to-secondary-600/10 group-hover:opacity-0 transition-opacity duration-500 z-10" />
                 
-                <div className="aspect-[3/4] relative overflow-hidden bg-gradient-to-br from-primary-100 to-secondary-100">
+                <div className="aspect-\[3/4] relative overflow-hidden bg-linear-to-br from-primary-100 to-secondary-100">
                   <img
                     src="https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=600&h=800&fit=crop&q=80"
                     alt="Healthcare students"
@@ -124,7 +124,7 @@ export function Hero() {
               {/* Floating Card 1 */}
               <div className="absolute -top-4 -left-4 bg-white rounded-2xl shadow-2xl p-4 animate-float hidden lg:block">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-gradient-to-br from-primary-500 to-secondary-500 rounded-xl flex items-center justify-center">
+                  <div className="w-12 h-12 bg-linear-to-br from-primary-500 to-secondary-500 rounded-xl flex items-center justify-center">
                     <Award className="w-6 h-6 text-white" />
                   </div>
                   <div>
@@ -137,7 +137,7 @@ export function Hero() {
               {/* Floating Card 2 */}
               <div className="absolute -bottom-4 -right-4 bg-white rounded-2xl shadow-2xl p-4 animate-float hidden lg:block" style={{ animationDelay: '2s' }}>
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-gradient-to-br from-secondary-500 to-primary-500 rounded-xl flex items-center justify-center">
+                  <div className="w-12 h-12 bg-linear-to-br from-secondary-500 to-primary-500 rounded-xl flex items-center justify-center">
                     <Users className="w-6 h-6 text-white" />
                   </div>
                   <div>
