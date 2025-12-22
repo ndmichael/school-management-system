@@ -9,7 +9,7 @@ interface ProgramCardProps {
   title: string;
   description: string;
   duration: string;
-  students: string;
+  students: number | string;
   level: string;
   image: string;
   href?: string;          // ✅ optional
@@ -80,7 +80,9 @@ export function ProgramCard({
           </div>
           <div className="flex items-center gap-1.5">
             <Users className="w-4 h-4" />
-            <span>{students}</span>
+            <span>
+              {typeof students === 'number' ? `${students} Students` : students}
+            </span>
           </div>
           <div className="flex items-center gap-1.5">
             <Award className="w-4 h-4" />
