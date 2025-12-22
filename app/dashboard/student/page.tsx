@@ -15,6 +15,8 @@ import {
   User,
 } from "lucide-react";
 
+type StoredFile = { bucket: string; path: string };
+
 type ProfileRow = {
   id: string;
   first_name: string | null;
@@ -22,7 +24,7 @@ type ProfileRow = {
   last_name: string | null;
   email: string | null;
   phone: string | null;
-  avatar_url: string | null;
+  avatar_file: StoredFile | null;
   address: string | null;
   state_of_origin: string | null;
   lga_of_origin: string | null;
@@ -47,7 +49,6 @@ type CourseOfferingRow = {
   semester: "first" | "second" | string | null;
   level: string | null;
   program_id: string | null;
-  // ✅ removed department_id (your table does not have it)
   is_published?: boolean | null;
   course: {
     id: string;
@@ -98,7 +99,7 @@ export default async function StudentDashboardPage() {
     supabase
       .from("profiles")
       .select(
-        "id, first_name, middle_name, last_name, email, phone, avatar_url, address, state_of_origin, lga_of_origin, updated_at"
+        "id, first_name, middle_name, last_name, email, phone, avatar_file, address, state_of_origin, lga_of_origin, updated_at"
       )
       .eq("id", user.id)
       .single<ProfileRow>(),
@@ -115,7 +116,6 @@ export default async function StudentDashboardPage() {
     return (
       <div className="min-h-screen bg-linear-to-br from-slate-50 via-white to-slate-50/50 p-4 sm:p-6 lg:p-8">
         <div className="mx-auto max-w-2xl">
-     
           <div className="overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-xl shadow-slate-100/50">
             <div className="border-b border-slate-100 bg-linear-to-r from-slate-50 to-white p-6">
               <div className="flex items-center gap-4">
@@ -138,9 +138,8 @@ export default async function StudentDashboardPage() {
                 profile to access the dashboard.
               </p>
 
-              {/* ✅ blue bg + white text */}
               <Link
-                href="/dashboard/profile"
+                href="/dashboard/student/profile"
                 className="group inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:bg-blue-700 hover:shadow-xl hover:shadow-blue-500/30 hover:scale-[1.02] active:scale-[0.98]"
               >
                 <User className="h-4 w-4 transition-transform group-hover:scale-110" />
@@ -154,25 +153,31 @@ export default async function StudentDashboardPage() {
   }
 
   const name = fullName(profile);
-  const avatar = profile.avatar_url || dicebearFallback(name);
 
-  const [pendingReceipts, approvedReceipts, rejectedReceipts] =
-    await Promise.all([
-      safeCount(supabase, "payment_receipts", [
-        { col: "student_id", op: "eq", value: student.id },
-        { col: "status", op: "eq", value: "pending" },
-      ]),
-      safeCount(supabase, "payment_receipts", [
-        { col: "student_id", op: "eq", value: student.id },
-        { col: "status", op: "eq", value: "approved" },
-      ]),
-      safeCount(supabase, "payment_receipts", [
-        { col: "student_id", op: "eq", value: student.id },
-        { col: "status", op: "eq", value: "rejected" },
-      ]),
-    ]);
+  const avatar = (() => {
+    const fallback = dicebearFallback(name);
+    const f = profile.avatar_file;
+    if (!f?.bucket || !f?.path) return fallback;
+    const { data } = supabase.storage.from(f.bucket).getPublicUrl(f.path);
+    return data?.publicUrl || fallback;
+  })();
 
-  const offeringsQuery = supabase
+  const [pendingReceipts, approvedReceipts, rejectedReceipts] = await Promise.all([
+    safeCount(supabase, "payment_receipts", [
+      { col: "student_id", op: "eq", value: student.id },
+      { col: "status", op: "eq", value: "pending" },
+    ]),
+    safeCount(supabase, "payment_receipts", [
+      { col: "student_id", op: "eq", value: student.id },
+      { col: "status", op: "eq", value: "approved" },
+    ]),
+    safeCount(supabase, "payment_receipts", [
+      { col: "student_id", op: "eq", value: student.id },
+      { col: "status", op: "eq", value: "rejected" },
+    ]),
+  ]);
+
+  let offeringsQuery = supabase
     .from("course_offerings")
     .select(
       `
@@ -193,17 +198,15 @@ export default async function StudentDashboardPage() {
     .eq("is_published", true)
     .order("created_at", { ascending: false });
 
-  if (student.course_session_id) offeringsQuery.eq("session_id", student.course_session_id);
-  if (student.program_id) offeringsQuery.eq("program_id", student.program_id);
-  // ✅ removed (your table does not have department_id)
-  // if (student.department_id) offeringsQuery.eq("department_id", student.department_id);
-  if (student.level) offeringsQuery.eq("level", student.level);
+  if (student.course_session_id) offeringsQuery = offeringsQuery.eq("session_id", student.course_session_id);
+  if (student.program_id) offeringsQuery = offeringsQuery.eq("program_id", student.program_id);
+  if (student.level) offeringsQuery = offeringsQuery.eq("level", student.level);
 
-  const { data: courseOfferings, error: offErr } = await offeringsQuery
-    .limit(10)
-    .returns<CourseOfferingRow[]>();
+  const { data: courseOfferings, error: offErr } = await offeringsQuery.limit(10);
 
-  const offerings = offErr ? null : courseOfferings ?? [];
+  const offerings = offErr
+    ? null
+    : ((courseOfferings ?? []) as unknown as CourseOfferingRow[]);
 
   const profileMissing = [
     profile.phone ? null : "phone",
@@ -252,7 +255,6 @@ export default async function StudentDashboardPage() {
             </div>
           </div>
 
-          {/* (left as-is, you didn't ask to change this button) */}
           <Link
             href="/dashboard/student/profile"
             className="group inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow-sm transition-all hover:bg-slate-50 hover:shadow-md hover:scale-[1.02] active:scale-[0.98]"
@@ -262,7 +264,6 @@ export default async function StudentDashboardPage() {
           </Link>
         </div>
 
-        {/* Profile completeness alert */}
         {profileMissing.length > 0 && (
           <div className="rounded-2xl border border-amber-200 bg-linear-to-r from-amber-50 to-yellow-50 p-5 shadow-lg">
             <div className="flex gap-4">
@@ -274,10 +275,6 @@ export default async function StudentDashboardPage() {
                 <p className="text-sm text-amber-800">
                   Missing fields:{" "}
                   <span className="font-medium">{profileMissing.join(", ")}</span>
-                </p>
-                <p className="text-xs text-amber-700">
-                  Complete your profile to avoid issues with verification and
-                  processing.
                 </p>
               </div>
             </div>
@@ -322,9 +319,7 @@ export default async function StudentDashboardPage() {
                   <BookOpen className="h-6 w-6 text-purple-600" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">
-                    Course Offerings
-                  </h2>
+                  <h2 className="text-lg font-bold text-slate-900">Course Offerings</h2>
                   <p className="mt-0.5 text-sm text-slate-600">
                     Published courses for your session, program, and level
                   </p>
@@ -346,24 +341,14 @@ export default async function StudentDashboardPage() {
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
                   <AlertCircle className="h-6 w-6 text-slate-400" />
                 </div>
-                <p className="text-sm font-medium text-slate-900">
-                  Unable to load courses
-                </p>
-                <p className="text-xs text-slate-500">
-                  Table missing or access restricted
-                </p>
+                <p className="text-sm font-medium text-slate-900">Unable to load courses</p>
               </div>
             ) : offerings.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-8 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100">
                   <BookOpen className="h-6 w-6 text-slate-400" />
                 </div>
-                <p className="text-sm font-medium text-slate-900">
-                  No courses published yet
-                </p>
-                <p className="text-xs text-slate-500">
-                  Check back later for course offerings
-                </p>
+                <p className="text-sm font-medium text-slate-900">No courses published yet</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -374,9 +359,7 @@ export default async function StudentDashboardPage() {
                   >
                     <div className="flex-1">
                       <div className="font-semibold text-slate-900">
-                        <span className="font-mono text-blue-600">
-                          {o.course?.code ?? "—"}
-                        </span>
+                        <span className="font-mono text-blue-600">{o.course?.code ?? "—"}</span>
                         {" · "}
                         {o.course?.title ?? "Untitled Course"}
                       </div>
@@ -420,9 +403,7 @@ export default async function StudentDashboardPage() {
               </div>
               <div>
                 <h3 className="font-bold text-slate-900">Results Status</h3>
-                <p className="mt-1 text-sm text-slate-600">
-                  Results not yet available
-                </p>
+                <p className="mt-1 text-sm text-slate-600">Results not yet available</p>
               </div>
             </div>
           </div>
@@ -480,7 +461,6 @@ function StatCard({
   const card = (
     <div className="group relative overflow-hidden rounded-3xl border border-slate-200/60 bg-linear-to-br from-slate-50 via-white to-white p-6 transition-all duration-300 hover:shadow-xl hover:shadow-slate-100/50 hover:border-slate-300">
       <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-
       <div className="relative">
         <div className="flex items-start justify-between mb-4">
           <div
@@ -492,12 +472,9 @@ function StatCard({
             <ArrowRight className="h-5 w-5 text-slate-400 opacity-0 group-hover:opacity-100 transition-all duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           )}
         </div>
-
         <div>
           <p className="text-sm font-medium text-slate-600 mb-1.5">{label}</p>
-          <p className="text-3xl font-bold tracking-tight text-slate-900">
-            {value}
-          </p>
+          <p className="text-3xl font-bold tracking-tight text-slate-900">{value}</p>
         </div>
       </div>
     </div>
@@ -546,9 +523,7 @@ function ActionCard({
           {icon}
         </div>
         <div className="flex-1">
-          <h3 className="font-bold text-slate-900 group-hover:text-slate-900">
-            {title}
-          </h3>
+          <h3 className="font-bold text-slate-900 group-hover:text-slate-900">{title}</h3>
           <p className="mt-1 text-sm leading-relaxed text-slate-600">{desc}</p>
         </div>
       </div>
@@ -626,3 +601,4 @@ function MiniStat({
     </div>
   );
 }
+
