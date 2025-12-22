@@ -6,7 +6,12 @@ import { createClient } from "@/lib/supabase/client";
 import { Calendar, Mail, MapPin, Phone, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
-import {Select }from "@/components/shared/Select";
+import { Select } from "@/components/shared/Select";
+
+type StoredFile = {
+  bucket: string;
+  path: string;
+};
 
 type ProfileRow = {
   id: string;
@@ -15,7 +20,7 @@ type ProfileRow = {
   last_name: string | null;
   email: string | null;
   phone: string | null;
-  avatar_url: string | null;
+  avatar_file: StoredFile | null;
   date_of_birth: string | null;
   gender: string | null;
   address: string | null;
@@ -84,12 +89,15 @@ export default function ProfileClient({ userId, authEmail, initialProfile, stude
     return parts.length ? parts.join(" ") : "Student";
   }, [form.first_name, form.middle_name, form.last_name]);
 
-  const avatarSrc =
-    profile.avatar_url && profile.avatar_url.startsWith("http")
-      ? profile.avatar_url
-      : profile.avatar_url
-      ? profile.avatar_url
-      : dicebearFallback(displayName);
+  const avatarSrc = useMemo(() => {
+    const fallback = dicebearFallback(displayName);
+    const f = profile.avatar_file;
+
+    if (!f?.bucket || !f?.path) return fallback;
+
+    const { data } = supabase.storage.from(f.bucket).getPublicUrl(f.path);
+    return data?.publicUrl || fallback;
+  }, [profile.avatar_file, supabase, displayName]);
 
   async function onSave() {
     setError(null);
@@ -111,7 +119,7 @@ export default function ProfileClient({ userId, authEmail, initialProfile, stude
         })
         .eq("id", userId)
         .select(
-          "id, first_name, middle_name, last_name, email, phone, avatar_url, date_of_birth, gender, address, state_of_origin, lga_of_origin"
+          "id, first_name, middle_name, last_name, email, phone, avatar_file, date_of_birth, gender, address, state_of_origin, lga_of_origin"
         )
         .single<ProfileRow>();
 
@@ -129,33 +137,37 @@ export default function ProfileClient({ userId, authEmail, initialProfile, stude
 
   async function onAvatarChange(file: File | null) {
     if (!file) return;
+
     setError(null);
     setIsUploading(true);
 
     try {
       if (file.size > 5 * 1024 * 1024) throw new Error("Max file size is 5MB.");
+
       const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
       const path = `${userId}/${crypto.randomUUID()}.${ext}`;
 
       const up = await supabase.storage.from("avatars").upload(path, file, {
         upsert: true,
-        contentType: file.type,
+        contentType: file.type || undefined,
       });
+
       if (up.error) throw new Error(up.error.message);
 
-      const pub = supabase.storage.from("avatars").getPublicUrl(path);
-      const publicUrl = pub.data.publicUrl;
+      // ✅ Store JSON ref (NOT a URL)
+      const avatar_file: StoredFile = { bucket: "avatars", path };
 
       const { error: updErr, data } = await supabase
         .from("profiles")
-        .update({ avatar_url: publicUrl, updated_at: new Date().toISOString() })
+        .update({ avatar_file, updated_at: new Date().toISOString() })
         .eq("id", userId)
         .select(
-          "id, first_name, middle_name, last_name, email, phone, avatar_url, date_of_birth, gender, address, state_of_origin, lga_of_origin"
+          "id, first_name, middle_name, last_name, email, phone, avatar_file, date_of_birth, gender, address, state_of_origin, lga_of_origin"
         )
         .single<ProfileRow>();
 
       if (updErr) throw new Error(updErr.message);
+
       if (data) setProfile(data);
 
       toast.success("Profile photo updated");
@@ -194,7 +206,7 @@ export default function ProfileClient({ userId, authEmail, initialProfile, stude
                     : "bg-blue-100 text-blue-700"
                 }`}
               >
-                {student.status.toUpperCase()}
+                {String(student.status).toUpperCase()}
               </span>
             ) : null}
 
@@ -244,7 +256,7 @@ export default function ProfileClient({ userId, authEmail, initialProfile, stude
               icon={<Phone className="w-4 h-4 text-blue-600" />}
             />
 
-            {/* ✅ Gender dropdown */}
+            {/* Gender */}
             <div>
               <label className="text-xs text-gray-500">Gender</label>
               <div className="mt-1">
@@ -258,7 +270,6 @@ export default function ProfileClient({ userId, authEmail, initialProfile, stude
                   ]}
                   required
                 />
-
               </div>
             </div>
 
@@ -298,7 +309,7 @@ export default function ProfileClient({ userId, authEmail, initialProfile, stude
           </div>
         </div>
 
-        {/* Academic (readonly minimal) */}
+        {/* Academic */}
         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
           <h3 className="text-lg font-semibold mb-4">Academic Information</h3>
 
