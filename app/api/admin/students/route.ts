@@ -1,12 +1,19 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+function toInt(v: string | null, fallback: number): number {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const search = url.searchParams.get("search")?.trim().toLowerCase() || "";
-  const status = url.searchParams.get("status") || "all";
-  const page = Number(url.searchParams.get("page") || 1);
-  const pageSize = Number(url.searchParams.get("pageSize") || 20);
+
+  const search = (url.searchParams.get("search") ?? "").trim().toLowerCase();
+  const status = url.searchParams.get("status") ?? "all";
+
+  const page = toInt(url.searchParams.get("page"), 1);
+  const pageSize = toInt(url.searchParams.get("pageSize"), 20);
 
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
@@ -23,6 +30,7 @@ export async function GET(req: Request) {
         program_id,
         department_id,
         course_session_id,
+        created_at,
 
         profiles!inner (
           first_name,
@@ -30,7 +38,8 @@ export async function GET(req: Request) {
           last_name,
           email,
           phone,
-          gender
+          gender,
+          avatar_file
         ),
 
         programs:program_id (
@@ -58,6 +67,7 @@ export async function GET(req: Request) {
   }
 
   if (search) {
+    // NOTE: keep your current OR; this is fine as-is
     query = query.or(
       `
         matric_no.ilike.%${search}%,
