@@ -5,9 +5,14 @@ import Step1Personal from "@/components/forms/Step1Personal";
 import Step2OriginProgram from "@/components/forms/Step2OriginProgram";
 import Step3Guardian from "@/components/forms/Step3Guardian";
 import Step4AttachmentsReview from "@/components/forms/Step4AttachmentsReview";
-import { ApplicationFormData } from "@/types/applications";
+
+import type { ApplicationFormData } from "@/types/applications";
 import { PrimaryButton, SecondaryButton } from "@/components/shared";
 import { toast } from "react-toastify";
+
+type ProgramOption = { id: string; name: string };
+
+const STORAGE_KEY = "applicationForm";
 
 const defaultForm: ApplicationFormData = {
   firstName: "",
@@ -15,32 +20,39 @@ const defaultForm: ApplicationFormData = {
   lastName: "",
   gender: "male",
   dateOfBirth: "",
+
   email: "",
   phone: "",
   nin: "",
   specialNeeds: "",
+
   stateOfOrigin: "Kano",
   lgaOfOrigin: "Karaye",
   religion: "muslim",
   address: "",
+
   programId: "",
   classAppliedFor: "",
   admissionType: "fresh",
   previousSchool: "",
   previousQualification: "",
+
   guardianFirstName: "",
   guardianMiddleName: "",
   guardianLastName: "",
   guardianGender: "male",
   guardianStatus: "father",
   guardianPhone: "",
-  passportImageId: "",
-  supportingDocuments: [],
+  guardianEmail: "",
+
   attestationDate: "",
+
+  passportFile: null,
+  signatureFile: null,
+  supportingFiles: [],
 };
 
 const stepValidations: Record<number, (d: ApplicationFormData) => boolean> = {
-  // STEP 1 – basic bio
   1: (d) =>
     d.firstName.trim() !== "" &&
     d.lastName.trim() !== "" &&
@@ -48,9 +60,7 @@ const stepValidations: Record<number, (d: ApplicationFormData) => boolean> = {
     d.phone.trim() !== "" &&
     d.dateOfBirth.trim() !== "",
 
-  // STEP 2 – origin + program
   2: (d) => {
-    // core fields
     if (
       d.stateOfOrigin.trim() === "" ||
       d.lgaOfOrigin.trim() === "" ||
@@ -63,17 +73,14 @@ const stepValidations: Record<number, (d: ApplicationFormData) => boolean> = {
       return false;
     }
 
-    // extra requirement for DIRECT ENTRY only
     if (d.admissionType === "direct_entry") {
-      const prevSchool = (d.previousSchool ?? "").trim();
-      const prevQual = (d.previousQualification ?? "").trim();
-      if (prevSchool === "" || prevQual === "") return false;
+      if ((d.previousSchool ?? "").trim() === "" || (d.previousQualification ?? "").trim() === "")
+        return false;
     }
 
     return true;
   },
 
-  // STEP 3 – guardian
   3: (d) =>
     d.guardianFirstName.trim() !== "" &&
     d.guardianLastName.trim() !== "" &&
@@ -81,46 +88,60 @@ const stepValidations: Record<number, (d: ApplicationFormData) => boolean> = {
     !!d.guardianGender &&
     !!d.guardianStatus,
 
-  // STEP 4 – passport + attestation
+  // ✅ required: passport + signature + attestation
   4: (d) =>
-    d.passportImageId.trim() !== "" &&
+    !!d.passportFile?.path &&
+    !!d.signatureFile?.path &&
     d.attestationDate.trim() !== "",
 };
 
-
-
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
 
 export default function ApplyPage() {
   const [data, setData] = useState<ApplicationFormData>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("applicationForm");
-        return saved ? JSON.parse(saved) : { ...defaultForm };
-      } catch {
-        return { ...defaultForm };
-      }
+    if (typeof window === "undefined") return { ...defaultForm };
+
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (!saved) return { ...defaultForm };
+
+      const parsed: unknown = JSON.parse(saved);
+      if (!isRecord(parsed)) return { ...defaultForm };
+
+      // Merge defaults first so any new fields exist.
+      return { ...defaultForm, ...(parsed as Partial<ApplicationFormData>) };
+    } catch {
+      return { ...defaultForm };
     }
-    return { ...defaultForm };
   });
 
-  const [programs, setPrograms] = useState<{ id: string; name: string }[]>([]);
+  const [programs, setPrograms] = useState<ProgramOption[]>([]);
   const [step, setStep] = useState<number>(1);
   const [submitting, setSubmitting] = useState(false);
 
-
-  // Auto-save to localStorage (stable and safe)
   useEffect(() => {
-    localStorage.setItem("applicationForm", JSON.stringify(data));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
 
-  // Fetch programs
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/programs");
+        const res = await fetch("/api/programs", { method: "GET" });
         if (!res.ok) throw new Error("Failed to load programs.");
-        const list = await res.json();
-        setPrograms(list);
+
+        const json: unknown = await res.json();
+        if (!isRecord(json) || !Array.isArray(json.programs)) {
+          throw new Error("Unexpected programs response.");
+        }
+
+        const safe: ProgramOption[] = (json.programs as unknown[])
+          .filter(isRecord)
+          .filter((p) => typeof p.id === "string" && typeof p.name === "string")
+          .map((p) => ({ id: String(p.id), name: String(p.name) }));
+
+        setPrograms(safe);
       } catch (err) {
         console.error(err);
         toast.error("Unable to fetch programs.");
@@ -128,17 +149,12 @@ export default function ApplyPage() {
     })();
   }, []);
 
-  // 🔥 Safe merge function (no accidental overrides)
-  const updateData = useCallback(
-    (patch: Partial<ApplicationFormData>) => {
-      setData((prev) => ({ ...prev, ...patch }));
-    },
-    []
-  );
+  const updateData = useCallback((patch: Partial<ApplicationFormData>) => {
+    setData((prev) => ({ ...prev, ...patch }));
+  }, []);
 
-  // Step navigation
   const nextStep = () => {
-    if (!stepValidations[step](data)) {
+    if (!stepValidations[step]?.(data)) {
       toast.error("Please fill all required fields before proceeding.");
       return;
     }
@@ -147,14 +163,12 @@ export default function ApplyPage() {
 
   const prevStep = () => setStep((s) => Math.max(s - 1, 1));
 
-  // Submit
   const handleSubmit = async () => {
     if (!stepValidations[4](data)) {
       toast.error("Please complete all required fields to submit.");
       return;
     }
-
-    if (submitting) return; // guard against double-click
+    if (submitting) return;
 
     try {
       setSubmitting(true);
@@ -166,12 +180,14 @@ export default function ApplyPage() {
       });
 
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to submit.");
+        const errJson: unknown = await res.json().catch(() => ({}));
+        const msg =
+          isRecord(errJson) && typeof errJson.error === "string" ? errJson.error : "Failed to submit.";
+        throw new Error(msg);
       }
 
       toast.success("Application submitted successfully!");
-      localStorage.removeItem("applicationForm");
+      localStorage.removeItem(STORAGE_KEY);
 
       setData({ ...defaultForm });
       setStep(1);
@@ -186,9 +202,8 @@ export default function ApplyPage() {
 
   return (
     <div className="max-w-3xl mx-auto p-6 pt-[calc(6rem+1rem)] space-y-6">
-      <h1 className="text-2xl font-bold">Apply to SYK Health Tech</h1>
+      <h1 className="text-2xl font-bold">Apply to SYK School of Health Technology</h1>
 
-      {/* Progress */}
       <div className="w-full bg-gray-200 rounded-full h-2 mb-6">
         <div
           className="bg-primary-500 h-2 rounded-full transition-all"
@@ -196,7 +211,6 @@ export default function ApplyPage() {
         />
       </div>
 
-      {/* Steps */}
       {step === 1 && <Step1Personal data={data} setData={updateData} />}
       {step === 2 && (
         <Step2OriginProgram data={data} setData={updateData} programs={programs} />
@@ -204,7 +218,6 @@ export default function ApplyPage() {
       {step === 3 && <Step3Guardian data={data} setData={updateData} />}
       {step === 4 && <Step4AttachmentsReview data={data} setData={updateData} />}
 
-      {/* Navigation */}
       <div className="flex justify-between mt-6">
         {step > 1 ? (
           <SecondaryButton onClick={prevStep} disabled={submitting}>
