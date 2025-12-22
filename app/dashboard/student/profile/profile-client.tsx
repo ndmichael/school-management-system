@@ -3,15 +3,9 @@
 import { useMemo, useState, useTransition } from "react";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
-import { Calendar, Mail, MapPin, Phone, User } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
-import { Select } from "@/components/shared/Select";
 
-type StoredFile = {
-  bucket: string;
-  path: string;
-};
+type StoredFile = { bucket: string; path: string };
 
 type ProfileRow = {
   id: string;
@@ -21,8 +15,6 @@ type ProfileRow = {
   email: string | null;
   phone: string | null;
   avatar_file: StoredFile | null;
-  date_of_birth: string | null;
-  gender: string | null;
   address: string | null;
   state_of_origin: string | null;
   lga_of_origin: string | null;
@@ -45,143 +37,216 @@ type Props = {
   student: StudentRow | null;
 };
 
-type ProfileFormValues = {
-  first_name: string;
-  middle_name: string;
-  last_name: string;
-  phone: string;
-  address: string;
-  state_of_origin: string;
-  lga_of_origin: string;
-  gender: string;
-  date_of_birth: string; // yyyy-mm-dd
-};
+type PatchPayload = Partial<{
+  phone: string | null;
+  address: string | null;
+  state_of_origin: string | null;
+  lga_of_origin: string | null;
+  avatar_file: StoredFile | null;
+}>;
+
+type ApiOk = { profile: ProfileRow };
+type ApiErr = { error: string };
 
 function dicebearFallback(seed: string): string {
   const safe = encodeURIComponent(seed || "Student");
   return `https://api.dicebear.com/9.x/avataaars/svg?seed=${safe}&backgroundColor=b6e3f4`;
 }
 
-export default function ProfileClient({ userId, authEmail, initialProfile, student }: Props) {
-  const supabase = createClient();
-  const router = useRouter();
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
 
-  const [isSaving, startSaving] = useTransition();
-  const [isUploading, setIsUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+function readString(v: unknown): string | null {
+  return typeof v === "string" ? v : null;
+}
+
+function isStoredFile(v: unknown): v is StoredFile {
+  if (!isRecord(v)) return false;
+  return typeof v.bucket === "string" && typeof v.path === "string";
+}
+
+function parseApiResponse(json: unknown): ApiOk | ApiErr {
+  if (!isRecord(json)) return { error: "Unexpected server response." };
+
+  if ("error" in json) {
+    const msg = readString(json.error);
+    return { error: msg ?? "Request failed." };
+  }
+
+  if ("profile" in json) {
+    const p = json.profile;
+    if (!isRecord(p)) return { error: "Invalid profile returned." };
+
+    // minimal structural checks
+    const id = readString(p.id);
+    if (!id) return { error: "Invalid profile returned." };
+
+    // Build ProfileRow safely (no any)
+    const profile: ProfileRow = {
+      id,
+      first_name: readString(p.first_name),
+      middle_name: readString(p.middle_name),
+      last_name: readString(p.last_name),
+      email: readString(p.email),
+      phone: readString(p.phone),
+      avatar_file: isStoredFile(p.avatar_file) ? p.avatar_file : null,
+      address: readString(p.address),
+      state_of_origin: readString(p.state_of_origin),
+      lga_of_origin: readString(p.lga_of_origin),
+    };
+
+    return { profile };
+  }
+
+  return { error: "Unexpected server response." };
+}
+
+export default function ProfileClient({
+  userId,
+  authEmail,
+  initialProfile,
+  student,
+}: Props) {
+  const supabase = useMemo(() => createClient(), []);
 
   const [profile, setProfile] = useState<ProfileRow>(initialProfile);
 
-  const [form, setForm] = useState<ProfileFormValues>(() => ({
-    first_name: initialProfile.first_name ?? "",
-    middle_name: initialProfile.middle_name ?? "",
-    last_name: initialProfile.last_name ?? "",
-    phone: initialProfile.phone ?? "",
-    address: initialProfile.address ?? "",
-    state_of_origin: initialProfile.state_of_origin ?? "",
-    lga_of_origin: initialProfile.lga_of_origin ?? "",
-    gender: initialProfile.gender ?? "",
-    date_of_birth: initialProfile.date_of_birth ?? "",
-  }));
+  // ✅ Only editable fields
+  const [phone, setPhone] = useState(profile.phone ?? "");
+  const [address, setAddress] = useState(profile.address ?? "");
+  const [stateOfOrigin, setStateOfOrigin] = useState(
+    profile.state_of_origin ?? ""
+  );
+  const [lgaOfOrigin, setLgaOfOrigin] = useState(profile.lga_of_origin ?? "");
+
+  const [isSaving, startSaving] = useTransition();
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Password (A: current + new)
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
 
   const displayName = useMemo(() => {
-    const parts = [form.first_name, form.middle_name, form.last_name].filter(Boolean);
+    const parts = [profile.first_name, profile.middle_name, profile.last_name]
+      .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+      .map((s) => s.trim());
     return parts.length ? parts.join(" ") : "Student";
-  }, [form.first_name, form.middle_name, form.last_name]);
+  }, [profile.first_name, profile.middle_name, profile.last_name]);
 
   const avatarSrc = useMemo(() => {
     const fallback = dicebearFallback(displayName);
-    const f = profile.avatar_file;
+    const v = profile.avatar_file;
+    if (!v) return fallback;
 
-    if (!f?.bucket || !f?.path) return fallback;
+    // Your API restricts avatar_file to avatars bucket anyway.
+    const { data } = supabase.storage.from(v.bucket).getPublicUrl(v.path);
+    return data.publicUrl || fallback;
+  }, [displayName, profile.avatar_file, supabase]);
 
-    const { data } = supabase.storage.from(f.bucket).getPublicUrl(f.path);
-    return data?.publicUrl || fallback;
-  }, [profile.avatar_file, supabase, displayName]);
+  async function patchProfile(payload: PatchPayload): Promise<void> {
+    const res = await fetch("/api/profile/me", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
-  async function onSave() {
-    setError(null);
+    const json: unknown = await res.json().catch(() => null);
 
+    const parsed = parseApiResponse(json);
+    if ("error" in parsed) {
+      throw new Error(parsed.error);
+    }
+
+    // Even if res.ok is false, backend should return {error}, but handle both.
+    if (!res.ok) {
+      throw new Error("Failed to update profile.");
+    }
+
+    setProfile(parsed.profile);
+  }
+
+  function onSave() {
     startSaving(async () => {
-      const { error: updErr, data } = await supabase
-        .from("profiles")
-        .update({
-          first_name: form.first_name || null,
-          middle_name: form.middle_name || null,
-          last_name: form.last_name || null,
-          phone: form.phone || null,
-          address: form.address || null,
-          state_of_origin: form.state_of_origin || null,
-          lga_of_origin: form.lga_of_origin || null,
-          gender: form.gender || null,
-          date_of_birth: form.date_of_birth || null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", userId)
-        .select(
-          "id, first_name, middle_name, last_name, email, phone, avatar_file, date_of_birth, gender, address, state_of_origin, lga_of_origin"
-        )
-        .single<ProfileRow>();
-
-      if (updErr) {
-        setError(updErr.message);
-        return;
+      try {
+        await patchProfile({
+          phone: phone.trim() ? phone.trim() : null,
+          address: address.trim() ? address.trim() : null,
+          state_of_origin: stateOfOrigin.trim() ? stateOfOrigin.trim() : null,
+          lga_of_origin: lgaOfOrigin.trim() ? lgaOfOrigin.trim() : null,
+        });
+        toast.success("Profile updated.");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to update profile.");
       }
-
-      if (data) setProfile(data);
-
-      toast.success("Profile updated successfully");
-      router.refresh();
     });
   }
 
   async function onAvatarChange(file: File | null) {
     if (!file) return;
 
-    setError(null);
     setIsUploading(true);
-
     try {
-      if (file.size > 5 * 1024 * 1024) throw new Error("Max file size is 5MB.");
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error("Max file size is 5MB.");
+      }
 
       const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
       const path = `${userId}/${crypto.randomUUID()}.${ext}`;
 
-      const up = await supabase.storage.from("avatars").upload(path, file, {
-        upsert: true,
-        contentType: file.type || undefined,
-      });
+      const { error: upErr } = await supabase.storage
+        .from("avatars")
+        .upload(path, file, {
+          upsert: false,
+          contentType: file.type || undefined,
+        });
 
-      if (up.error) throw new Error(up.error.message);
+      if (upErr) throw new Error(upErr.message);
 
-      // ✅ Store JSON ref (NOT a URL)
-      const avatar_file: StoredFile = { bucket: "avatars", path };
-
-      const { error: updErr, data } = await supabase
-        .from("profiles")
-        .update({ avatar_file, updated_at: new Date().toISOString() })
-        .eq("id", userId)
-        .select(
-          "id, first_name, middle_name, last_name, email, phone, avatar_file, date_of_birth, gender, address, state_of_origin, lga_of_origin"
-        )
-        .single<ProfileRow>();
-
-      if (updErr) throw new Error(updErr.message);
-
-      if (data) setProfile(data);
-
-      toast.success("Profile photo updated");
-      router.refresh();
+      await patchProfile({ avatar_file: { bucket: "avatars", path } });
+      toast.success("Profile photo updated.");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Avatar upload failed.");
+      toast.error(e instanceof Error ? e.message : "Avatar upload failed.");
     } finally {
       setIsUploading(false);
     }
   }
 
+  async function onChangePassword() {
+    try {
+      const email = authEmail.trim();
+      if (!email) throw new Error("Missing account email.");
+      if (!currentPassword) throw new Error("Enter your current password.");
+      if (!newPassword) throw new Error("Enter a new password.");
+      if (newPassword.length < 8) throw new Error("New password must be at least 8 characters.");
+      if (newPassword !== confirmNewPassword) throw new Error("Passwords do not match.");
+
+      // Re-auth (Option A)
+      const { error: signErr } = await supabase.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      });
+      if (signErr) throw new Error(signErr.message);
+
+      const { error: updErr } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (updErr) throw new Error(updErr.message);
+
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+
+      toast.success("Password updated.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to change password.");
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* Profile Summary */}
+      {/* Summary */}
       <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
         <div className="flex items-center gap-5">
           <div className="relative w-20 h-20 rounded-xl overflow-hidden border bg-gray-50">
@@ -190,25 +255,10 @@ export default function ProfileClient({ userId, authEmail, initialProfile, stude
 
           <div className="flex-1">
             <h2 className="text-2xl font-bold text-gray-900">{displayName}</h2>
-
             <p className="text-sm text-gray-500">
               {student?.matric_no ?? "—"}
               {student?.level ? ` · Level ${student.level}` : ""}
             </p>
-
-            {student?.status ? (
-              <span
-                className={`inline-block mt-2 px-3 py-1 text-xs rounded-full font-medium ${
-                  student.status === "active"
-                    ? "bg-green-100 text-green-700"
-                    : student.status === "suspended"
-                    ? "bg-yellow-100 text-yellow-700"
-                    : "bg-blue-100 text-blue-700"
-                }`}
-              >
-                {String(student.status).toUpperCase()}
-              </span>
-            ) : null}
 
             <div className="mt-3">
               <label className="inline-flex items-center gap-2 text-sm font-medium text-blue-700 cursor-pointer">
@@ -226,76 +276,35 @@ export default function ProfileClient({ userId, authEmail, initialProfile, stude
             </div>
           </div>
         </div>
-
-        {error ? (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </div>
-        ) : null}
       </div>
 
-      {/* Personal Info (editable) + Academic Info (readonly) */}
+      {/* Forms */}
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Personal */}
+        {/* Student-editable profile */}
         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <User className="w-5 h-5 text-blue-600" /> Personal Information
-          </h3>
+          <h3 className="text-lg font-semibold mb-4">Profile (Student editable)</h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="First name" value={form.first_name} onChange={(v) => setForm((p) => ({ ...p, first_name: v }))} />
-            <Field label="Middle name" value={form.middle_name} onChange={(v) => setForm((p) => ({ ...p, middle_name: v }))} />
-            <Field label="Last name" value={form.last_name} onChange={(v) => setForm((p) => ({ ...p, last_name: v }))} />
+            <ReadOnly label="First name" value={profile.first_name ?? "—"} />
+            <ReadOnly label="Middle name" value={profile.middle_name ?? "—"} />
+            <ReadOnly label="Last name" value={profile.last_name ?? "—"} />
+            <ReadOnly label="Email" value={authEmail || profile.email || "—"} />
+          </div>
 
-            <ReadOnlyRow label="Email" value={authEmail || profile.email || "—"} icon={<Mail className="w-4 h-4 text-blue-600" />} />
-
-            <Field
-              label="Phone"
-              value={form.phone}
-              onChange={(v) => setForm((p) => ({ ...p, phone: v }))}
-              icon={<Phone className="w-4 h-4 text-blue-600" />}
-            />
-
-            {/* Gender */}
-            <div>
-              <label className="text-xs text-gray-500">Gender</label>
-              <div className="mt-1">
-                <Select
-                  label="Gender"
-                  value={form.gender ?? ""}
-                  onChange={(v) => setForm((p) => ({ ...p, gender: v || "" }))}
-                  options={[
-                    { label: "Male", value: "male" },
-                    { label: "Female", value: "female" },
-                  ]}
-                  required
-                />
-              </div>
-            </div>
-
-            <Field
-              label="Date of birth"
-              value={form.date_of_birth}
-              onChange={(v) => setForm((p) => ({ ...p, date_of_birth: v }))}
-              type="date"
-              icon={<Calendar className="w-4 h-4 text-blue-600" />}
-            />
-
-            <Field label="State of origin" value={form.state_of_origin} onChange={(v) => setForm((p) => ({ ...p, state_of_origin: v }))} />
-            <Field label="LGA of origin" value={form.lga_of_origin} onChange={(v) => setForm((p) => ({ ...p, lga_of_origin: v }))} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+            <Field label="Phone" value={phone} onChange={setPhone} />
+            <Field label="State of origin" value={stateOfOrigin} onChange={setStateOfOrigin} />
+            <Field label="LGA of origin" value={lgaOfOrigin} onChange={setLgaOfOrigin} />
           </div>
 
           <div className="mt-4">
             <label className="text-xs text-gray-500">Address</label>
-            <div className="mt-1 relative">
-              <MapPin className="w-4 h-4 text-blue-600 absolute left-3 top-3" />
-              <textarea
-                className="w-full min-h-[88px] rounded-xl border border-gray-300 px-9 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={form.address}
-                onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
-                placeholder="Your address"
-              />
-            </div>
+            <textarea
+              className="mt-1 w-full min-h-[88px] rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Your address"
+            />
           </div>
 
           <div className="mt-5">
@@ -309,73 +318,78 @@ export default function ProfileClient({ userId, authEmail, initialProfile, stude
           </div>
         </div>
 
-        {/* Academic */}
+        {/* Change password */}
         <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm">
-          <h3 className="text-lg font-semibold mb-4">Academic Information</h3>
+          <h3 className="text-lg font-semibold mb-4">Security</h3>
 
-          <div className="space-y-4 text-sm">
-            <Info label="Matric No" value={student?.matric_no ?? "—"} />
-            <Info label="Level" value={student?.level ?? "—"} />
-            <Info label="CGPA" value={student?.cgpa != null ? String(student.cgpa) : "—"} />
-            <Info label="Enrollment Date" value={student?.enrollment_date ?? "—"} />
-            <Info label="Status" value={student?.status ?? "—"} />
+          <div className="space-y-3">
+            <Field
+              label="Current password"
+              value={currentPassword}
+              onChange={setCurrentPassword}
+              type="password"
+            />
+            <Field
+              label="New password"
+              value={newPassword}
+              onChange={setNewPassword}
+              type="password"
+            />
+            <Field
+              label="Confirm new password"
+              value={confirmNewPassword}
+              onChange={setConfirmNewPassword}
+              type="password"
+            />
+
+            <button
+              onClick={onChangePassword}
+              className="mt-2 inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-white text-sm font-medium hover:bg-slate-800"
+            >
+              Change password
+            </button>
+
+            <p className="text-xs text-gray-500">
+              Use at least 8 characters. Avoid reusing old passwords.
+            </p>
           </div>
-
-          <p className="text-xs text-gray-500 mt-6">Academic fields are managed by the school admin.</p>
         </div>
       </div>
     </div>
   );
 }
 
-/* Small components */
-
-function Field(props: {
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+}: {
   label: string;
   value: string;
   onChange: (v: string) => void;
-  type?: "text" | "date";
-  placeholder?: string;
-  icon?: React.ReactNode;
+  type?: "text" | "password";
 }) {
-  const { label, value, onChange, type = "text", placeholder, icon } = props;
-
   return (
     <div>
       <label className="text-xs text-gray-500">{label}</label>
-      <div className="mt-1 relative">
-        {icon ? <span className="absolute left-3 top-3">{icon}</span> : null}
-        <input
-          type={type}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className={`w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-            icon ? "pl-9" : ""
-          }`}
-        />
-      </div>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
     </div>
   );
 }
 
-function ReadOnlyRow(props: { label: string; value: string; icon?: React.ReactNode }) {
+function ReadOnly({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-xs text-gray-500">{props.label}</p>
-      <div className="mt-1 flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900">
-        {props.icon ? props.icon : null}
-        <span className="truncate">{props.value}</span>
+      <p className="text-xs text-gray-500">{label}</p>
+      <div className="mt-1 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-900">
+        {value}
       </div>
-    </div>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-gray-500 text-xs">{label}</p>
-      <p className="font-medium text-gray-900">{value}</p>
     </div>
   );
 }
