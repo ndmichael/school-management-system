@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { SectionHeader, ProgramCard } from '@/components/shared'
+import { ProgramModal } from '@/components/shared'
 
 type Program = {
   id: string
@@ -75,6 +76,9 @@ function normalizeProgram(row: unknown): Program | null {
 export function ProgramsOverview() {
   const [state, setState] = useState<LoadState>('idle')
   const [programs, setPrograms] = useState<Program[]>([])
+  const [selectedProgram, setSelectedProgram] = useState<Program | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
 
   useEffect(() => {
     const ac = new AbortController()
@@ -110,7 +114,7 @@ export function ProgramsOverview() {
   }, [])
 
   return (
-    <section className="bg-gradient-to-b from-white to-gray-50 px-6 py-24 sm:px-8 lg:px-12">
+    <section className="bg-linear-to-b from-white to-gray-50 px-6 py-24 sm:px-8 lg:px-12">
       <div className="mx-auto max-w-7xl">
         <SectionHeader
           badge="Our Programs"
@@ -125,7 +129,15 @@ export function ProgramsOverview() {
               <div key={i} className="h-72 rounded-2xl bg-gray-100 animate-pulse" />
             ))
           ) : programs.length ? (
-            programs.map((program) => <ProgramCard key={program.id} {...program} />)
+            programs.map((program) => 
+            <ProgramCard 
+              key={program.id} 
+              {...program} 
+              onSelect={() => {
+                setSelectedProgram(program)
+                setIsModalOpen(true)
+              }}
+            />)
           ) : (
             <div className="col-span-full rounded-2xl border border-gray-200 bg-white p-6 text-center">
               <p className="text-sm text-gray-700">
@@ -147,6 +159,16 @@ export function ProgramsOverview() {
           </Link>
         </div>
       </div>
+
+      <ProgramModal
+        program={selectedProgram}
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false)
+          setSelectedProgram(null)
+        }}
+      />
+
     </section>
   )
 }
