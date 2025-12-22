@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { Award, Users, Building } from 'lucide-react';
+import { Award, Building } from 'lucide-react';
 
 const departments = [
   { name: 'Nursing Department', description: 'Comprehensive training for nurses combining theory and practical skills.', icon: Building },
@@ -10,8 +10,8 @@ const departments = [
 ];
 
 const keyStaff = [
-  { name: 'Dr. Jane Smith', role: 'Principal', image: '/staff/jane.jpg' },
-  { name: 'Mr. John Doe', role: 'Vice Principal', image: '/staff/john.jpg' },
+  { name: 'Dr. Yahaya Isah', role: 'Principal', image: '/staff/jane.jpg' },
+  { name: 'Mr. Sani Ahmad', role: 'Vice Principal', image: '/staff/john.jpg' },
   { name: 'Dr. Emily Brown', role: 'Head of Nursing', image: '/staff/emily.jpg' },
 ];
 
@@ -20,7 +20,7 @@ export default function AboutPage() {
     <main className="min-h-screen bg-white">
 
       {/* Hero Section */}
-      <section className="relative bg-gradient-to-br from-primary-600 to-secondary-600 text-white overflow-hidden">
+      <section className="relative bg-linear-to-br from-primary-600 to-secondary-600 text-white overflow-hidden">
         <div className="absolute inset-0 bg-[linear-gradient(to_right,#ffffff0a_1px,transparent_1px),linear-gradient(to_bottom,#ffffff0a_1px,transparent_1px)] bg-[size:32px_32px]" />
         <div className="relative max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 py-24 text-center">
           <motion.h1
@@ -29,7 +29,7 @@ export default function AboutPage() {
             transition={{ duration: 0.5 }}
             className="text-4xl lg:text-5xl font-bold mb-4"
           >
-            About SYK School of Health Tech
+            About SYK School of Health Technology
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 20 }}
@@ -72,7 +72,7 @@ export default function AboutPage() {
       <section className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 py-20">
         <h2 className="text-3xl font-bold text-gray-900 mb-12 text-center">Accreditation</h2>
         <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5 }} className="bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-shadow p-6 flex flex-col gap-4 max-w-3xl mx-auto text-center">
-          <div className="w-12 h-12 bg-gradient-to-br from-primary-600 to-secondary-600 text-white rounded-xl flex items-center justify-center mb-4 mx-auto">
+          <div className="w-12 h-12 bg-linear-to-br from-primary-600 to-secondary-600 text-white rounded-xl flex items-center justify-center mb-4 mx-auto">
             <Award className="w-6 h-6" />
           </div>
           <p className="text-gray-600 text-sm">
@@ -89,7 +89,7 @@ export default function AboutPage() {
             const Icon = dept.icon;
             return (
               <motion.div key={idx} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.5, delay: idx * 0.1 }} className="bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-shadow p-6 flex flex-col gap-4">
-                <div className="w-12 h-12 bg-gradient-to-br from-primary-600 to-secondary-600 text-white rounded-xl flex items-center justify-center">
+                <div className="w-12 h-12 bg-linear-to-br from-primary-600 to-secondary-600 text-white rounded-xl flex items-center justify-center">
                   <Icon className="w-6 h-6" />
                 </div>
                 <h3 className="text-xl font-semibold text-gray-900">{dept.name}</h3>
