@@ -75,7 +75,7 @@ export function Footer() {
               </div>
               <div>
                 <span className="text-2xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
-                  Sarkin-Yarkin Karaye
+                  Sarkin Yakin Karaye
                 </span>
                 <p className="text-sm text-gray-400">School of Health Technology</p>
               </div>
