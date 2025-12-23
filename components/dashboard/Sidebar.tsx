@@ -135,14 +135,16 @@ export function Sidebar({ user }: SidebarProps) {
         <div className="flex flex-col h-full">
           {/* Logo */}
           <div className="relative w-full h-17 py-10">
-            <Image
-              src="/brand/logo.png"
-              alt="SYK School of Health Tech"
-              fill
-              sizes="100vw"
-              className="object-cover"
-              priority
-            />
+            <Link href="/" className="flex items-center">
+              <Image
+                src="/brand/logo.png"
+                alt="SYK School of Health Tech"
+                fill
+                sizes="100vw"
+                className="object-cover"
+                priority
+              />
+            </Link>
           </div>
 
 
