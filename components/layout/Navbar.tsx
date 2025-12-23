@@ -153,8 +153,8 @@ export function Navbar() {
             <Image
               src="/brand/logo.png"
               alt="SYK Health Tech"
-              width={140}
-              height={40}
+              width={160}
+              height={140}
               priority
             />
           </Link>
