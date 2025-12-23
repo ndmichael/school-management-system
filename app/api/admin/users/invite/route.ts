@@ -12,16 +12,20 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
+function pickString(obj: Record<string, unknown>, key: string): string | null {
+  const v = obj[key];
+  return typeof v === "string" ? v : null;
+}
+
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
 function looksLikeEmail(email: string): boolean {
-  // simple, pragmatic check (avoid rejecting valid but uncommon emails)
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-function isDuplicateAuthMessage(msg: string) {
+function isDuplicateAuthMessage(msg: string): boolean {
   const m = msg.toLowerCase();
   return (
     m.includes("already registered") ||
@@ -37,17 +41,16 @@ function safeNameFromEmail(email: string): { first: string; last: string } {
 
   const cap = (s: string) => (s.length ? s[0].toUpperCase() + s.slice(1) : s);
 
-  const first = cap(parts[0] ?? "Admin");
-  const last = cap(parts[1] ?? "User");
-
-  return { first, last };
+  return {
+    first: cap(parts[0] ?? "Admin"),
+    last: cap(parts[1] ?? "User"),
+  };
 }
 
 export async function POST(req: Request) {
   const auth = await requireSuperAdmin();
 
   if (!auth.ok) {
-    // user missing => 401, user present but not allowlisted => 403
     if (!auth.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -57,21 +60,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const emailRaw = typeof bodyUnknown.email === "string" ? bodyUnknown.email : "";
+  const emailRaw = pickString(bodyUnknown, "email") ?? "";
   const email = normalizeEmail(emailRaw);
 
   if (!email || !looksLikeEmail(email)) {
     return NextResponse.json({ error: "Please provide a valid email." }, { status: 400 });
   }
 
-  const firstNameRaw = typeof bodyUnknown.first_name === "string" ? bodyUnknown.first_name.trim() : "";
-  const lastNameRaw = typeof bodyUnknown.last_name === "string" ? bodyUnknown.last_name.trim() : "";
+  const firstNameRaw = (pickString(bodyUnknown, "first_name") ?? "").trim();
+  const lastNameRaw = (pickString(bodyUnknown, "last_name") ?? "").trim();
 
   const fallback = safeNameFromEmail(email);
   const first_name = firstNameRaw || fallback.first;
   const last_name = lastNameRaw || fallback.last;
 
-  // 1) Prevent duplicates in profiles table
+  // 1) Prevent duplicate profile (by email)
   const { data: existingProfile, error: profCheckErr } = await supabaseAdmin
     .from("profiles")
     .select("id")
@@ -86,7 +89,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Profile already exists for this email." }, { status: 409 });
   }
 
-  // 2) Invite auth user
+  // 2) Invite auth user (email will be sent by Supabase)
   const redirectTo = new URL("/onboarding/admin", getBaseUrl(req)).toString();
 
   const { data: inviteRes, error: inviteErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
@@ -97,7 +100,10 @@ export async function POST(req: Request) {
   if (inviteErr) {
     const msg = inviteErr.message ?? "Failed to invite user.";
     const isDup = isDuplicateAuthMessage(msg);
-    return NextResponse.json({ error: isDup ? "User already exists in auth." : msg }, { status: isDup ? 409 : 400 });
+    return NextResponse.json(
+      { error: isDup ? "User already exists in auth (delete them or use a different email)." : msg },
+      { status: isDup ? 409 : 400 }
+    );
   }
 
   const invitedUserId = inviteRes?.user?.id;
@@ -107,6 +113,7 @@ export async function POST(req: Request) {
 
   // 3) Create profile row (service role bypasses RLS)
   const now = new Date().toISOString();
+
   const { error: profileErr } = await supabaseAdmin.from("profiles").insert({
     id: invitedUserId,
     first_name,
@@ -129,8 +136,8 @@ export async function POST(req: Request) {
   });
 
   if (profileErr) {
-    // cleanup auth user to avoid “ghost user”
-    await supabaseAdmin.auth.admin.deleteUser(invitedUserId);
+    // cleanup to avoid ghost auth user
+    await supabaseAdmin.auth.admin.deleteUser(invitedUserId).catch(() => null);
     return NextResponse.json({ error: profileErr.message }, { status: 400 });
   }
 
@@ -142,3 +149,4 @@ export async function POST(req: Request) {
     inviteQueued: true,
   });
 }
+
