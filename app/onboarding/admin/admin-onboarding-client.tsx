@@ -84,14 +84,34 @@ export default function AdminOnboardingClient() {
       setFatal(null);
 
       try {
-        // Establish session from invite link (supports both flows)
-        if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
+        /**
+         * ✅ IMPORTANT FIX:
+         * Supabase invite links in your case are hash-based:
+         * /onboarding/admin#access_token=...&refresh_token=...&type=invite
+         * So we MUST set the session from the hash before getUser() will work.
+         */
+        const hash = typeof window !== "undefined" ? window.location.hash : "";
+        const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+        const access_token = hashParams.get("access_token");
+        const refresh_token = hashParams.get("refresh_token");
+
+        if (access_token && refresh_token) {
+          const { error } = await supabase.auth.setSession({ access_token, refresh_token });
           if (error) throw new Error(error.message);
-        } else if (tokenHash && type) {
-          const otpType = type as EmailOtpType;
-          const { error } = await supabase.auth.verifyOtp({ type: otpType, token_hash: tokenHash });
-          if (error) throw new Error(error.message);
+
+          // clean URL (prevents reprocessing tokens on refresh)
+          const clean = window.location.pathname + window.location.search;
+          window.history.replaceState({}, document.title, clean);
+        } else {
+          // Fallbacks for other flows (if you ever switch auth settings)
+          if (code) {
+            const { error } = await supabase.auth.exchangeCodeForSession(code);
+            if (error) throw new Error(error.message);
+          } else if (tokenHash && type) {
+            const otpType = type as EmailOtpType;
+            const { error } = await supabase.auth.verifyOtp({ type: otpType, token_hash: tokenHash });
+            if (error) throw new Error(error.message);
+          }
         }
 
         const { data, error: userErr } = await supabase.auth.getUser();
