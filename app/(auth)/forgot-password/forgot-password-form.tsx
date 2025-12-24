@@ -32,7 +32,7 @@ export default function ForgotPasswordForm() {
     setLoading(true);
     try {
       const origin = window.location.origin;
-      const redirectTo = `${origin}/auth/reset-password`;
+      const redirectTo = `${origin}/api/auth/confirm?next=/reset-password`;
 
       const { error: supaError } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
         redirectTo,
@@ -85,7 +85,7 @@ export default function ForgotPasswordForm() {
       <button
         type="button"
         className="text-sm underline text-muted-foreground"
-        onClick={() => router.push("/auth/login")}
+        onClick={() => router.push("/login")}
       >
         Back to login
       </button>

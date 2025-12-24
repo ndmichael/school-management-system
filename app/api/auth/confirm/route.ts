@@ -58,7 +58,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing email" }, { status: 400 });
     }
 
-    const redirectTo = "https://www.sykhealthtech.com.ng/callback";
+    const redirectTo = "https://www.sykhealthtech.com.ng/api/auth/confirm?next=/set-password";
+
 
     const { data: linkData, error: linkErr } = await supabaseAdmin.auth.admin.generateLink({
       type: "invite",
