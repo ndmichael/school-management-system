@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import Link from 'next/link'
 import { useActionState, useMemo, useState } from 'react'
 import { Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react'
 
@@ -66,7 +67,21 @@ export default function LoginClient() {
               }
             />
 
-            {capsOn && <p className="text-xs font-medium text-amber-700">Caps Lock is on</p>}
+            <div className="flex items-center justify-between">
+              {capsOn ? <p className="text-xs font-medium text-amber-700">Caps Lock is on</p> : <span />}
+
+              <Link
+                href="/forgot-password"
+                aria-disabled={isPending}
+                tabIndex={isPending ? -1 : 0}
+                className={[
+                  'text-xs font-semibold text-primary-700 hover:underline',
+                  isPending ? 'pointer-events-none opacity-60' : '',
+                ].join(' ')}
+              >
+                Forgot password?
+              </Link>
+            </div>
           </div>
 
           {errorMessage && (
