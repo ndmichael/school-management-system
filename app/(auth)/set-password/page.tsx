@@ -16,7 +16,7 @@ export default async function ResetPasswordPage() {
       </p>
 
       <div className="mt-6">
-        <PasswordUpdateForm mode="reset" />
+        <PasswordUpdateForm mode="set" />
       </div>
     </main>
   );

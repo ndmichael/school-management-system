@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Mail, ArrowRight, RefreshCw } from 'lucide-react';
-import { PrimaryButton } from '@/components/shared';
 import { useState } from 'react';
 
 export default function VerifyEmailPage() {
@@ -23,7 +22,7 @@ export default function VerifyEmailPage() {
     >
       <div className="bg-white rounded-3xl shadow-xl border border-gray-100 p-8 sm:p-10">
         {/* Icon */}
-        <div className="w-20 h-20 bg-gradient-to-br from-primary-100 to-secondary-100 rounded-full flex items-center justify-center mx-auto mb-6">
+        <div className="w-20 h-20 bg-linear-to-br from-primary-100 to-secondary-100 rounded-full flex items-center justify-center mx-auto mb-6">
           <Mail className="w-10 h-10 text-primary-600" />
         </div>
 
@@ -32,7 +31,7 @@ export default function VerifyEmailPage() {
           Check Your Email
         </h1>
         <p className="text-gray-600 mb-8">
-          We've sent a verification link to your email address. Please check your inbox and click the link to verify your account.
+          We have sent a verification link to your email address. Please check your inbox and click the link to verify your account.
         </p>
 
         {/* Resend Button */}

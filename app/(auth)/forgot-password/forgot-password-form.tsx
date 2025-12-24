@@ -80,7 +80,7 @@ export default function ForgotPasswordForm() {
         error={error}
       />
 
-      <PrimaryButton type="submit" loading={loading} rightIcon={null}>
+      <PrimaryButton className="mr-3" type="submit" loading={loading} rightIcon={null}>
         Send reset link
       </PrimaryButton>
 
