@@ -33,11 +33,8 @@ export default function ForgotPasswordForm() {
     try {
       const origin = window.location.origin;
       const redirectTo = `${origin}/api/auth/confirm?next=/reset-password`;
-<<<<<<< HEAD
 
 
-=======
->>>>>>> cd64e4f8c5c53856a3241d263a081b67045af296
 
       const { error: supaError } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
         redirectTo,
