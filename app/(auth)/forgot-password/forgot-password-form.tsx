@@ -1,3 +1,4 @@
+// app/(auth)/forgot-password/forgot-password-form.tsx
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
@@ -31,22 +32,21 @@ export default function ForgotPasswordForm() {
 
     setLoading(true);
     try {
-    //   const origin = window.location.origin;
-    //   const redirectTo = `${origin}/api/auth/confirm?next=/reset-password`;
-      const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.sykhealthtech.com.ng").replace(/\/$/, "");
-      const redirectTo = `${baseUrl}/api/auth/confirm?next=/reset-password`;
+      const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.sykhealthtech.com.ng")
+        .replace(/\/$/, "");
+
+      // IMPORTANT: no PKCE here; template will append token_hash/type/next
+      const redirectTo = `${baseUrl}/api/auth/confirm`;
 
       const { error: supaError } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
         redirectTo,
       });
 
       // Don’t enumerate users; always show success UX
-      if (supaError) {
-        setDone(true);
-        return;
-      }
-
       setDone(true);
+
+      // optionally log client-side for debugging (remove later)
+      void supaError;
     } finally {
       setLoading(false);
     }
