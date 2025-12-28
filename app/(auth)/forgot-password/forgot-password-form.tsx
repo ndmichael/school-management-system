@@ -31,8 +31,11 @@ export default function ForgotPasswordForm() {
 
     setLoading(true);
     try {
-      const origin = window.location.origin;
-      const redirectTo = `${origin}/api/auth/confirm?next=/reset-password`;
+    //   const origin = window.location.origin;
+    //   const redirectTo = `${origin}/api/auth/confirm?next=/reset-password`;
+      const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "https://www.sykhealthtech.com.ng").replace(/\/$/, "");
+      const redirectTo = `${baseUrl}/api/auth/confirm?next=/reset-password`;
+
       const { error: supaError } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
         redirectTo,
       });
