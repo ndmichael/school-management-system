@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+export const runtime = "nodejs";
+
 type ConvertParams = { id: string };
 
-type StoredFile = { bucket: string; path: string };
+type StoredFile = { bucket: string; path: string; contentType?: string | null };
 
 type ApplicationRow = {
   id: string;
@@ -48,9 +50,15 @@ function isRecord(v: unknown): v is JsonRecord {
   return typeof v === "object" && v !== null;
 }
 
-function isStoredFile(v: unknown): v is StoredFile {
-  if (!isRecord(v)) return false;
-  return typeof v.bucket === "string" && typeof v.path === "string" && v.bucket.trim() !== "" && v.path.trim() !== "";
+function parseStoredFile(v: unknown): StoredFile | null {
+  if (!isRecord(v)) return null;
+
+  const bucket = typeof v.bucket === "string" ? v.bucket.trim() : "";
+  const path = typeof v.path === "string" ? v.path.trim() : "";
+  const contentType = typeof v.contentType === "string" ? v.contentType : null;
+
+  if (!bucket || !path) return null;
+  return { bucket, path, contentType };
 }
 
 function isDuplicateAuthMessage(msg: string) {
@@ -72,6 +80,40 @@ function getBaseUrl(req: Request) {
   const scheme = isLocal ? "http" : proto;
 
   return `${scheme}://${host}`;
+}
+
+/**
+ * profiles.avatar_file constraint requires bucket === "avatars".
+ * If application passport is stored in "applications", we copy it into "avatars".
+ */
+async function ensureAvatarInAvatarsBucket(file: StoredFile, userId: string): Promise<StoredFile> {
+  if (file.bucket === "avatars") return file;
+
+  const { data: blob, error: dlErr } = await supabaseAdmin.storage
+    .from(file.bucket)
+    .download(file.path);
+
+  if (dlErr || !blob) {
+    throw new Error(`Failed to download passport_file: ${dlErr?.message ?? "no data"}`);
+  }
+
+  const ab = await blob.arrayBuffer();
+  const buf = Buffer.from(ab);
+
+  const filename = file.path.split("/").pop() ?? "avatar";
+  const newPath = `${userId}/${filename}`;
+
+  const { error: upErr } = await supabaseAdmin.storage.from("avatars").upload(newPath, buf, {
+    upsert: true,
+    contentType: file.contentType ?? "application/octet-stream",
+    cacheControl: "3600",
+  });
+
+  if (upErr) {
+    throw new Error(`Failed to upload avatar to avatars bucket: ${upErr.message}`);
+  }
+
+  return { bucket: "avatars", path: newPath };
 }
 
 export async function POST(req: Request, context: { params: Promise<ConvertParams> }) {
@@ -135,19 +177,16 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
       return NextResponse.json({ error: "Application already converted." }, { status: 400 });
     }
 
-    const email = String(app.email || "").trim().toLowerCase();
+    const email = String(app.email || "")
+      .trim()
+      .toLowerCase();
+
     if (!email) {
       return NextResponse.json({ error: "Application email is missing." }, { status: 400 });
     }
 
-    // ✅ Require passport_file to exist and be a valid {bucket,path}, because we will use it as avatar_file
-    if (!isStoredFile(app.passport_file)) {
-      return NextResponse.json(
-        { error: "Application passport_file is missing or invalid. Cannot set student avatar." },
-        { status: 400 }
-      );
-    }
-    const avatarFile: StoredFile = app.passport_file;
+    // passport_file is optional now (conversion can proceed even if missing)
+    const passportFile = parseStoredFile(app.passport_file);
 
     // 409 pre-check (profile exists by email)
     const { data: existingProfile, error: profCheckErr } = await supabaseAdmin
@@ -178,7 +217,7 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
       return NextResponse.json({ error: programErr?.message ?? "Program not found." }, { status: 400 });
     }
 
-    // 3) Session (kept because you may still use it elsewhere / auditing)
+    // 3) Session (kept for auditing / future use)
     const { data: session, error: sessionErr } = await supabaseAdmin
       .from("sessions")
       .select("name")
@@ -189,7 +228,7 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
       return NextResponse.json({ error: sessionErr?.message ?? "Session not found." }, { status: 400 });
     }
 
-    // 4) Matric (RPC) — uses your current function signature: generate_student_matric_no(p_prefix text)
+    // 4) Matric
     const { data: matricNo, error: matricErr } = await supabaseAdmin.rpc("generate_student_matric_no", {
       p_prefix: program.code,
     });
@@ -201,8 +240,12 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
       );
     }
 
-    // 5) Invite auth user (Supabase sends invite email)
-    const redirectTo = new URL("/callback", getBaseUrl(req)).toString();
+    // 5) Invite auth user
+    // IMPORTANT: redirectTo points to your confirm route (token_hash flow).
+    // Your Supabase INVITE EMAIL TEMPLATE must append:
+    // ?token_hash={{ .TokenHash }}&type=invite&next=/set-password
+    const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)).replace(/\/$/, "");
+    const redirectTo = `${baseUrl}/api/auth/confirm`;
 
     const { data: inviteRes, error: inviteErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
       data: { onboarding_status: "pending", main_role: "student" },
@@ -226,7 +269,17 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
 
     createdAuthUserId = invitedUserId;
 
-    // 6) Create profile (✅ avatar_file copied from passport_file)
+    // avatar_file must be bucket "avatars" OR null
+    let avatarFile: StoredFile | null = null;
+    if (passportFile) {
+      try {
+        avatarFile = await ensureAvatarInAvatarsBucket(passportFile, createdAuthUserId);
+      } catch {
+        avatarFile = null;
+      }
+    }
+
+    // 6) Create profile
     const { data: profile, error: profileErr2 } = await supabaseAdmin
       .from("profiles")
       .insert({
@@ -245,9 +298,7 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
         address: app.address,
         main_role: "student",
         onboarding_status: "pending",
-
-        // ✅ HERE:
-        avatar_file: avatarFile,
+        avatar_file: avatarFile, // ✅ satisfies constraint
       })
       .select("id")
       .single<ProfileIdRow>();
@@ -315,7 +366,7 @@ export async function POST(req: Request, context: { params: Promise<ConvertParam
       studentEmail: email,
       inviteQueued: true,
       redirectTo,
-      avatarFile, // helpful for debugging
+      avatarFile,
     });
   } catch (err) {
     if (createdAuthUserId) {
