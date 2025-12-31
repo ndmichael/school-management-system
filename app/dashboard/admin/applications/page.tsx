@@ -283,50 +283,68 @@ export default function AdminApplicationsPage() {
                     {formatDate(app.created_at)}
                   </td>
 
-                  <td className="px-3 py-2 text-right">
-                        {/* Pending → Accept / Reject */}
-                        {app.status === "pending" && (
-                            <div className="flex justify-end gap-2">
-                            <button
-                                type="button"
-                                onClick={() => reviewApplication(app.id, "accept")}
-                                disabled={reviewingId === app.id}
-                                title="Accept application"
-                                className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 disabled:opacity-60"
-                            >
-                                <CheckCircle2 className="w-4 h-4" />
-                            </button>
+                  <td className="px-3 py-2">
+                    <div className="flex items-center justify-end gap-2">
+                      {/* Always allow View */}
+                      <a
+                        href={`/dashboard/admin/applications/${app.id}`}
+                        className="px-3 py-1 text-xs rounded border bg-white hover:bg-gray-50"
+                        title="View application details"
+                      >
+                        View
+                      </a>
 
-                            <button
-                                type="button"
-                                onClick={() => reviewApplication(app.id, "reject")}
-                                disabled={reviewingId === app.id}
-                                title="Reject application"
-                                className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 disabled:opacity-60"
-                            >
-                                <XCircle className="w-4 h-4" />
-                            </button>
-                            </div>
-                        )}
+                      {/* Pending -> Accept / Reject */}
+                      {app.status === "pending" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => reviewApplication(app.id, "accept")}
+                            disabled={reviewingId === app.id}
+                            title="Accept application"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-50 hover:bg-green-100 text-green-700 border border-green-200 disabled:opacity-60"
+                          >
+                            <CheckCircle2 className="w-4 h-4" />
+                          </button>
 
-                        {/* Accepted but not converted → Show Convert button */}
-                        {app.status === "accepted" && !app.converted_to_student && (
-                            <button
-                                type="button"
-                                onClick={() => convertApplication(app.id)}
-                                disabled={reviewingId === app.id}
-                                title="Convert this accepted application into a full student account"
-                                className={`px-3 py-1 text-xs rounded text-white ${
-                                reviewingId === app.id
-                                    ? "bg-blue-300 cursor-not-allowed"
-                                    : "bg-blue-600 hover:bg-blue-700"
-                                }`}
-                            >
-                                {reviewingId === app.id ? "Converting..." : "Convert"}
-                            </button>
-                        )}
+                          <button
+                            type="button"
+                            onClick={() => reviewApplication(app.id, "reject")}
+                            disabled={reviewingId === app.id}
+                            title="Reject application"
+                            className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 disabled:opacity-60"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
 
-                    </td>
+                      {/* Accepted but not converted -> Convert */}
+                      {app.status === "accepted" && !app.converted_to_student && (
+                        <button
+                          type="button"
+                          onClick={() => convertApplication(app.id)}
+                          disabled={reviewingId === app.id}
+                          title="Convert to student account"
+                          className={`px-3 py-1 text-xs rounded text-white ${
+                            reviewingId === app.id
+                              ? "bg-blue-300 cursor-not-allowed"
+                              : "bg-blue-600 hover:bg-blue-700"
+                          }`}
+                        >
+                          {reviewingId === app.id ? "Converting..." : "Convert"}
+                        </button>
+                      )}
+
+                      {/* Converted */}
+                      {app.converted_to_student && (
+                        <span className="px-2 py-1 text-xs rounded bg-emerald-50 text-emerald-700 border border-emerald-200">
+                          Converted
+                        </span>
+                      )}
+                    </div>
+                  </td>
+
 
                 </tr>
               ))}
