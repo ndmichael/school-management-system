@@ -1,9 +1,14 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Modal } from "./Modal";
 import { Input, Select } from "@/components/shared";
 import { toast } from "react-toastify";
+
+type MainRole = "academic_staff" | "non_academic_staff";
+type StaffUnit = "admissions" | "bursary" | "exams";
+type Religion = "islam" | "christianity" | "other";
+type Gender = "male" | "female";
 
 interface Department {
   id: string;
@@ -16,11 +21,40 @@ interface AddStaffModalProps {
   onCreated: () => void;
 }
 
+type StaffFormState = {
+  first_name: string;
+  middle_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  gender: "" | Gender;
+  date_of_birth: string;
+  nin: string;
+  address: string;
+  state_of_origin: string;
+  lga_of_origin: string;
+  religion: Religion;
+
+  main_role: MainRole;
+  unit: "" | StaffUnit; // ✅ NEW
+
+  designation: string;
+  specialization: string;
+  department_id: string;
+  hire_date: string;
+};
+
+const UNIT_OPTIONS: Array<{ value: StaffUnit; label: string }> = [
+  { value: "admissions", label: "Admissions" },
+  { value: "bursary", label: "Bursary" },
+  { value: "exams", label: "Exams" },
+];
+
 export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps) {
   const [loading, setLoading] = useState(false);
   const [departments, setDepartments] = useState<Department[]>([]);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<StaffFormState>({
     first_name: "",
     middle_name: "",
     last_name: "",
@@ -34,34 +68,51 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
     lga_of_origin: "",
     religion: "islam",
 
-    main_role: "academic_staff", // backend expects academic_staff | non_academic_staff
+    main_role: "academic_staff",
+    unit: "",
+
     designation: "",
     specialization: "",
     department_id: "",
     hire_date: "",
   });
 
-  // -------------------------------
-  // LOAD DEPARTMENTS FROM BACKEND
-  // -------------------------------
+  // Reset unit if they switch away from non-academic
   useEffect(() => {
-    async function loadDepartments() {
-      const res = await fetch("/api/admin/departments");
-      const json = await res.json();
+    if (form.main_role !== "non_academic_staff" && form.unit) {
+      setForm((p) => ({ ...p, unit: "" }));
+    }
+  }, [form.main_role, form.unit]);
 
-      if (res.ok) {
-        setDepartments(json.departments || []);
-      } else {
-        toast.error("Failed to load departments");
+  // Load departments on open
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const controller = new AbortController();
+
+    async function loadDepartments() {
+      try {
+        const res = await fetch("/api/admin/departments", { signal: controller.signal });
+        const json = (await res.json().catch(() => ({}))) as { departments?: Department[]; error?: string };
+
+        if (!res.ok) throw new Error(json.error ?? "Failed to load departments");
+        setDepartments(json.departments ?? []);
+      } catch (e) {
+        if (controller.signal.aborted) return;
+        toast.error(e instanceof Error ? e.message : "Failed to load departments");
       }
     }
 
-    if (isOpen) loadDepartments();
+    loadDepartments();
+
+    return () => controller.abort();
   }, [isOpen]);
 
-  const update = (field: keyof typeof form, value: string) => {
+  const update = <K extends keyof StaffFormState>(field: K, value: StaffFormState[K]) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
+
+  const unitIsRequired = useMemo(() => form.main_role === "non_academic_staff", [form.main_role]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,16 +122,45 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
       return;
     }
 
+    if (unitIsRequired && !form.unit) {
+      toast.error("Please select a unit for Non-Academic Staff");
+      return;
+    }
+
+    // ✅ Production-friendly payload: optional fields become null (not empty strings)
+    const payload = {
+      first_name: form.first_name.trim(),
+      middle_name: form.middle_name.trim() ? form.middle_name.trim() : null,
+      last_name: form.last_name.trim(),
+      email: form.email.trim().toLowerCase(),
+      phone: form.phone.trim() ? form.phone.trim() : null,
+      gender: form.gender || null,
+      date_of_birth: form.date_of_birth || null,
+      nin: form.nin.trim() ? form.nin.trim() : null,
+      address: form.address.trim() ? form.address.trim() : null,
+      state_of_origin: form.state_of_origin.trim() ? form.state_of_origin.trim() : null,
+      lga_of_origin: form.lga_of_origin.trim() ? form.lga_of_origin.trim() : null,
+      religion: form.religion,
+
+      main_role: form.main_role,
+      unit: form.main_role === "non_academic_staff" ? form.unit : null, // ✅ only send when needed
+
+      designation: form.designation.trim() ? form.designation.trim() : null,
+      specialization: form.specialization.trim() ? form.specialization.trim() : null,
+      department_id: form.department_id || null,
+      hire_date: form.hire_date || null,
+    };
+
     try {
       setLoading(true);
 
       const res = await fetch("/api/admin/staff", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
 
-      const json = await res.json();
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
 
       if (!res.ok) {
         toast.error(json.error || "Failed to create staff");
@@ -90,7 +170,7 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
       toast.success("Staff created successfully");
       onCreated();
       onClose();
-    } catch (err) {
+    } catch {
       toast.error("Unexpected error creating staff");
     } finally {
       setLoading(false);
@@ -102,8 +182,6 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Add New Staff" size="xl">
       <form onSubmit={submit} className="space-y-6">
-
-        {/* NAME ROW — 3 COLUMNS */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Input
             label="First Name"
@@ -127,7 +205,6 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
           />
         </div>
 
-        {/* EMAIL + PHONE */}
         <div className="grid sm:grid-cols-2 gap-4">
           <Input
             label="Email"
@@ -145,13 +222,12 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
           />
         </div>
 
-        {/* GENDER + DOB */}
         <div className="grid sm:grid-cols-2 gap-4">
           <Select
             label="Gender"
             required
             value={form.gender}
-            onChange={(v) => update("gender", v)}
+            onChange={(v) => update("gender", v as Gender)}
             options={[
               { value: "male", label: "Male" },
               { value: "female", label: "Female" },
@@ -165,7 +241,6 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
           />
         </div>
 
-        {/* ID & ADDRESS */}
         <Input
           label="National ID (NIN)"
           placeholder="1234-5678-9012"
@@ -180,7 +255,6 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
           onChange={(e) => update("address", e.target.value)}
         />
 
-        {/* ORIGIN + RELIGION */}
         <div className="grid sm:grid-cols-3 gap-4">
           <Input
             label="State of Origin"
@@ -188,18 +262,16 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
             value={form.state_of_origin}
             onChange={(e) => update("state_of_origin", e.target.value)}
           />
-
           <Input
             label="LGA of Origin"
             placeholder="Zaria"
             value={form.lga_of_origin}
             onChange={(e) => update("lga_of_origin", e.target.value)}
           />
-
           <Select
             label="Religion"
             value={form.religion}
-            onChange={(v) => update("religion", v)}
+            onChange={(v) => update("religion", v as Religion)}
             options={[
               { value: "islam", label: "Islam" },
               { value: "christianity", label: "Christianity" },
@@ -208,19 +280,28 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
           />
         </div>
 
-        {/* MAIN ROLE */}
         <Select
           label="Staff Type"
           required
           value={form.main_role}
-          onChange={(v) => update("main_role", v)}
+          onChange={(v) => update("main_role", v as MainRole)}
           options={[
             { value: "academic_staff", label: "Academic Staff" },
             { value: "non_academic_staff", label: "Non-Academic Staff" },
           ]}
         />
 
-        {/* STAFF DETAILS */}
+        {/* ✅ NEW: Unit (only for non-academic staff) */}
+        {form.main_role === "non_academic_staff" && (
+          <Select
+            label="Unit"
+            required
+            value={form.unit}
+            onChange={(v) => update("unit", v as StaffUnit)}
+            options={UNIT_OPTIONS}
+          />
+        )}
+
         <Input
           label="Designation"
           required
@@ -244,20 +325,15 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
             value={form.hire_date}
             onChange={(e) => update("hire_date", e.target.value)}
           />
-
           <Select
             label="Department"
             required
             value={form.department_id}
             onChange={(v) => update("department_id", v)}
-            options={departments.map((d) => ({
-              value: d.id,
-              label: d.name,
-            }))}
+            options={departments.map((d) => ({ value: d.id, label: d.name }))}
           />
         </div>
 
-        {/* ACTIONS */}
         <div className="flex gap-4 pt-4">
           <button
             type="submit"
