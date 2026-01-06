@@ -1,11 +1,29 @@
+// app/dashboard/admin/layout.tsx
 import type { ReactNode } from "react";
-import { requireRole } from "@/lib/auth/requireRole";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import type { UserRole } from "@/types/dashboard";
 
-type Props = { children: ReactNode };
+export const dynamic = "force-dynamic";
 
-export default async function AdminLayout({ children }: Props) {
-  await requireRole("admin");
+export default async function AdminLayout({ children }: { children: ReactNode }) {
+  const supabase = await createClient();
 
-  // min-w-0 is the key: it allows tables/grids to shrink inside flex parents
-  return <main className="w-full min-w-0">{children}</main>;
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) redirect("/login");
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("main_role")
+    .eq("id", user.id)
+    .maybeSingle<{ main_role: UserRole | null }>();
+
+  if (!profile?.main_role) redirect("/login");
+
+  if (profile.main_role !== "admin") redirect("/forbidden");
+
+  return children;
 }
