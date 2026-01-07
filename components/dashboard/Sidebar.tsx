@@ -1,4 +1,4 @@
-// components/dashboard/Sidebar.tsx (or wherever this Sidebar lives)
+// components/dashboard/Sidebar.tsx
 "use client";
 
 import { useState } from "react";
@@ -21,6 +21,12 @@ import {
 } from "lucide-react";
 import type { DashboardUser, UserRole } from "@/types/dashboard";
 
+type NavItem = {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  href: string;
+};
+
 type RoleConfig = {
   color: string;
   hoverColor: string;
@@ -28,7 +34,7 @@ type RoleConfig = {
   lightBg: string;
   textColor: string;
   label: string;
-  items: { icon: React.ComponentType<{ className?: string }>; label: string; href: string }[];
+  items: NavItem[];
 };
 
 const roleConfig: Record<UserRole, RoleConfig> = {
@@ -45,7 +51,7 @@ const roleConfig: Record<UserRole, RoleConfig> = {
       { icon: FileText, label: "Applications", href: "/dashboard/admin/applications" },
       { icon: UserCog, label: "Staff", href: "/dashboard/admin/staff" },
       { icon: BookOpen, label: "Courses", href: "/dashboard/admin/courses" },
-      { icon: BookOpen, label: "Courses Offerings", href: "/dashboard/admin/course-offerings" },
+      { icon: BookOpen, label: "Course Offerings", href: "/dashboard/admin/course-offerings" },
       { icon: Building2, label: "Departments", href: "/dashboard/admin/departments" },
       { icon: GraduationCap, label: "Programs", href: "/dashboard/admin/programs" },
       { icon: Calendar, label: "Sessions", href: "/dashboard/admin/sessions" },
@@ -53,6 +59,7 @@ const roleConfig: Record<UserRole, RoleConfig> = {
       { icon: Settings, label: "Settings", href: "/dashboard/admin/settings" },
     ],
   },
+
   student: {
     color: "bg-blue-600",
     hoverColor: "hover:bg-blue-700",
@@ -67,6 +74,7 @@ const roleConfig: Record<UserRole, RoleConfig> = {
       { icon: Users, label: "Profile", href: "/dashboard/student/settings" },
     ],
   },
+
   academic_staff: {
     color: "bg-purple-600",
     hoverColor: "hover:bg-purple-700",
@@ -80,6 +88,7 @@ const roleConfig: Record<UserRole, RoleConfig> = {
       { icon: Settings, label: "Settings", href: "/dashboard/academic_staff/settings" },
     ],
   },
+
   non_academic_staff: {
     color: "bg-green-600",
     hoverColor: "hover:bg-green-700",
@@ -87,23 +96,25 @@ const roleConfig: Record<UserRole, RoleConfig> = {
     lightBg: "bg-green-50",
     textColor: "text-green-600",
     label: "Non-Academic Staff",
-    // base items only; we'll build unit-aware items in the component below
-    items: [{ icon: LayoutDashboard, label: "Home", href: "/dashboard/non_academic_staff" }],
+    items: [
+      { icon: LayoutDashboard, label: "Home", href: "/dashboard/non_academic_staff" },
+    ],
   },
 };
 
 type SidebarProps = {
-  user: DashboardUser;
+  user: DashboardUser & { unit?: "admissions" | "bursary" | "exams" | null };
 };
-
-type NavItem = { icon: React.ComponentType<{ className?: string }>; label: string; href: string };
 
 export function Sidebar({ user }: SidebarProps) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const pathname = usePathname();
   const config = roleConfig[user.role];
 
-  // ✅ Unit-aware items for non-academic staff (+ always include Settings)
+  /**
+   * Unit-aware navigation (UI only)
+   * Admin logic stays in admin role
+   */
   const items: NavItem[] =
     user.role !== "non_academic_staff"
       ? config.items
@@ -111,7 +122,13 @@ export function Sidebar({ user }: SidebarProps) {
           { icon: LayoutDashboard, label: "Home", href: "/dashboard/non_academic_staff" },
 
           ...(user.unit === "admissions"
-            ? [{ icon: FileText, label: "Admissions", href: "/dashboard/non_academic_staff/admissions/applications" }]
+            ? [
+                {
+                  icon: FileText,
+                  label: "Admissions",
+                  href: "/dashboard/non_academic_staff/admissions/applications",
+                },
+              ]
             : []),
 
           ...(user.unit === "bursary"
@@ -122,7 +139,9 @@ export function Sidebar({ user }: SidebarProps) {
             : []),
 
           ...(user.unit === "exams"
-            ? [{ icon: BookOpen, label: "Exams", href: "/dashboard/non_academic_staff/exams" }]
+            ? [
+                { icon: BookOpen, label: "Exams", href: "/dashboard/non_academic_staff/exams" },
+              ]
             : []),
 
           { icon: Settings, label: "Settings", href: "/dashboard/non_academic_staff/settings" },
@@ -130,24 +149,29 @@ export function Sidebar({ user }: SidebarProps) {
 
   return (
     <>
+      {/* Mobile toggle */}
       <button
-        onClick={() => setIsMobileOpen((prev) => !prev)}
+        onClick={() => setIsMobileOpen((p) => !p)}
         className="lg:hidden fixed top-4 left-4 z-50 w-10 h-10 bg-white rounded-lg shadow-lg flex items-center justify-center"
       >
         {isMobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
 
       {isMobileOpen && (
-        <div onClick={() => setIsMobileOpen(false)} className="lg:hidden fixed inset-0 bg-black/50 z-40" />
+        <div
+          onClick={() => setIsMobileOpen(false)}
+          className="lg:hidden fixed inset-0 bg-black/50 z-40"
+        />
       )}
 
       <aside
-        className={`fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200 z-40 transition-transform duration-300 ${
+        className={`fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200 z-40 transition-transform ${
           isMobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
         <div className="flex flex-col h-full">
-          <div className="relative w-full h-17 py-10">
+          {/* Logo */}
+          <div className="relative w-full h-16 py-10">
             <Link href="/" className="flex items-center">
               <Image
                 src="/brand/logo.png"
@@ -160,17 +184,21 @@ export function Sidebar({ user }: SidebarProps) {
             </Link>
           </div>
 
+          {/* Nav */}
           <nav className="flex-1 overflow-y-auto p-4 space-y-1">
             {items.map((item) => {
               const Icon = item.icon;
               const isActive = pathname.startsWith(item.href);
+
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={() => setIsMobileOpen(false)}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
-                    isActive ? `${config.activeColor} text-white` : "text-gray-700 hover:bg-gray-100"
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition ${
+                    isActive
+                      ? `${config.activeColor} text-white`
+                      : "text-gray-700 hover:bg-gray-100"
                   }`}
                 >
                   <Icon className="w-5 h-5" />
@@ -180,6 +208,7 @@ export function Sidebar({ user }: SidebarProps) {
             })}
           </nav>
 
+          {/* Footer */}
           <div className="p-4 border-t border-gray-200">
             <div className={`${config.lightBg} rounded-xl p-4`}>
               <p className="text-sm font-medium text-gray-900">{config.label}</p>
