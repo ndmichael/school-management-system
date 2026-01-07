@@ -6,4 +6,5 @@ export interface DashboardUser {
   fullName: string
   email: string
   role: UserRole
+  unit?: string | null;
 }
