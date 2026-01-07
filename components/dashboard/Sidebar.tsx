@@ -1,9 +1,10 @@
-'use client'
+// components/dashboard/Sidebar.tsx (or wherever this Sidebar lives)
+"use client";
 
-import { useState } from 'react'
-import Link from 'next/link'
+import { useState } from "react";
+import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from 'next/navigation'
+import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
@@ -17,18 +18,18 @@ import {
   Menu,
   X,
   GraduationCap,
-} from 'lucide-react'
-import type { DashboardUser, UserRole } from '@/types/dashboard'
+} from "lucide-react";
+import type { DashboardUser, UserRole } from "@/types/dashboard";
 
 type RoleConfig = {
-  color: string
-  hoverColor: string
-  activeColor: string
-  lightBg: string
-  textColor: string
-  label: string
-  items: { icon: React.ComponentType<{ className?: string }>; label: string; href: string }[]
-}
+  color: string;
+  hoverColor: string;
+  activeColor: string;
+  lightBg: string;
+  textColor: string;
+  label: string;
+  items: { icon: React.ComponentType<{ className?: string }>; label: string; href: string }[];
+};
 
 const roleConfig: Record<UserRole, RoleConfig> = {
   admin: {
@@ -37,103 +38,115 @@ const roleConfig: Record<UserRole, RoleConfig> = {
     activeColor: "bg-admin-700",
     lightBg: "bg-admin-50",
     textColor: "text-admin-600",
-    label: 'Admin',
+    label: "Admin",
     items: [
-      { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/admin' },
-      { icon: Users, label: 'Students', href: '/dashboard/admin/students' },
-      { icon: FileText, label: 'Applications', href: '/dashboard/admin/applications' },
-      { icon: UserCog, label: 'Staff', href: '/dashboard/admin/staff' },
-      { icon: BookOpen, label: 'Courses', href: '/dashboard/admin/courses' },
-      { icon: BookOpen, label: 'Courses Offerings', href: '/dashboard/admin/course-offerings' },
-      { icon: Building2, label: 'Departments', href: '/dashboard/admin/departments' },
-
-      { icon: GraduationCap, label: 'Programs', href: '/dashboard/admin/programs' },
-
-      { icon: Calendar, label: 'Sessions', href: '/dashboard/admin/sessions' },
-      { icon: Receipt, label: 'Receipts', href: '/dashboard/admin/receipts' },
-      // { icon: FileText, label: 'Reports', href: '/dashboard/admin/reports' },
-      { icon: Settings, label: 'Settings', href: '/dashboard/admin/settings' },
+      { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard/admin" },
+      { icon: Users, label: "Students", href: "/dashboard/admin/students" },
+      { icon: FileText, label: "Applications", href: "/dashboard/admin/applications" },
+      { icon: UserCog, label: "Staff", href: "/dashboard/admin/staff" },
+      { icon: BookOpen, label: "Courses", href: "/dashboard/admin/courses" },
+      { icon: BookOpen, label: "Courses Offerings", href: "/dashboard/admin/course-offerings" },
+      { icon: Building2, label: "Departments", href: "/dashboard/admin/departments" },
+      { icon: GraduationCap, label: "Programs", href: "/dashboard/admin/programs" },
+      { icon: Calendar, label: "Sessions", href: "/dashboard/admin/sessions" },
+      { icon: Receipt, label: "Receipts", href: "/dashboard/admin/receipts" },
+      { icon: Settings, label: "Settings", href: "/dashboard/admin/settings" },
     ],
   },
   student: {
-    color: 'bg-blue-600',
-    hoverColor: 'hover:bg-blue-700',
-    activeColor: 'bg-blue-700',
-    lightBg: 'bg-blue-50',
-    textColor: 'text-blue-600',
-    label: 'Student',
+    color: "bg-blue-600",
+    hoverColor: "hover:bg-blue-700",
+    activeColor: "bg-blue-700",
+    lightBg: "bg-blue-50",
+    textColor: "text-blue-600",
+    label: "Student",
     items: [
-      { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/student' },
-      { icon: Receipt, label: 'Payments', href: '/dashboard/student/payments' },
-      // { icon: FileText, label: 'Downloads', href: '/dashboard/student/downloads' },
-      { icon: FileText, label: 'Results', href: '/dashboard/student/results' },
-      { icon: Users, label: 'Profile', href: '/dashboard/student/settings' },
+      { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard/student" },
+      { icon: Receipt, label: "Payments", href: "/dashboard/student/payments" },
+      { icon: FileText, label: "Results", href: "/dashboard/student/results" },
+      { icon: Users, label: "Profile", href: "/dashboard/student/settings" },
     ],
   },
   academic_staff: {
-    color: 'bg-purple-600',
-    hoverColor: 'hover:bg-purple-700',
-    activeColor: 'bg-purple-700',
-    lightBg: 'bg-purple-50',
-    textColor: 'text-purple-600',
-    label: 'Academic Staff',
+    color: "bg-purple-600",
+    hoverColor: "hover:bg-purple-700",
+    activeColor: "bg-purple-700",
+    lightBg: "bg-purple-50",
+    textColor: "text-purple-600",
+    label: "Academic Staff",
     items: [
-      { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/academic_staff' },
-      { icon: BookOpen, label: 'My Courses', href: '/dashboard/academic_staff/courses' },
-      { icon: Settings, label: 'Settings', href: '/dashboard/academic_staff/settings' },
+      { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard/academic_staff" },
+      { icon: BookOpen, label: "My Courses", href: "/dashboard/academic_staff/courses" },
+      { icon: Settings, label: "Settings", href: "/dashboard/academic_staff/settings" },
     ],
   },
   non_academic_staff: {
-    color: 'bg-green-600',
-    hoverColor: 'hover:bg-green-700',
-    activeColor: 'bg-green-700',
-    lightBg: 'bg-green-50',
-    textColor: 'text-green-600',
-    label: 'Non-Academic Staff',
-    items: [
-      { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard/non_academic_staff' },
-      { icon: Receipt, label: 'Receipts', href: '/dashboard/non_academic_staff/receipts' },
-      { icon: Users, label: 'Students', href: '/dashboard/non_academic_staff/students' },
-      { icon: Settings, label: 'Settings', href: '/dashboard/non_academic_staff/settings' },
-    ],
+    color: "bg-green-600",
+    hoverColor: "hover:bg-green-700",
+    activeColor: "bg-green-700",
+    lightBg: "bg-green-50",
+    textColor: "text-green-600",
+    label: "Non-Academic Staff",
+    // base items only; we'll build unit-aware items in the component below
+    items: [{ icon: LayoutDashboard, label: "Home", href: "/dashboard/non_academic_staff" }],
   },
-}
+};
 
 type SidebarProps = {
-  user: DashboardUser
-}
+  user: DashboardUser;
+};
+
+type NavItem = { icon: React.ComponentType<{ className?: string }>; label: string; href: string };
 
 export function Sidebar({ user }: SidebarProps) {
-  const [isMobileOpen, setIsMobileOpen] = useState(false)
-  const pathname = usePathname()
-  const config = roleConfig[user.role]
+  const [isMobileOpen, setIsMobileOpen] = useState(false);
+  const pathname = usePathname();
+  const config = roleConfig[user.role];
+
+  // ✅ Unit-aware items for non-academic staff (+ always include Settings)
+  const items: NavItem[] =
+    user.role !== "non_academic_staff"
+      ? config.items
+      : [
+          { icon: LayoutDashboard, label: "Home", href: "/dashboard/non_academic_staff" },
+
+          ...(user.unit === "admissions"
+            ? [{ icon: FileText, label: "Admissions", href: "/dashboard/non_academic_staff/admissions/applications" }]
+            : []),
+
+          ...(user.unit === "bursary"
+            ? [
+                { icon: Receipt, label: "Receipts", href: "/dashboard/non_academic_staff/receipts" },
+                { icon: FileText, label: "Clearance", href: "/dashboard/non_academic_staff/clearance" },
+              ]
+            : []),
+
+          ...(user.unit === "exams"
+            ? [{ icon: BookOpen, label: "Exams", href: "/dashboard/non_academic_staff/exams" }]
+            : []),
+
+          { icon: Settings, label: "Settings", href: "/dashboard/non_academic_staff/settings" },
+        ];
 
   return (
     <>
-      {/* Mobile toggle */}
       <button
-        onClick={() => setIsMobileOpen(prev => !prev)}
+        onClick={() => setIsMobileOpen((prev) => !prev)}
         className="lg:hidden fixed top-4 left-4 z-50 w-10 h-10 bg-white rounded-lg shadow-lg flex items-center justify-center"
       >
         {isMobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
       </button>
 
-      {/* Mobile overlay */}
       {isMobileOpen && (
-        <div
-          onClick={() => setIsMobileOpen(false)}
-          className="lg:hidden fixed inset-0 bg-black/50 z-40"
-        />
+        <div onClick={() => setIsMobileOpen(false)} className="lg:hidden fixed inset-0 bg-black/50 z-40" />
       )}
 
-      {/* Sidebar */}
       <aside
         className={`fixed top-0 left-0 h-screen w-64 bg-white border-r border-gray-200 z-40 transition-transform duration-300 ${
-          isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+          isMobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         }`}
       >
         <div className="flex flex-col h-full">
-          {/* Logo */}
           <div className="relative w-full h-17 py-10">
             <Link href="/" className="flex items-center">
               <Image
@@ -147,29 +160,26 @@ export function Sidebar({ user }: SidebarProps) {
             </Link>
           </div>
 
-
-          {/* Navigation */}
           <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-            {config.items.map(item => {
-              const Icon = item.icon
-              const isActive = pathname.startsWith(item.href)
+            {items.map((item) => {
+              const Icon = item.icon;
+              const isActive = pathname.startsWith(item.href);
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={() => setIsMobileOpen(false)}
                   className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-all ${
-                    isActive ? `${config.activeColor} text-white` : 'text-gray-700 hover:bg-gray-100'
+                    isActive ? `${config.activeColor} text-white` : "text-gray-700 hover:bg-gray-100"
                   }`}
                 >
                   <Icon className="w-5 h-5" />
                   <span>{item.label}</span>
                 </Link>
-              )
+              );
             })}
           </nav>
 
-          {/* User Info */}
           <div className="p-4 border-t border-gray-200">
             <div className={`${config.lightBg} rounded-xl p-4`}>
               <p className="text-sm font-medium text-gray-900">{config.label}</p>
@@ -179,5 +189,5 @@ export function Sidebar({ user }: SidebarProps) {
         </div>
       </aside>
     </>
-  )
+  );
 }
