@@ -36,10 +36,12 @@ type StaffFormState = {
   religion: Religion;
 
   main_role: MainRole;
-  unit: "" | StaffUnit; // ✅ NEW
+  unit: "" | StaffUnit;
 
   designation: string;
   specialization: string;
+
+  // role-dependent
   department_id: string;
   hire_date: string;
 };
@@ -73,18 +75,25 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
 
     designation: "",
     specialization: "",
+
     department_id: "",
     hire_date: "",
   });
 
-  // Reset unit if they switch away from non-academic
+  const isAcademic = useMemo(() => form.main_role === "academic_staff", [form.main_role]);
+  const isNonAcademic = useMemo(() => form.main_role === "non_academic_staff", [form.main_role]);
+
+  // Reset role-specific fields when switching roles (prevents accidental “required” failures)
   useEffect(() => {
-    if (form.main_role !== "non_academic_staff" && form.unit) {
+    if (isNonAcademic) {
+      setForm((p) => ({ ...p, department_id: "", hire_date: "" }));
+    } else {
       setForm((p) => ({ ...p, unit: "" }));
     }
-  }, [form.main_role, form.unit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.main_role]);
 
-  // Load departments on open
+  // Load departments on open (only needed for academic flow, but harmless)
   useEffect(() => {
     if (!isOpen) return;
 
@@ -93,7 +102,10 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
     async function loadDepartments() {
       try {
         const res = await fetch("/api/admin/departments", { signal: controller.signal });
-        const json = (await res.json().catch(() => ({}))) as { departments?: Department[]; error?: string };
+        const json = (await res.json().catch(() => ({}))) as {
+          departments?: Department[];
+          error?: string;
+        };
 
         if (!res.ok) throw new Error(json.error ?? "Failed to load departments");
         setDepartments(json.departments ?? []);
@@ -104,7 +116,6 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
     }
 
     loadDepartments();
-
     return () => controller.abort();
   }, [isOpen]);
 
@@ -112,27 +123,52 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const unitIsRequired = useMemo(() => form.main_role === "non_academic_staff", [form.main_role]);
-
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!form.department_id) {
-      toast.error("Please select a department");
+    // Base required fields (matches your profiles NOT NULLs + your current UX)
+    if (!form.first_name.trim() || !form.last_name.trim() || !form.email.trim()) {
+      toast.error("First name, last name and email are required.");
+      return;
+    }
+    if (!form.phone.trim()) {
+      toast.error("Phone number is required.");
+      return;
+    }
+    if (!form.gender) {
+      toast.error("Gender is required.");
+      return;
+    }
+    if (!form.designation.trim()) {
+      toast.error("Designation is required.");
       return;
     }
 
-    if (unitIsRequired && !form.unit) {
-      toast.error("Please select a unit for Non-Academic Staff");
-      return;
+    // Role-specific requirements
+    if (isAcademic) {
+      if (!form.hire_date) {
+        toast.error("Hire date is required for Academic Staff.");
+        return;
+      }
+      if (!form.department_id) {
+        toast.error("Department is required for Academic Staff.");
+        return;
+      }
     }
 
-    // ✅ Production-friendly payload: optional fields become null (not empty strings)
+    if (isNonAcademic) {
+      if (!form.unit) {
+        toast.error("Unit is required for Non-Academic Staff.");
+        return;
+      }
+    }
+
     const payload = {
       first_name: form.first_name.trim(),
       middle_name: form.middle_name.trim() ? form.middle_name.trim() : null,
       last_name: form.last_name.trim(),
       email: form.email.trim().toLowerCase(),
+
       phone: form.phone.trim() ? form.phone.trim() : null,
       gender: form.gender || null,
       date_of_birth: form.date_of_birth || null,
@@ -143,12 +179,16 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
       religion: form.religion,
 
       main_role: form.main_role,
-      unit: form.main_role === "non_academic_staff" ? form.unit : null, // ✅ only send when needed
 
-      designation: form.designation.trim() ? form.designation.trim() : null,
+      // ✅ only send for non-academic
+      unit: isNonAcademic ? form.unit : null,
+
+      designation: form.designation.trim(),
       specialization: form.specialization.trim() ? form.specialization.trim() : null,
-      department_id: form.department_id || null,
-      hire_date: form.hire_date || null,
+
+      // ✅ only required for academic; send null for non-academic
+      department_id: isAcademic ? form.department_id : null,
+      hire_date: isAcademic ? form.hire_date : null,
     };
 
     try {
@@ -291,8 +331,7 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
           ]}
         />
 
-        {/* ✅ NEW: Unit (only for non-academic staff) */}
-        {form.main_role === "non_academic_staff" && (
+        {isNonAcademic && (
           <Select
             label="Unit"
             required
@@ -317,22 +356,25 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
           onChange={(e) => update("specialization", e.target.value)}
         />
 
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Input
-            label="Hire Date"
-            required
-            type="date"
-            value={form.hire_date}
-            onChange={(e) => update("hire_date", e.target.value)}
-          />
-          <Select
-            label="Department"
-            required
-            value={form.department_id}
-            onChange={(v) => update("department_id", v)}
-            options={departments.map((d) => ({ value: d.id, label: d.name }))}
-          />
-        </div>
+        {/* ✅ Academic-only required fields */}
+        {isAcademic && (
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Input
+              label="Hire Date"
+              required
+              type="date"
+              value={form.hire_date}
+              onChange={(e) => update("hire_date", e.target.value)}
+            />
+            <Select
+              label="Department"
+              required
+              value={form.department_id}
+              onChange={(v) => update("department_id", v)}
+              options={departments.map((d) => ({ value: d.id, label: d.name }))}
+            />
+          </div>
+        )}
 
         <div className="flex gap-4 pt-4">
           <button
