@@ -49,13 +49,38 @@ function getBaseUrl(req: Request) {
   return `${scheme}://${host}`;
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function cleanText(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t ? t : null;
+}
+
+function cleanEmail(v: unknown): string | null {
+  const t = cleanText(v);
+  return t ? t.toLowerCase() : null;
+}
+
+function asIsoDate(v: unknown): string | null {
+  const t = cleanText(v);
+  if (!t) return null;
+  // Accept YYYY-MM-DD only (matches HTML date input)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  return t;
+}
+
+function isValidUuid(v: unknown): v is string {
+  return typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
 async function requireAdmin(): Promise<NextResponse | null> {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
-  if (!userData.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  if (!userData.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { data: profile, error } = await supabase
     .from("profiles")
@@ -85,36 +110,27 @@ export async function GET(req: Request) {
   const statusParam = searchParams.get("status") ?? "";
   const unitParam = searchParams.get("unit") ?? "";
 
-  // ✅ Strict parsing
   const role = roleParam && roleParam !== "all" ? parseRole(roleParam) : null;
   const status = statusParam && statusParam !== "all" ? parseStatus(statusParam) : null;
   const unit = unitParam && unitParam !== "all" ? parseUnit(unitParam) : null;
 
-  if (roleParam && roleParam !== "all" && !role) {
-    return NextResponse.json({ error: "Invalid role filter" }, { status: 400 });
-  }
-  if (statusParam && statusParam !== "all" && !status) {
-    return NextResponse.json({ error: "Invalid status filter" }, { status: 400 });
-  }
-  if (unitParam && unitParam !== "all" && !unit) {
-    return NextResponse.json({ error: "Invalid unit filter" }, { status: 400 });
-  }
+  if (roleParam && roleParam !== "all" && !role) return NextResponse.json({ error: "Invalid role filter" }, { status: 400 });
+  if (statusParam && statusParam !== "all" && !status) return NextResponse.json({ error: "Invalid status filter" }, { status: 400 });
+  if (unitParam && unitParam !== "all" && !unit) return NextResponse.json({ error: "Invalid unit filter" }, { status: 400 });
 
   let query = supabaseAdmin
     .from("staff")
     .select(
       `
       *,
-      profiles:profile_id(*),
+      profiles:profile_id!inner(*),
       departments(*)
     `
     )
     .order("created_at", { ascending: false });
 
   if (search) {
-    query = query.or(
-      `staff_id.ilike.%${search}%,designation.ilike.%${search}%,specialization.ilike.%${search}%`
-    );
+    query = query.or(`staff_id.ilike.%${search}%,designation.ilike.%${search}%,specialization.ilike.%${search}%`);
   }
 
   if (role) query = query.eq("profiles.main_role", role);
@@ -129,6 +145,9 @@ export async function GET(req: Request) {
 
 // =====================================================
 // POST — create staff (Invite → PROFILE → STAFF)
+// Rules mirrored from UI:
+// - unit required ONLY for non_academic_staff
+// - department_id + hire_date required ONLY for academic_staff
 // =====================================================
 export async function POST(req: Request) {
   const guard = await requireAdmin();
@@ -137,35 +156,42 @@ export async function POST(req: Request) {
   let createdAuthUserId: string | null = null;
 
   try {
-    const body = (await req.json()) as Record<string, unknown>;
+    const body = (await req.json()) as unknown;
 
-    const first_name = typeof body.first_name === "string" ? body.first_name.trim() : "";
-    const middle_name = typeof body.middle_name === "string" ? body.middle_name.trim() : "";
-    const last_name = typeof body.last_name === "string" ? body.last_name.trim() : "";
-    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    if (!isRecord(body)) {
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+    }
 
-    const phone = typeof body.phone === "string" ? body.phone.trim() : "";
-    const gender = typeof body.gender === "string" ? body.gender : null;
-    const date_of_birth = typeof body.date_of_birth === "string" ? body.date_of_birth : null;
-    const nin = typeof body.nin === "string" ? body.nin.trim() : null;
-    const address = typeof body.address === "string" ? body.address.trim() : null;
+    const first_name = cleanText(body.first_name) ?? "";
+    const middle_name = cleanText(body.middle_name);
+    const last_name = cleanText(body.last_name) ?? "";
+    const email = cleanEmail(body.email) ?? "";
 
-    const state_of_origin =
-      typeof body.state_of_origin === "string" ? body.state_of_origin.trim() : null;
-    const lga_of_origin =
-      typeof body.lga_of_origin === "string" ? body.lga_of_origin.trim() : null;
-    const religion = typeof body.religion === "string" ? body.religion.trim() : null;
+    const phone = cleanText(body.phone); // required by your UX/API
+    const gender = cleanText(body.gender);
+    const date_of_birth = asIsoDate(body.date_of_birth);
+    const nin = cleanText(body.nin);
+    const address = cleanText(body.address);
+
+    const state_of_origin = cleanText(body.state_of_origin);
+    const lga_of_origin = cleanText(body.lga_of_origin);
+    const religion = cleanText(body.religion);
 
     const main_role = parseRole(body.main_role);
-    const designation = typeof body.designation === "string" ? body.designation.trim() : null;
-    const specialization =
-      typeof body.specialization === "string" ? body.specialization.trim() : null;
-    const department_id = typeof body.department_id === "string" ? body.department_id : null;
-    const hire_date = typeof body.hire_date === "string" ? body.hire_date : null;
 
-    // ✅ unit (required only for non academic staff)
+    const designation = cleanText(body.designation); // required by your UX
+    const specialization = cleanText(body.specialization);
+
+    const department_id_raw = body.department_id;
+    const department_id = isValidUuid(department_id_raw) ? department_id_raw : null;
+
+    const hire_date = asIsoDate(body.hire_date);
+
     const unit = parseUnit(body.unit);
 
+    // --------------------
+    // Base required fields
+    // --------------------
     if (!first_name || !last_name || !email || !main_role) {
       return NextResponse.json(
         { error: "Missing required fields: first_name, last_name, email, main_role" },
@@ -173,16 +199,46 @@ export async function POST(req: Request) {
       );
     }
 
-    // I’m keeping your modal validation (phone required) consistent with API
     if (!phone) {
       return NextResponse.json({ error: "phone is required" }, { status: 400 });
     }
 
-    if (main_role === "non_academic_staff" && !unit) {
-      return NextResponse.json(
-        { error: "unit is required for non_academic_staff (admissions | bursary | exams)" },
-        { status: 400 }
-      );
+    if (!gender) {
+      return NextResponse.json({ error: "gender is required" }, { status: 400 });
+    }
+
+    if (!designation) {
+      return NextResponse.json({ error: "designation is required" }, { status: 400 });
+    }
+
+    // Prevent creating wrong roles via this endpoint
+    if (main_role !== "academic_staff" && main_role !== "non_academic_staff") {
+      return NextResponse.json({ error: "main_role must be academic_staff or non_academic_staff" }, { status: 400 });
+    }
+
+    // --------------------
+    // Role-specific rules
+    // --------------------
+    if (main_role === "non_academic_staff") {
+      if (!unit) {
+        return NextResponse.json(
+          { error: "unit is required for non_academic_staff (admissions | bursary | exams)" },
+          { status: 400 }
+        );
+      }
+      // Do not accept academic fields for non-academic (avoid silent bad data)
+      // We allow them in payload but we will write nulls.
+    }
+
+    if (main_role === "academic_staff") {
+      if (!hire_date) {
+        return NextResponse.json({ error: "hire_date is required for academic_staff (YYYY-MM-DD)" }, { status: 400 });
+      }
+      if (!department_id) {
+        return NextResponse.json({ error: "department_id is required for academic_staff (uuid)" }, { status: 400 });
+      }
+      // Academic should never have unit
+      // We will enforce null on insert.
     }
 
     const redirectTo = new URL("/callback", getBaseUrl(req)).toString();
@@ -209,13 +265,13 @@ export async function POST(req: Request) {
     }
     createdAuthUserId = user.id;
 
-    // 2) CREATE PROFILE
+    // 2) CREATE PROFILE (profiles has no unit; unit stays in staff)
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
       .insert({
         id: createdAuthUserId,
         first_name,
-        middle_name: middle_name ? middle_name : null,
+        middle_name: middle_name ?? null,
         last_name,
         email,
         phone,
@@ -243,11 +299,15 @@ export async function POST(req: Request) {
 
     // 3) STAFF ID GENERATION
     let deptCode = "GEN";
-    if (department_id) {
+
+    // Only academic has department_id by rule
+    const deptIdForCode = main_role === "academic_staff" ? department_id : null;
+
+    if (deptIdForCode) {
       const { data: dept } = await supabaseAdmin
         .from("departments")
         .select("id,code")
-        .eq("id", department_id)
+        .eq("id", deptIdForCode)
         .maybeSingle<DepartmentRow>();
 
       if (dept?.code) deptCode = dept.code;
@@ -261,8 +321,8 @@ export async function POST(req: Request) {
       .select("id", { count: "exact", head: true })
       .like("staff_id", `%/${yy}/%`);
 
-    const countQuery = department_id
-      ? baseCountQuery.eq("department_id", department_id)
+    const countQuery = deptIdForCode
+      ? baseCountQuery.eq("department_id", deptIdForCode)
       : baseCountQuery.is("department_id", null);
 
     const { count, error: countErr } = await countQuery;
@@ -277,19 +337,21 @@ export async function POST(req: Request) {
     const seq = String((count ?? 0) + 1).padStart(4, "0");
     const staff_id = `STF/${deptCode}/${yy}/${seq}`;
 
-    // 4) CREATE STAFF
+    // 4) CREATE STAFF (role-safe writes)
+    const staffInsert = {
+      profile_id: profile.id,
+      staff_id,
+      designation, // required already
+      specialization: specialization ?? null,
+      department_id: main_role === "academic_staff" ? department_id : null,
+      hire_date: main_role === "academic_staff" ? hire_date : null,
+      status: "active" as const,
+      unit: main_role === "non_academic_staff" ? unit : null,
+    };
+
     const { data: staff, error: staffErr } = await supabaseAdmin
       .from("staff")
-      .insert({
-        profile_id: profile.id,
-        staff_id,
-        designation,
-        specialization,
-        department_id,
-        hire_date,
-        status: "active",
-        unit: main_role === "non_academic_staff" ? unit : null,
-      })
+      .insert(staffInsert)
       .select()
       .single();
 
