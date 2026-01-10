@@ -1,76 +1,60 @@
-"use client";
+import type { Enrollment } from "@/types/exams";
+import RemoveEnrollmentButton from "@/components/exams/roster/RemoveEnrollmentButton";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import { toast } from "react-toastify";
-
-import RosterTable from "@/components/exams/roster/RosterTable";
-import AddStudentModal from "@/components/exams/roster/AddStudentModal";
-import { Button } from "@/components/ui/button";
-
-type Enrollment = {
-  id: string;
-  students: {
-    matric_no: string;
-    level?: string | null;
-    profiles: {
-      first_name: string;
-      last_name: string;
-    };
-    program?: { name: string } | null;
-  };
+type Props = {
+  loading: boolean;
+  enrollments: Enrollment[];
+  onRemoved: () => void;
 };
 
-export default function Page() {
-  const { id } = useParams<{ id: string }>();
+export default function RosterTable({
+  loading,
+  enrollments,
+  onRemoved,
+}: Props) {
+  if (loading) return <div className="text-gray-500">Loading roster…</div>;
 
-  const [loading, setLoading] = useState(false);
-  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
-  const [addOpen, setAddOpen] = useState(false);
-
-  async function loadRoster() {
-    try {
-      setLoading(true);
-      const res = await fetch(`/api/exams/enrollments/${id}`, { cache: "no-store" });
-      if (!res.ok) throw new Error();
-      const json = await res.json();
-      setEnrollments(json.enrollments ?? []);
-    } catch {
-      toast.error("Failed to load roster");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadRoster();
-  }, [id]);
+  if (enrollments.length === 0)
+    return <div className="text-gray-500">No students enrolled</div>;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Course Roster</h1>
-
-        <Button
-          className="bg-green-600 hover:bg-green-700"
-          onClick={() => setAddOpen(true)}
-        >
-          Add Students
-        </Button>
-      </div>
-
-      <RosterTable
-        loading={loading}
-        enrollments={enrollments}
-        onRemoved={loadRoster}
-      />
-
-      <AddStudentModal
-        courseOfferingId={id}
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        onAdded={loadRoster}
-      />
+    <div className="bg-white border rounded-xl overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="bg-gray-50 border-b">
+          <tr>
+            <th className="px-6 py-4 text-left">Student</th>
+            <th className="px-6 py-4">Matric No</th>
+            <th className="px-6 py-4">Program</th>
+            <th className="px-6 py-4">Level</th>
+            <th className="px-6 py-4 text-right">Action</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {enrollments.map((e) => (
+            <tr key={e.id}>
+              <td className="px-6 py-4 font-medium">
+                {e.students.profiles.first_name}{" "}
+                {e.students.profiles.last_name}
+              </td>
+              <td className="px-6 py-4 text-center">
+                {e.students.matric_no}
+              </td>
+              <td className="px-6 py-4 text-center">
+                {e.students.program?.name ?? "-"}
+              </td>
+              <td className="px-6 py-4 text-center">
+                {e.students.level ?? "-"}
+              </td>
+              <td className="px-6 py-4 text-right">
+                <RemoveEnrollmentButton
+                  enrollmentId={e.id}
+                  onRemoved={onRemoved}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
