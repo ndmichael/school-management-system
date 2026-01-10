@@ -1,15 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireExamsAccess } from "@/lib/guards/requireExamsAccess";
 
+
 export async function GET(
-  _req: Request,
-  { params }: { params: { id: string } }
+  _req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
 ) {
   const guard = await requireExamsAccess();
   if ("error" in guard) return guard.error;
 
-  const { id } = params;
+  const { id } = await ctx.params;
 
   const { data, error } = await supabaseAdmin
     .from("course_offerings")
