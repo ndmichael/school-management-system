@@ -3,14 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 
 type Semester = "first" | "second";
 
-type CreateOfferingBody = {
-  course_id: string;
-  session_id: string;
-  semester: Semester;
-  program_id: string | null;
-  level: string | null;
-};
-
 type ErrorResponse = { error: string };
 type SuccessResponse = { id: string };
 
@@ -27,6 +19,14 @@ function normalizeOptionalString(v: unknown): string | null {
   return v.trim();
 }
 
+function readStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((x): x is string => typeof x === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
 function isPgUniqueViolation(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
   const maybe = err as { code?: unknown };
@@ -35,7 +35,7 @@ function isPgUniqueViolation(err: unknown): boolean {
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!, // server-only
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
 export async function POST(req: Request) {
@@ -46,15 +46,12 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json<ErrorResponse>(
       { error: "Invalid JSON body" },
-      { status: 400 },
+      { status: 400 }
     );
   }
 
   if (typeof raw !== "object" || raw === null) {
-    return NextResponse.json<ErrorResponse>(
-      { error: "Invalid body" },
-      { status: 400 },
-    );
+    return NextResponse.json<ErrorResponse>({ error: "Invalid body" }, { status: 400 });
   }
 
   const body = raw as Record<string, unknown>;
@@ -66,26 +63,31 @@ export async function POST(req: Request) {
   if (!isNonEmptyString(course_id) || !isNonEmptyString(session_id) || !isSemester(semester)) {
     return NextResponse.json<ErrorResponse>(
       { error: "Missing/invalid required fields (course_id, session_id, semester)" },
-      { status: 422 },
+      { status: 422 }
     );
   }
 
-  const program_id = normalizeOptionalString(body.program_id);
+  // ✅ programs are required (rule B)
+  const program_ids = readStringArray(body.program_ids);
+  if (program_ids.length === 0) {
+    return NextResponse.json<ErrorResponse>(
+      { error: "Select at least one program for this offering." },
+      { status: 422 }
+    );
+  }
+
   const level = normalizeOptionalString(body.level);
 
-  // NOTE: your table defaults is_published=true, but your page sets false.
-  // We keep your intent: create as unpublished.
-  const payload: CreateOfferingBody = {
-    course_id,
-    session_id,
-    semester,
-    program_id,
-    level,
-  };
-
+  // 1) create offering (always unpublished here)
   const { data, error } = await supabaseAdmin
     .from("course_offerings")
-    .insert({ ...payload, is_published: false })
+    .insert({
+      course_id: course_id.trim(),
+      session_id: session_id.trim(),
+      semester,
+      level,
+      is_published: false,
+    })
     .select("id")
     .single();
 
@@ -93,15 +95,35 @@ export async function POST(req: Request) {
     if (isPgUniqueViolation(error)) {
       return NextResponse.json<ErrorResponse>(
         { error: "This course offering already exists." },
-        { status: 409 },
+        { status: 409 }
       );
     }
-
     return NextResponse.json<ErrorResponse>(
       { error: error.message || "Failed to create offering" },
-      { status: 500 },
+      { status: 500 }
     );
   }
 
-  return NextResponse.json<SuccessResponse>({ id: data.id }, { status: 201 });
+  const offeringId = data.id as string;
+
+  // 2) insert program mappings
+  const rows = program_ids.map((program_id) => ({
+    course_offering_id: offeringId,
+    program_id,
+  }));
+
+  const { error: mapErr } = await supabaseAdmin
+    .from("course_offering_programs")
+    .insert(rows);
+
+  if (mapErr) {
+    // rollback the offering so you don’t create “dangling” unpublished offerings
+    await supabaseAdmin.from("course_offerings").delete().eq("id", offeringId);
+    return NextResponse.json<ErrorResponse>(
+      { error: mapErr.message || "Failed to assign programs" },
+      { status: 500 }
+    );
+  }
+
+  return NextResponse.json<SuccessResponse>({ id: offeringId }, { status: 201 });
 }
