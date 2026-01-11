@@ -1,6 +1,9 @@
+// app/api/admin/staff/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+
+export const runtime = "nodejs";
 
 // --------------------
 // Types
@@ -17,8 +20,14 @@ function parseUnit(v: unknown): StaffUnit | null {
 }
 
 function parseRole(v: unknown): MainRole | null {
-  if (v === "admin" || v === "academic_staff" || v === "non_academic_staff" || v === "student")
+  if (
+    v === "admin" ||
+    v === "academic_staff" ||
+    v === "non_academic_staff" ||
+    v === "student"
+  ) {
     return v;
+  }
   return null;
 }
 
@@ -67,20 +76,26 @@ function cleanEmail(v: unknown): string | null {
 function asIsoDate(v: unknown): string | null {
   const t = cleanText(v);
   if (!t) return null;
-  // Accept YYYY-MM-DD only (matches HTML date input)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
   return t;
 }
 
 function isValidUuid(v: unknown): v is string {
-  return typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+  return (
+    typeof v === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      v
+    )
+  );
 }
 
 async function requireAdmin(): Promise<NextResponse | null> {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
 
-  if (!userData.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!userData.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const { data: profile, error } = await supabase
     .from("profiles")
@@ -89,6 +104,7 @@ async function requireAdmin(): Promise<NextResponse | null> {
     .maybeSingle<{ main_role: string }>();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
   if (!profile || profile.main_role !== "admin") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -111,12 +127,22 @@ export async function GET(req: Request) {
   const unitParam = searchParams.get("unit") ?? "";
 
   const role = roleParam && roleParam !== "all" ? parseRole(roleParam) : null;
-  const status = statusParam && statusParam !== "all" ? parseStatus(statusParam) : null;
+  const status =
+    statusParam && statusParam !== "all" ? parseStatus(statusParam) : null;
   const unit = unitParam && unitParam !== "all" ? parseUnit(unitParam) : null;
 
-  if (roleParam && roleParam !== "all" && !role) return NextResponse.json({ error: "Invalid role filter" }, { status: 400 });
-  if (statusParam && statusParam !== "all" && !status) return NextResponse.json({ error: "Invalid status filter" }, { status: 400 });
-  if (unitParam && unitParam !== "all" && !unit) return NextResponse.json({ error: "Invalid unit filter" }, { status: 400 });
+  if (roleParam && roleParam !== "all" && !role) {
+    return NextResponse.json({ error: "Invalid role filter" }, { status: 400 });
+  }
+  if (statusParam && statusParam !== "all" && !status) {
+    return NextResponse.json(
+      { error: "Invalid status filter" },
+      { status: 400 }
+    );
+  }
+  if (unitParam && unitParam !== "all" && !unit) {
+    return NextResponse.json({ error: "Invalid unit filter" }, { status: 400 });
+  }
 
   let query = supabaseAdmin
     .from("staff")
@@ -130,7 +156,9 @@ export async function GET(req: Request) {
     .order("created_at", { ascending: false });
 
   if (search) {
-    query = query.or(`staff_id.ilike.%${search}%,designation.ilike.%${search}%,specialization.ilike.%${search}%`);
+    query = query.or(
+      `staff_id.ilike.%${search}%,designation.ilike.%${search}%,specialization.ilike.%${search}%`
+    );
   }
 
   if (role) query = query.eq("profiles.main_role", role);
@@ -145,9 +173,9 @@ export async function GET(req: Request) {
 
 // =====================================================
 // POST — create staff (Invite → PROFILE → STAFF)
-// Rules mirrored from UI:
-// - unit required ONLY for non_academic_staff
-// - department_id + hire_date required ONLY for academic_staff
+// Key fix:
+// ✅ redirectTo points to /api/auth/confirm (token_hash flow)
+// ✅ invite template must use RedirectTo + TokenHash (above)
 // =====================================================
 export async function POST(req: Request) {
   const guard = await requireAdmin();
@@ -167,7 +195,7 @@ export async function POST(req: Request) {
     const last_name = cleanText(body.last_name) ?? "";
     const email = cleanEmail(body.email) ?? "";
 
-    const phone = cleanText(body.phone); // required by your UX/API
+    const phone = cleanText(body.phone);
     const gender = cleanText(body.gender);
     const date_of_birth = asIsoDate(body.date_of_birth);
     const nin = cleanText(body.nin);
@@ -179,14 +207,13 @@ export async function POST(req: Request) {
 
     const main_role = parseRole(body.main_role);
 
-    const designation = cleanText(body.designation); // required by your UX
+    const designation = cleanText(body.designation);
     const specialization = cleanText(body.specialization);
 
     const department_id_raw = body.department_id;
     const department_id = isValidUuid(department_id_raw) ? department_id_raw : null;
 
     const hire_date = asIsoDate(body.hire_date);
-
     const unit = parseUnit(body.unit);
 
     // --------------------
@@ -194,26 +221,31 @@ export async function POST(req: Request) {
     // --------------------
     if (!first_name || !last_name || !email || !main_role) {
       return NextResponse.json(
-        { error: "Missing required fields: first_name, last_name, email, main_role" },
+        {
+          error:
+            "Missing required fields: first_name, last_name, email, main_role",
+        },
         { status: 400 }
       );
     }
 
-    if (!phone) {
+    if (!phone)
       return NextResponse.json({ error: "phone is required" }, { status: 400 });
-    }
-
-    if (!gender) {
+    if (!gender)
       return NextResponse.json({ error: "gender is required" }, { status: 400 });
-    }
-
     if (!designation) {
-      return NextResponse.json({ error: "designation is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "designation is required" },
+        { status: 400 }
+      );
     }
 
     // Prevent creating wrong roles via this endpoint
     if (main_role !== "academic_staff" && main_role !== "non_academic_staff") {
-      return NextResponse.json({ error: "main_role must be academic_staff or non_academic_staff" }, { status: 400 });
+      return NextResponse.json(
+        { error: "main_role must be academic_staff or non_academic_staff" },
+        { status: 400 }
+      );
     }
 
     // --------------------
@@ -222,26 +254,34 @@ export async function POST(req: Request) {
     if (main_role === "non_academic_staff") {
       if (!unit) {
         return NextResponse.json(
-          { error: "unit is required for non_academic_staff (admissions | bursary | exams)" },
+          {
+            error:
+              "unit is required for non_academic_staff (admissions | bursary | exams)",
+          },
           { status: 400 }
         );
       }
-      // Do not accept academic fields for non-academic (avoid silent bad data)
-      // We allow them in payload but we will write nulls.
     }
 
     if (main_role === "academic_staff") {
       if (!hire_date) {
-        return NextResponse.json({ error: "hire_date is required for academic_staff (YYYY-MM-DD)" }, { status: 400 });
+        return NextResponse.json(
+          { error: "hire_date is required for academic_staff (YYYY-MM-DD)" },
+          { status: 400 }
+        );
       }
       if (!department_id) {
-        return NextResponse.json({ error: "department_id is required for academic_staff (uuid)" }, { status: 400 });
+        return NextResponse.json(
+          { error: "department_id is required for academic_staff (uuid)" },
+          { status: 400 }
+        );
       }
-      // Academic should never have unit
-      // We will enforce null on insert.
     }
 
-    const redirectTo = new URL("/callback", getBaseUrl(req)).toString();
+    // ✅ IMPORTANT: redirectTo must be the confirm route (token_hash verification)
+    // Your invite template will append token_hash/type/next.
+    const baseUrl = getBaseUrl(req);
+    const redirectTo = new URL("/api/auth/confirm", baseUrl).toString();
 
     // 1) INVITE AUTH USER
     const { data: inviteRes, error: inviteErr } =
@@ -259,13 +299,17 @@ export async function POST(req: Request) {
       );
     }
 
-    const user = inviteRes?.user;
-    if (!user?.id) {
-      return NextResponse.json({ error: "Auth invite failed (no user id)" }, { status: 400 });
+    const invitedUser = inviteRes?.user;
+    if (!invitedUser?.id) {
+      return NextResponse.json(
+        { error: "Auth invite failed (no user id)" },
+        { status: 400 }
+      );
     }
-    createdAuthUserId = user.id;
 
-    // 2) CREATE PROFILE (profiles has no unit; unit stays in staff)
+    createdAuthUserId = invitedUser.id;
+
+    // 2) CREATE PROFILE (keep onboarding_status = pending)
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
       .insert({
@@ -299,8 +343,6 @@ export async function POST(req: Request) {
 
     // 3) STAFF ID GENERATION
     let deptCode = "GEN";
-
-    // Only academic has department_id by rule
     const deptIdForCode = main_role === "academic_staff" ? department_id : null;
 
     if (deptIdForCode) {
@@ -313,7 +355,9 @@ export async function POST(req: Request) {
       if (dept?.code) deptCode = dept.code;
     }
 
-    const year = hire_date ? new Date(hire_date).getFullYear() : new Date().getFullYear();
+    const year = hire_date
+      ? new Date(hire_date).getFullYear()
+      : new Date().getFullYear();
     const yy = String(year).slice(-2);
 
     const baseCountQuery = supabaseAdmin
@@ -341,7 +385,7 @@ export async function POST(req: Request) {
     const staffInsert = {
       profile_id: profile.id,
       staff_id,
-      designation, // required already
+      designation,
       specialization: specialization ?? null,
       department_id: main_role === "academic_staff" ? department_id : null,
       hire_date: main_role === "academic_staff" ? hire_date : null,
@@ -365,20 +409,18 @@ export async function POST(req: Request) {
       );
     }
 
-    // 5) ACTIVATE PROFILE
-    await supabaseAdmin.from("profiles").update({ onboarding_status: "active" }).eq("id", profile.id);
-
     return NextResponse.json({
       success: true,
       staffId: (staff as { staff_id?: string }).staff_id ?? null,
       inviteQueued: true,
-      redirectTo,
+      redirectTo, // /api/auth/confirm
       staff,
     });
   } catch (err) {
     if (createdAuthUserId) {
       await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
     }
+
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unexpected server error" },
       { status: 500 }
