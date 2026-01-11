@@ -10,7 +10,7 @@ export default async function ResetPasswordPage() {
 
   return (
     <main className="mx-auto w-full max-w-md px-4 py-12">
-      <h1 className="text-2xl font-semibold">Reset password</h1>
+      <h1 className="text-2xl font-semibold">Set password</h1>
       <p className="mt-2 text-sm text-muted-foreground">
         Choose a strong new password.
       </p>
