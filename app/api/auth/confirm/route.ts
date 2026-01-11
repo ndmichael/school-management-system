@@ -23,18 +23,33 @@ function isEmailOtpType(v: string | null): v is EmailOtpType {
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
 
-  const tokenHash = url.searchParams.get("token_hash");
+  const tokenHash = url.searchParams.get("token_hash"); // ✅ REQUIRED for verifyOtp
   const typeParam = url.searchParams.get("type");
   const nextParam = url.searchParams.get("next");
 
-  // default behavior: if no next is provided, assume invite/set-password
+  // ✅ PKCE support
+  const code = url.searchParams.get("code");
+
   const nextPath = safeNext(nextParam, "/set-password");
 
+  const supabase = await createClient();
+
+  // 1) PKCE code flow
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      return NextResponse.redirect(
+        new URL(`/login?error=${encodeURIComponent(error.message)}`, url.origin)
+      );
+    }
+    return NextResponse.redirect(new URL(nextPath, url.origin));
+  }
+
+  // 2) OTP verify flow (invite/recovery/etc.) — token_hash only
   if (!tokenHash || !isEmailOtpType(typeParam)) {
     return NextResponse.redirect(new URL("/login?error=invalid_link", url.origin));
   }
 
-  const supabase = await createClient();
   const { error } = await supabase.auth.verifyOtp({
     type: typeParam,
     token_hash: tokenHash,
