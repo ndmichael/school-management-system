@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "react-toastify";
 import { BookOpen, Save } from "lucide-react";
@@ -15,7 +15,7 @@ type InitialValues = {
   course_id: string;
   session_id: string;
   semester: Semester;
-  program_id: string | null;
+  program_ids: string[];
   level: string | null;
 };
 
@@ -60,7 +60,7 @@ export default function CreateOfferingForm({
   const [courseId, setCourseId] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [semester, setSemester] = useState<Semester | "">("");
-  const [programId, setProgramId] = useState<string>(""); // empty => null
+  const [programIds, setProgramIds] = useState<string[]>([]);
   const [level, setLevel] = useState<string>(""); // empty => null
 
   const isEdit = mode === "edit";
@@ -72,13 +72,16 @@ export default function CreateOfferingForm({
     setCourseId(initialValues.course_id);
     setSessionId(initialValues.session_id);
     setSemester(initialValues.semester);
-    setProgramId(initialValues.program_id ?? "");
+    setProgramIds(initialValues.program_ids ?? []);
     setLevel(initialValues.level ?? "");
   }, [isEdit, initialValues]);
 
-  const canSubmit = useMemo(() => {
-    return courseId !== "" && sessionId !== "" && isSemester(semester);
-  }, [courseId, sessionId, semester]);
+  // ✅ no useMemo needed
+  const canSubmit =
+    courseId !== "" &&
+    sessionId !== "" &&
+    isSemester(semester) &&
+    programIds.length > 0;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -95,7 +98,7 @@ export default function CreateOfferingForm({
       course_id: courseId,
       session_id: sessionId,
       semester: semester as Semester,
-      program_id: programId.trim() === "" ? null : programId,
+      program_ids: programIds,
       level: level.trim() === "" ? null : level.trim(),
     };
 
@@ -202,19 +205,37 @@ export default function CreateOfferingForm({
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-slate-900">Program (optional)</label>
-          <select
-            value={programId}
-            onChange={(e) => setProgramId(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-900 shadow-sm"
-          >
-            <option value="">All programs</option>
-            {programs.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+          <label className="text-sm font-semibold text-slate-900">
+            Programs <span className="text-red-600">*</span>
+          </label>
+
+          <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="max-h-56 overflow-y-auto space-y-2">
+              {programs.map((p) => {
+                const checked = programIds.includes(p.id);
+                return (
+                  <label key={p.id} className="flex items-center gap-3 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setProgramIds(
+                          checked
+                            ? programIds.filter((x) => x !== p.id)
+                            : [...programIds, p.id]
+                        );
+                      }}
+                    />
+                    <span className="text-slate-900">{p.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {programIds.length === 0 && (
+              <p className="mt-2 text-xs text-red-600">Select at least one program.</p>
+            )}
+          </div>
         </div>
 
         <div className="space-y-2">
