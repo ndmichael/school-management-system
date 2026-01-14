@@ -4,199 +4,167 @@ import { createClient } from "@supabase/supabase-js";
 type ErrorResponse = { error: string };
 
 type AssignedRow = {
-  staff_profile_id: string;
+  staff_id: string; // UUID
 };
 
 type StaffItem = {
-  profile_id: string; // this is what we assign
-  staff_id: string;
+  id: string; // staff.id (UUID)
+  staff_code: string; // staff.staff_id (TEXT, display)
+  profile_id: string;
   designation: string | null;
   status: string | null;
   profile: {
     id: string;
-    full_name: string | null;
+    first_name: string | null;
+    last_name: string | null;
     email: string | null;
+    main_role: string;
   } | null;
 };
 
 type GetResponse = {
-  assigned_staff_profile_ids: string[];
+  assigned_staff_ids: string[]; // UUIDs
   eligible_staff: StaffItem[];
 };
 
 type PostBody = {
-  staff_profile_ids: string[]; // array of profiles.id
+  staff_ids: string[]; // UUIDs
 };
 
 function isUuid(v: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 }
 
-function isPostBody(v: unknown): v is PostBody {
-  if (typeof v !== "object" || v === null) return false;
-  if (!("staff_profile_ids" in v)) return false;
-  const ids = (v as { staff_profile_ids?: unknown }).staff_profile_ids;
-  return Array.isArray(ids) && ids.every((x) => typeof x === "string");
-}
-
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+/* ======================= GET ======================= */
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id: offeringId } = await ctx.params;
-
   if (!isUuid(offeringId)) {
     return NextResponse.json<ErrorResponse>({ error: "Invalid offering id" }, { status: 400 });
   }
 
-  // 1) assigned profile ids
-  const { data: assigned, error: assignedErr } = await supabaseAdmin
+  // Assigned staff UUIDs
+  const { data: assigned } = await supabaseAdmin
     .from("course_offering_staff")
-    .select("staff_profile_id")
+    .select("staff_id")
     .eq("course_offering_id", offeringId)
     .returns<AssignedRow[]>();
 
-  if (assignedErr) {
-    return NextResponse.json<ErrorResponse>(
-      { error: assignedErr.message || "Failed to load assigned staff" },
-      { status: 500 },
-    );
-  }
+  const assignedStaffIds = (assigned ?? []).map((r) => r.staff_id);
 
-  const assignedProfileIds = (assigned ?? []).map((r) => r.staff_profile_id);
-
-  // 2) eligible staff = active staff rows + their profiles
-  const { data: staff, error: staffErr } = await supabaseAdmin
+  // Eligible = active + academic
+  const { data: staff, error } = await supabaseAdmin
     .from("staff")
     .select(
       `
-      profile_id,
+      id,
       staff_id,
+      profile_id,
       designation,
       status,
       profiles:profile_id (
         id,
         first_name,
         last_name,
-        email
+        email,
+        main_role
       )
     `
     )
     .eq("status", "active")
-    .order("staff_id", { ascending: true })
-    .returns<Array<{
-      profile_id: string;
-      staff_id: string;
-      designation: string | null;
-      status: string | null;
-      profiles: { id: string; full_name: string | null; email: string | null } | null;
-    }>>();
+    .eq("profiles.main_role", "academic_staff")
+    .order("staff_id", { ascending: true });
 
-  if (staffErr) {
-    return NextResponse.json<ErrorResponse>(
-      { error: staffErr.message || "Failed to load staff" },
-      { status: 500 },
-    );
+  if (error) {
+    return NextResponse.json<ErrorResponse>({ error: error.message }, { status: 500 });
   }
 
-  const eligible: StaffItem[] = (staff ?? []).map((s) => ({
-    profile_id: s.profile_id,
-    staff_id: s.staff_id,
-    designation: s.designation,
-    status: s.status,
-    profile: s.profiles
-      ? { id: s.profiles.id, full_name: s.profiles.full_name, email: s.profiles.email }
-      : null,
-  }));
+  const eligible: StaffItem[] = (staff ?? []).map((s) => {
+    const p = Array.isArray(s.profiles) ? s.profiles[0] : null;
+
+    return {
+      id: s.id,
+      staff_code: s.staff_id,
+      profile_id: s.profile_id,
+      designation: s.designation,
+      status: s.status,
+      profile: p
+        ? {
+            id: p.id,
+            first_name: p.first_name,
+            last_name: p.last_name,
+            email: p.email,
+            main_role: p.main_role,
+          }
+        : null,
+    };
+  });
 
   return NextResponse.json<GetResponse>({
-    assigned_staff_profile_ids: assignedProfileIds,
+    assigned_staff_ids: assignedStaffIds,
     eligible_staff: eligible,
   });
 }
 
+/* ======================= POST ======================= */
 export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id: offeringId } = await ctx.params;
-
   if (!isUuid(offeringId)) {
     return NextResponse.json<ErrorResponse>({ error: "Invalid offering id" }, { status: 400 });
   }
 
-  let raw: unknown;
-  try {
-    raw = (await req.json()) as unknown;
-  } catch {
-    return NextResponse.json<ErrorResponse>({ error: "Invalid JSON body" }, { status: 400 });
-  }
+  const body = (await req.json()) as PostBody;
+  const staffIds = (body.staff_ids ?? []).filter(isUuid);
 
-  if (!isPostBody(raw)) {
+  if (staffIds.length === 0) {
     return NextResponse.json<ErrorResponse>(
-      { error: "Body must be: { staff_profile_ids: string[] }" },
-      { status: 422 },
+      { error: "No valid staff UUIDs provided" },
+      { status: 422 }
     );
   }
 
-  const staffProfileIds = raw.staff_profile_ids
-    .map((x) => x.trim())
-    .filter((x) => isUuid(x));
-
-  if (staffProfileIds.length === 0) {
-    return NextResponse.json<ErrorResponse>(
-      { error: "No valid staff_profile_ids provided" },
-      { status: 422 },
-    );
-  }
-
-  // Safety: ensure these profiles belong to ACTIVE staff
-  const { data: activeStaff, error: activeErr } = await supabaseAdmin
+  // Validate academic + active
+  const { data: validStaff } = await supabaseAdmin
     .from("staff")
-    .select("profile_id")
-    .in("profile_id", staffProfileIds)
-    .eq("status", "active");
+    .select(`id, profiles:profile_id ( main_role )`)
+    .in("id", staffIds)
+    .eq("status", "active")
+    .eq("profiles.main_role", "academic_staff");
 
-  if (activeErr) {
-    return NextResponse.json<ErrorResponse>(
-      { error: activeErr.message || "Failed to validate staff" },
-      { status: 500 },
-    );
-  }
-
-  const activeProfileIds = new Set((activeStaff ?? []).map((r) => (r as { profile_id: string }).profile_id));
-  const filtered = staffProfileIds.filter((id) => activeProfileIds.has(id));
+  const validSet = new Set((validStaff ?? []).map((s) => s.id));
+  const filtered = staffIds.filter((id) => validSet.has(id));
 
   if (filtered.length === 0) {
     return NextResponse.json<ErrorResponse>(
-      { error: "Selected staff are not eligible (must be active)" },
-      { status: 422 },
+      { error: "Selected staff are not eligible" },
+      { status: 422 }
     );
   }
 
-  const rows = filtered.map((profileId) => ({
+  const rows = filtered.map((staffUuid) => ({
     course_offering_id: offeringId,
-    staff_profile_id: profileId,
+    staff_id: staffUuid,
   }));
 
-  const { error: upsertErr } = await supabaseAdmin
+  const { error } = await supabaseAdmin
     .from("course_offering_staff")
     .upsert(rows, {
-      onConflict: "course_offering_id,staff_profile_id",
-      ignoreDuplicates: true,
+      onConflict: "course_offering_id,staff_id",
     });
 
-  if (upsertErr) {
-    return NextResponse.json<ErrorResponse>(
-      { error: upsertErr.message || "Failed to assign staff" },
-      { status: 500 },
-    );
+  if (error) {
+    return NextResponse.json<ErrorResponse>({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true }, { status: 200 });
+  return NextResponse.json({ ok: true });
 }
