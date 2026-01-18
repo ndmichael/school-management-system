@@ -87,7 +87,10 @@ function getBaseUrl(req: NextRequest) {
  * profiles.avatar_file constraint requires bucket === "avatars".
  * If application passport is stored in "applications", we copy it into "avatars".
  */
-async function ensureAvatarInAvatarsBucket(file: StoredFile, userId: string): Promise<StoredFile> {
+async function ensureAvatarInAvatarsBucket(
+  file: StoredFile,
+  userId: string
+): Promise<StoredFile> {
   if (file.bucket === "avatars") return file;
 
   const { data: blob, error: dlErr } = await supabaseAdmin.storage
@@ -237,21 +240,19 @@ export async function POST(req: NextRequest, context: { params: Promise<ConvertP
       );
     }
 
-    /**
-     * ✅ “set-password” flow (recovery email)
-     */
+    // ✅ INVITE FLOW (correct for first-time set password)
+    // Only ONE next param, and it’s added by you.
     const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)).replace(/\/$/, "");
     const redirectTo = `${baseUrl}/api/auth/confirm?next=/set-password`;
 
-    // Create auth user
-    const { data: createRes, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      email_confirm: true,
-      user_metadata: { onboarding_status: "pending", main_role: "student" },
-    });
+    const { data: inviteRes, error: inviteErr } =
+      await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+        redirectTo,
+        data: { onboarding_status: "pending", main_role: "student" },
+      });
 
-    if (createErr) {
-      const msg = createErr.message ?? "Failed to create auth user.";
+    if (inviteErr) {
+      const msg = inviteErr.message ?? "Invite failed";
       const isDup = isDuplicateAuthMessage(msg);
       return NextResponse.json(
         { error: isDup ? "User already exists" : msg },
@@ -259,20 +260,12 @@ export async function POST(req: NextRequest, context: { params: Promise<ConvertP
       );
     }
 
-    const createdUserId = createRes?.user?.id ?? null;
+    const createdUserId = inviteRes?.user?.id ?? null;
     if (!createdUserId) {
-      return NextResponse.json({ error: "Create user succeeded but no user id returned." }, { status: 400 });
+      return NextResponse.json({ error: "Invite succeeded but no user id returned." }, { status: 400 });
     }
 
     createdAuthUserId = createdUserId;
-
-    // Send password setup email
-    const { error: pwErr } = await supabaseAdmin.auth.resetPasswordForEmail(email, { redirectTo });
-    if (pwErr) {
-      await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
-      createdAuthUserId = null;
-      return NextResponse.json({ error: pwErr.message ?? "Failed to send set-password email." }, { status: 400 });
-    }
 
     // avatar_file must be bucket "avatars" OR null
     let avatarFile: StoredFile | null = null;
@@ -284,7 +277,7 @@ export async function POST(req: NextRequest, context: { params: Promise<ConvertP
       }
     }
 
-    // Create profile
+    // Create profile (pending until they set password)
     const { data: profile, error: profileErr2 } = await supabaseAdmin
       .from("profiles")
       .insert({
@@ -359,14 +352,14 @@ export async function POST(req: NextRequest, context: { params: Promise<ConvertP
       );
     }
 
-    await supabaseAdmin.from("profiles").update({ onboarding_status: "active" }).eq("id", profile.id);
-
+    // IMPORTANT: do NOT mark onboarding_status "active" here.
+    // They haven't set a password yet. Mark active after they complete set-password.
     return NextResponse.json({
       success: true,
       studentId: student.id,
       matricNo: student.matric_no,
       studentEmail: email,
-      setPasswordQueued: true,
+      inviteQueued: true,
       redirectTo,
       avatarFile,
     });
