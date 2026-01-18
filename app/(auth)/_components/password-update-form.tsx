@@ -1,3 +1,4 @@
+// app/(auth)/_components/password-update-form.tsx
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
@@ -12,9 +13,21 @@ type Props = {
   mode: Mode;
 };
 
+type OnboardingCompleteResponse = { ok: true } | { error: string };
+
 function validatePassword(pw: string): string | null {
   if (pw.length < 8) return "Password must be at least 8 characters.";
   return null;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function readErrorMessage(v: unknown, fallback: string): string {
+  if (!isRecord(v)) return fallback;
+  const err = v.error;
+  return typeof err === "string" && err.trim() ? err.trim() : fallback;
 }
 
 export default function PasswordUpdateForm({ mode }: Props) {
@@ -46,6 +59,24 @@ export default function PasswordUpdateForm({ mode }: Props) {
 
       if (error) {
         setFormError(error.message);
+        return;
+      }
+
+      // ✅ Mark onboarding complete (only after password is set)
+      const res = await fetch("/api/auth/onboarding/complete", { method: "POST" });
+
+      if (!res.ok) {
+        const json: unknown = await res.json().catch(() => null);
+        setFormError(readErrorMessage(json, "Failed to finalize onboarding. Please try again."));
+        return;
+      }
+
+      const _json: OnboardingCompleteResponse | null = (await res.json().catch(() => null)) as
+        | OnboardingCompleteResponse
+        | null;
+
+      if (_json && "error" in _json) {
+        setFormError(_json.error);
         return;
       }
 
