@@ -58,6 +58,7 @@ export default function LoginClient() {
         // We always treat ok as success, to avoid account enumeration.
         void (_json as ResendInviteResponse | null);
         setResendDone(true);
+        setResendEmail("");
       } else {
         // Still show success wording to avoid leaking account existence.
         setResendDone(true);
