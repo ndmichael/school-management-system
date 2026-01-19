@@ -51,9 +51,12 @@ export async function POST(req: NextRequest) {
       .eq("email", email)
       .maybeSingle<ProfileRow>();
 
-    if (profErr) return NextResponse.json({ error: profErr.message }, { status: 400 });
+    if (profErr) {
+      console.error("resend-invite profile lookup error:", profErr.message);
+      return NextResponse.json({ ok: true }, { status: 200 });
+    }
 
-    // Don’t leak whether accounts exist (security). Always return ok.
+    // Avoid account enumeration
     if (!profile?.id) {
       return NextResponse.json({ ok: true }, { status: 200 });
     }
@@ -65,15 +68,31 @@ export async function POST(req: NextRequest) {
     const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)).replace(/\/$/, "");
     const redirectTo = `${baseUrl}/api/auth/confirm?next=/set-password`;
 
+    // 1) Try invite (works if auth user not fully registered)
     const { error: inviteErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
       redirectTo,
-      // keep metadata consistent; optional
       data: { onboarding_status: "pending" },
     });
 
-    // Don’t leak errors to attackers; just log.
+    // 2) Fallback to reset-password if user already exists
     if (inviteErr) {
-      console.error("resend-invite error:", inviteErr.message);
+      const m = inviteErr.message.toLowerCase();
+      const isDup =
+        m.includes("already registered") ||
+        m.includes("already exists") ||
+        m.includes("user already registered") ||
+        m.includes("duplicate");
+
+      if (isDup) {
+        const { error: resetErr } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
+          redirectTo,
+        });
+        if (resetErr) {
+          console.error("resend reset fallback error:", resetErr.message);
+        }
+      } else {
+        console.error("resend invite error:", inviteErr.message);
+      }
     }
 
     return NextResponse.json({ ok: true }, { status: 200 });
