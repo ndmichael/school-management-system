@@ -31,7 +31,6 @@ export async function GET(request: NextRequest) {
 
   const nextPath = safeNext(nextParam, "/set-password");
 
-  // HARD REQUIREMENTS
   if (!tokenHash || !isEmailOtpType(type)) {
     return NextResponse.redirect(
       new URL("/login?error=invalid_link", url.origin)
@@ -47,16 +46,16 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(
-        `/login?error=${encodeURIComponent(error.message)}`,
-        url.origin
-      )
+      new URL(`/login?error=${encodeURIComponent(error.message)}`, url.origin)
     );
   }
 
-  // At this point:
-  // - User is authenticated
-  // - Session cookies are set
-  // - Safe to proceed to password page
+  /**
+   * 🔑 CRITICAL FIX
+   * This forces Supabase to WRITE the session cookie
+   * before Next.js performs the redirect.
+   */
+  await supabase.auth.getSession();
+
   return NextResponse.redirect(new URL(nextPath, url.origin));
 }
