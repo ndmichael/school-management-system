@@ -12,54 +12,51 @@ function safeNext(nextParam: string | null, fallback: string): string {
 
 function isEmailOtpType(v: string | null): v is EmailOtpType {
   return (
-    v === "recovery" ||
     v === "invite" ||
+    v === "recovery" ||
     v === "email" ||
     v === "signup" ||
     v === "magiclink"
   );
 }
 
+export const runtime = "nodejs";
+
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);
 
-  const tokenHash = url.searchParams.get("token_hash"); // ✅ REQUIRED for verifyOtp
-  const typeParam = url.searchParams.get("type");
+  const tokenHash = url.searchParams.get("token_hash");
+  const type = url.searchParams.get("type");
   const nextParam = url.searchParams.get("next");
-
-  // ✅ PKCE support
-  const code = url.searchParams.get("code");
 
   const nextPath = safeNext(nextParam, "/set-password");
 
+  // HARD REQUIREMENTS
+  if (!tokenHash || !isEmailOtpType(type)) {
+    return NextResponse.redirect(
+      new URL("/login?error=invalid_link", url.origin)
+    );
+  }
+
   const supabase = await createClient();
 
-  // 1) PKCE code flow
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) {
-      return NextResponse.redirect(
-        new URL(`/login?error=${encodeURIComponent(error.message)}`, url.origin)
-      );
-    }
-    return NextResponse.redirect(new URL(nextPath, url.origin));
-  }
-
-  // 2) OTP verify flow (invite/recovery/etc.) — token_hash only
-  if (!tokenHash || !isEmailOtpType(typeParam)) {
-    return NextResponse.redirect(new URL("/login?error=invalid_link", url.origin));
-  }
-
   const { error } = await supabase.auth.verifyOtp({
-    type: typeParam,
+    type,
     token_hash: tokenHash,
   });
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(error.message)}`, url.origin)
+      new URL(
+        `/login?error=${encodeURIComponent(error.message)}`,
+        url.origin
+      )
     );
   }
 
+  // At this point:
+  // - User is authenticated
+  // - Session cookies are set
+  // - Safe to proceed to password page
   return NextResponse.redirect(new URL(nextPath, url.origin));
 }
