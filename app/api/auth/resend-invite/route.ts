@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     }
 
     const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)).replace(/\/$/, "");
-    const redirectTo = `${baseUrl}/api/auth/confirm?next=/set-password`;
+    const redirectTo = `${baseUrl}/api/auth/confirm`;
 
     // 1) Try invite (works if auth user not fully registered)
     const { error: inviteErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {

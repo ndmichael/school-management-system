@@ -243,7 +243,7 @@ export async function POST(req: NextRequest, context: { params: Promise<ConvertP
     // ✅ INVITE FLOW (correct for first-time set password)
     // Only ONE next param, and it’s added by you.
     const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)).replace(/\/$/, "");
-    const redirectTo = `${baseUrl}/api/auth/confirm?next=/set-password`;
+    const redirectTo = `${baseUrl}/api/auth/confirm`;
 
     const { data: inviteRes, error: inviteErr } =
       await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
