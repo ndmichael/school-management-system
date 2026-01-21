@@ -10,22 +10,30 @@ type StudentProfile = {
 };
 
 type EligibleStudent = {
-  id: string;
+  id: string; // students.id
   matric_no: string;
-  profiles: StudentProfile; // single object (what your UI expects)
-};
-
-type DbStudentRow = {
-  id: string;
-  matric_no: string;
-  profiles: StudentProfile[] | null; // Supabase returns relation as array
+  profiles: StudentProfile; // UI expects single object
 };
 
 type OfferingScope = {
   id: string;
-  program_id: string;
   session_id: string;
   level: string | null;
+};
+
+type OfferingProgramRow = { program_id: string };
+
+type EnrollmentRow = { student_id: string };
+
+type RegistrationJoinRow = {
+  student_id: string;
+  students: {
+    id: string;
+    matric_no: string;
+    status: string | null;
+    program_id: string | null;
+    profiles: StudentProfile | null;
+  } | null;
 };
 
 export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
@@ -34,25 +42,41 @@ export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
 
   const { courseOfferingId } = await ctx.params;
 
-  // 1) Load offering scope (program + session, level optional)
+  // 1) offering scope (session + optional level)
   const { data: offering, error: offeringErr } = await supabaseAdmin
     .from("course_offerings")
-    .select("id, program_id, session_id, level")
+    .select("id, session_id, level")
     .eq("id", courseOfferingId)
     .single<OfferingScope>();
 
   if (offeringErr || !offering) {
-    return NextResponse.json(
-      { error: "Course offering not found" },
-      { status: 404 }
-    );
+    return NextResponse.json({ error: "Course offering not found" }, { status: 404 });
   }
 
-  // 2) Fetch already-enrolled student IDs for this offering
+  // 2) programs attached to offering (M2M)
+  const { data: offeringPrograms, error: progErr } = await supabaseAdmin
+    .from("course_offering_programs")
+    .select("program_id")
+    .eq("course_offering_id", courseOfferingId);
+
+  if (progErr) {
+    return NextResponse.json({ error: progErr.message }, { status: 400 });
+  }
+
+  const programIds = (offeringPrograms ?? [])
+    .map((r: OfferingProgramRow) => r.program_id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+
+  if (programIds.length === 0) {
+    return NextResponse.json({ students: [] });
+  }
+
+  // 3) already enrolled students in this offering
   const { data: enrolled, error: enrolledErr } = await supabaseAdmin
     .from("enrollments")
     .select("student_id")
-    .eq("course_offering_id", courseOfferingId);
+    .eq("course_offering_id", courseOfferingId)
+    .returns<EnrollmentRow[]>();
 
   if (enrolledErr) {
     return NextResponse.json({ error: enrolledErr.message }, { status: 400 });
@@ -62,55 +86,52 @@ export async function GET(_req: Request, ctx: { params: Promise<Params> }) {
     .map((e) => e.student_id)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
 
-  // 3) Build eligible students query:
-  // - program_id must match
-  // - students.course_session_id must match offerings.session_id
-  // - level optional
-  // - students must be active
-  // - exclude already enrolled
-  let query = supabaseAdmin
-    .from("students")
+  // 4) registrations for the offering's session (+ optional level), joined to students + profiles
+  // NOTE: profiles join is forced via FK name students_profile_id_fkey
+  let regQuery = supabaseAdmin
+    .from("student_registrations")
     .select(
       `
-      id,
-      matric_no,
-      profiles (
-        first_name,
-        last_name
+      student_id,
+      students!inner (
+        id,
+        matric_no,
+        status,
+        program_id,
+        profiles!students_profile_id_fkey (
+          first_name,
+          last_name
+        )
       )
     `
     )
-    .eq("program_id", offering.program_id)
-    .eq("course_session_id", offering.session_id)
-    .eq("status", "active");
+    .eq("session_id", offering.session_id)
+    .eq("status", "registered");
 
   if (offering.level !== null) {
-    query = query.eq("level", offering.level);
+    regQuery = regQuery.eq("level", offering.level);
   }
 
-  if (enrolledIds.length > 0) {
-    query = query.not("id", "in", `(${enrolledIds.join(",")})`);
+  const { data: regRows, error: regErr } = await regQuery.returns<RegistrationJoinRow[]>();
+
+  if (regErr) {
+    return NextResponse.json({ error: regErr.message }, { status: 400 });
   }
 
-  const { data: rows, error: studentsErr } = await query;
-
-  if (studentsErr) {
-    return NextResponse.json({ error: studentsErr.message }, { status: 400 });
-  }
-
-  // 4) Normalize profiles[] -> profiles (single object) to match your UI contract
-  const students: EligibleStudent[] = ((rows ?? []) as unknown as DbStudentRow[])
-    .map((r) => {
-      const p = r.profiles?.[0];
+  // 5) filter: active + program match + not enrolled + has profile
+  const students: EligibleStudent[] = (regRows ?? [])
+    .map((r) => r.students)
+    .filter((s): s is NonNullable<RegistrationJoinRow["students"]> => s !== null)
+    .filter((s) => s.status === "active")
+    .filter((s) => typeof s.program_id === "string" && programIds.includes(s.program_id))
+    .filter((s) => !enrolledIds.includes(s.id))
+    .map((s) => {
+      const p = s.profiles;
       if (!p) return null;
-
       return {
-        id: r.id,
-        matric_no: r.matric_no,
-        profiles: {
-          first_name: p.first_name,
-          last_name: p.last_name,
-        },
+        id: s.id,
+        matric_no: s.matric_no,
+        profiles: { first_name: p.first_name, last_name: p.last_name },
       };
     })
     .filter((x): x is EligibleStudent => x !== null);
