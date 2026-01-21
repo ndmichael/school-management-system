@@ -9,7 +9,7 @@ export async function GET(
 
   const { data, error } = await supabaseAdmin
     .from("students")
-    .select("program_id, department_id, level, course_session_id, status")
+    .select("program_id, department_id, level, admission_session_id, status")
     .eq("id", studentId)
     .single();
 
@@ -34,7 +34,7 @@ export async function PATCH(
       program_id: body.program_id ?? null,
       department_id: body.department_id ?? null,
       level: body.level ?? null,
-      course_session_id: body.course_session_id ?? null,
+      admission_session_id: body.admission_session_id ?? null,
       status: body.status ?? null,
       updated_at: new Date().toISOString(),
     })
