@@ -314,7 +314,7 @@ export async function POST(req: NextRequest, context: { params: Promise<ConvertP
         profile_id: profile.id,
         program_id: app.program_id,
         department_id: app.department_id,
-        course_session_id: app.session_id,
+        admission_session_id: app.session_id,
         matric_no: String(matricNo),
         level: null,
         status: "active",
