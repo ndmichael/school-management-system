@@ -40,7 +40,7 @@ type StudentRow = {
   status: string | null;
   program_id: string | null;
   department_id: string | null;
-  course_session_id: string | null;
+  admission_session_id: string | null;
 };
 
 type CourseOfferingRow = {
@@ -106,7 +106,7 @@ export default async function StudentDashboardPage() {
     supabase
       .from("students")
       .select(
-        "id, profile_id, matric_no, level, cgpa, status, program_id, department_id, course_session_id"
+        "id, profile_id, matric_no, level, cgpa, status, program_id, department_id, admission_session_id"
       )
       .eq("profile_id", user.id)
       .single<StudentRow>(),
@@ -198,7 +198,7 @@ export default async function StudentDashboardPage() {
     .eq("is_published", true)
     .order("created_at", { ascending: false });
 
-  if (student.course_session_id) offeringsQuery = offeringsQuery.eq("session_id", student.course_session_id);
+  if (student.admission_session_id) offeringsQuery = offeringsQuery.eq("session_id", student.admission_session_id);
   if (student.program_id) offeringsQuery = offeringsQuery.eq("program_id", student.program_id);
   if (student.level) offeringsQuery = offeringsQuery.eq("level", student.level);
 
