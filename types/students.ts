@@ -25,7 +25,7 @@ export type Student = {
   program_id: string | null;
   department_id: string | null;
   level: string | null;
-  course_session_id: string | null;
+  admission_session_id: string | null;
   cgpa: number | null;
   enrollment_date: string | null;
   guardian_first_name: string | null;
