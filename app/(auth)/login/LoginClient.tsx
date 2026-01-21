@@ -1,4 +1,3 @@
-// app/(auth)/login/LoginClient.tsx
 "use client";
 
 import * as React from "react";
@@ -26,6 +25,7 @@ export default function LoginClient() {
   const urlError = (sp.get("error") ?? "").trim();
 
   const [hashErrorCode, setHashErrorCode] = React.useState<string>("");
+
   React.useEffect(() => {
     const h = typeof window !== "undefined" ? window.location.hash : "";
     const raw = h.startsWith("#") ? h.slice(1) : h;
@@ -34,11 +34,13 @@ export default function LoginClient() {
   }, []);
 
   const isExpired =
-    urlError === "invalid_link" || urlError === "otp_expired" || hashErrorCode === "otp_expired";
+    urlError === "invalid_link" ||
+    urlError === "otp_expired" ||
+    hashErrorCode === "otp_expired";
 
-  const [resendEmail, setResendEmail] = useState<string>("");
-  const [resendLoading, setResendLoading] = useState<boolean>(false);
-  const [resendDone, setResendDone] = useState<boolean>(false);
+  const [resendEmail, setResendEmail] = useState("");
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendDone, setResendDone] = useState(false);
 
   async function resendInvite() {
     const email = resendEmail.trim().toLowerCase();
@@ -46,6 +48,7 @@ export default function LoginClient() {
 
     setResendLoading(true);
     setResendDone(false);
+
     try {
       const r = await fetch("/api/auth/resend-invite", {
         method: "POST",
@@ -54,13 +57,10 @@ export default function LoginClient() {
       });
 
       if (r.ok) {
-        const _json: unknown = await r.json().catch(() => null);
-        // We always treat ok as success, to avoid account enumeration.
-        void (_json as ResendInviteResponse | null);
+        await r.json().catch(() => null);
         setResendDone(true);
         setResendEmail("");
       } else {
-        // Still show success wording to avoid leaking account existence.
         setResendDone(true);
       }
     } finally {
@@ -71,9 +71,9 @@ export default function LoginClient() {
   return (
     <div className="w-full max-w-md">
       <div className="relative overflow-hidden rounded-3xl border border-slate-200/60 bg-white shadow-xl shadow-slate-100/60">
-        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-primary-600 via-primary-500 to-secondary-500" />
+        <div className="absolute inset-x-0 top-0 h-1 bg-linear-to-r from-primary-600 via-primary-500 to-secondary-500" />
 
-        <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white p-6">
+        <div className="border-b border-slate-100 bg-linear-to-r from-slate-50 to-white p-6">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">Sign in</h1>
           <p className="mt-1 text-sm text-slate-600">Access your dashboard securely</p>
         </div>
@@ -82,15 +82,17 @@ export default function LoginClient() {
           {isExpired && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
               <p className="text-sm font-semibold text-amber-900">
-                Your invite link is invalid or has expired.
+                This link is invalid or has expired.
               </p>
+
               <p className="mt-0.5 text-xs text-amber-900/80">
-                Enter your email and we’ll send a fresh invite.
+                If you’ve already set a password, simply sign in below.
+                Otherwise, enter your email to receive a new setup link.
               </p>
 
               <div className="mt-3 space-y-2">
                 <Input
-                  label="Email to resend invite"
+                  label="Email"
                   type="email"
                   value={resendEmail}
                   onChange={(ev) => setResendEmail(ev.currentTarget.value)}
@@ -104,13 +106,12 @@ export default function LoginClient() {
                   onClick={resendInvite}
                   disabled={resendLoading || isPending || !resendEmail.trim()}
                   className={[
-                    "cursor-pointer w-full rounded-xl px-5 py-6 text-sm font-semibold text-white",
+                    "w-full rounded-xl px-5 py-6 text-sm font-semibold text-white",
                     "bg-linear-to-r from-primary-600 via-primary-600 to-secondary-500",
                     "shadow-lg shadow-primary-500/20",
                     "hover:shadow-xl hover:shadow-primary-500/30",
                     "active:scale-[0.99]",
                     "disabled:pointer-events-none disabled:opacity-60",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 focus-visible:ring-offset-2",
                   ].join(" ")}
                 >
                   {resendLoading ? (
@@ -119,13 +120,13 @@ export default function LoginClient() {
                       Sending…
                     </>
                   ) : (
-                    "Resend invite"
+                    "Resend setup link"
                   )}
                 </Button>
 
                 {resendDone && (
                   <p className="text-xs text-amber-900/80">
-                    If an account exists for that email, a new invite has been sent.
+                    If an account exists for that email, a new link has been sent.
                   </p>
                 )}
               </div>
@@ -152,7 +153,7 @@ export default function LoginClient() {
               autoComplete="current-password"
               required
               disabled={isPending}
-              onKeyUp={(e: React.KeyboardEvent<HTMLInputElement>) => {
+              onKeyUp={(e) => {
                 if (typeof e.getModifierState === "function") {
                   setCapsOn(e.getModifierState("CapsLock"));
                 }
@@ -161,7 +162,7 @@ export default function LoginClient() {
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 focus-visible:ring-offset-1"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
                   aria-label={showPassword ? "Hide password" : "Show password"}
                   disabled={isPending}
                 >
@@ -171,16 +172,15 @@ export default function LoginClient() {
             />
 
             <div className="flex items-center justify-between">
-              {capsOn ? <p className="text-xs font-medium text-amber-700">Caps Lock is on</p> : <span />}
+              {capsOn ? (
+                <p className="text-xs font-medium text-amber-700">Caps Lock is on</p>
+              ) : (
+                <span />
+              )}
 
               <Link
                 href="/forgot-password"
-                aria-disabled={isPending}
-                tabIndex={isPending ? -1 : 0}
-                className={[
-                  "text-xs font-semibold text-primary-700 hover:underline",
-                  isPending ? "pointer-events-none opacity-60" : "",
-                ].join(" ")}
+                className="text-xs font-semibold text-primary-700 hover:underline"
               >
                 Forgot password?
               </Link>
@@ -200,13 +200,12 @@ export default function LoginClient() {
             type="submit"
             disabled={isPending}
             className={[
-              "cursor-pointer w-full rounded-xl px-5 py-6 text-sm font-semibold text-white",
+              "w-full rounded-xl px-5 py-6 text-sm font-semibold text-white",
               "bg-linear-to-r from-primary-600 via-primary-600 to-secondary-500",
               "shadow-lg shadow-primary-500/20",
               "hover:shadow-xl hover:shadow-primary-500/30",
               "active:scale-[0.99]",
               "disabled:pointer-events-none disabled:opacity-60",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/40 focus-visible:ring-offset-2",
             ].join(" ")}
           >
             {isPending ? (
@@ -223,7 +222,9 @@ export default function LoginClient() {
           </Button>
 
           <div className="pt-1 text-center">
-            <span className="text-xs text-slate-500">Having trouble? Contact your administrator</span>
+            <span className="text-xs text-slate-500">
+              Having trouble? Contact your administrator
+            </span>
           </div>
         </form>
       </div>
