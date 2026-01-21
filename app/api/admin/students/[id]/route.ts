@@ -18,7 +18,7 @@ export async function GET(
         profiles:profile_id!left (*),
         programs:program_id!left (*),
         departments:department_id!left (*),
-        sessions:course_session_id!left (*)
+        sessions:admission_session_id!left (*)
       `
     )
     .eq("id", studentId)
@@ -48,7 +48,7 @@ export async function PATCH(
       level: body.level ?? null,
       program_id: body.program_id ?? null,
       department_id: body.department_id ?? null,
-      course_session_id: body.course_session_id ?? null,
+      admission_session_id: body.admission_session_id ?? null,
 
       guardian_first_name: body.guardian_first_name ?? null,
       guardian_last_name: body.guardian_last_name ?? null,
