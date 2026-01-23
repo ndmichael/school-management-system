@@ -22,16 +22,15 @@ export default function AddStudentModal({
   async function save() {
     try {
       setSaving(true);
-      const res = await fetch("/api/exams/enrollments", {
+            const res = await fetch(`/api/exams/enrollments/${courseOfferingId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          course_offering_id: courseOfferingId,
-          student_ids: selected,
-        }),
+        body: JSON.stringify({ studentIds: selected }),
       });
 
-      if (!res.ok) throw new Error();
+      const json: { error?: string } = await res.json().catch(() => ({}));
+
+      if (!res.ok) throw new Error(json.error ?? "Enroll failed");
       toast.success("Students enrolled");
       onAdded();
       onClose();
