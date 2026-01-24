@@ -33,6 +33,8 @@ type Props = {
 
 export default function RosterTable({ loading, enrollments, onRemoved, offeringId }: Props) {
   const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
+  const [deleting, setDeleting] = useState(false);
+
 
   const allStudentIds = useMemo(
     () =>
@@ -67,6 +69,8 @@ export default function RosterTable({ loading, enrollments, onRemoved, offeringI
     if (!confirm(`Remove ${ids.length} student(s) from roster?`)) return;
 
     try {
+      setDeleting(true);
+
       const res = await fetch(`/api/exams/enrollments/${offeringId}`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
@@ -81,8 +85,11 @@ export default function RosterTable({ loading, enrollments, onRemoved, offeringI
       onRemoved();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to remove selected students");
+    } finally {
+      setDeleting(false);
     }
   }
+
 
   if (loading) return <div className="text-gray-500">Loading roster…</div>;
   if (enrollments.length === 0) return <div className="text-gray-500">No students enrolled</div>;
@@ -97,13 +104,18 @@ export default function RosterTable({ loading, enrollments, onRemoved, offeringI
         <button
           type="button"
           onClick={removeSelected}
-          disabled={selectedStudentIds.length === 0}
+          disabled={selectedStudentIds.length === 0 || deleting}
           className="px-3 py-2 rounded-lg text-sm font-medium
-                     bg-red-600 text-white hover:bg-red-700
-                     disabled:opacity-50 disabled:cursor-not-allowed"
+                    bg-admin-600 text-white hover:bg-admin-700
+                    disabled:opacity-50 disabled:cursor-not-allowed
+                    inline-flex items-center gap-2"
         >
-          Remove Selected
+          {deleting && (
+            <span className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+          )}
+          {deleting ? "Removing..." : "Remove Selected"}
         </button>
+
       </div>
 
       <table className="w-full text-sm">
