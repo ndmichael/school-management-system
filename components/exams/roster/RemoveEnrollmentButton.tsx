@@ -11,7 +11,7 @@ export default function RemoveEnrollmentButton({ enrollmentId, onRemoved }: Prop
     if (!confirm("Remove this student from roster?")) return;
 
     try {
-      const res = await fetch("/api/exams/enrollment", {
+      const res = await fetch("/api/exams/enrollments", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ enrollment_id: enrollmentId }),
