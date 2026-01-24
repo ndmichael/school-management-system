@@ -5,12 +5,15 @@ import { requireExamsAccess } from "@/lib/guards/requireExamsAccess";
 type Params = { offeringId: string };
 
 type StudentProfile = { first_name: string; last_name: string };
+type StudentProgram = { name: string } | null;
 
 type RosterRow = {
   id: string; // enrollment id
   students: {
     id: string; // students.id
     matric_no: string;
+    level: string | null;              // ✅ add
+    program: StudentProgram;           // ✅ add (programs.name)
     profiles: StudentProfile[] | null;
   } | null;
 };
@@ -87,6 +90,8 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<Params> }) {
       students (
         id,
         matric_no,
+        level,
+        program:programs ( name ),
         profiles!students_profile_id_fkey (
           first_name,
           last_name
