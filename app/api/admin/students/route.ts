@@ -22,40 +22,39 @@ export async function GET(req: Request) {
     .from("students")
     .select(
       `
-        id,
-        profile_id,
-        matric_no,
+      id,
+      profile_id,
+      matric_no,
+      status,
+      created_at,
+
+      profiles!inner (
+        first_name,
+        middle_name,
+        last_name,
+        email,
+        phone,
+        gender,
+        avatar_file
+      ),
+
+      programs:program_id (
+        name,
+        code
+      ),
+
+      departments:department_id (
+        name,
+        code
+      ),
+
+      student_registrations (
         level,
-        status,
-        program_id,
-        department_id,
-        course_session_id,
-        created_at,
-
-        profiles!inner (
-          first_name,
-          middle_name,
-          last_name,
-          email,
-          phone,
-          gender,
-          avatar_file
-        ),
-
-        programs:program_id (
-          name,
-          code
-        ),
-
-        departments:department_id (
-          name,
-          code
-        ),
-
-        sessions:course_session_id (
+        sessions (
           id,
           name
         )
+      )
       `,
       { count: "exact" }
     )
@@ -67,13 +66,12 @@ export async function GET(req: Request) {
   }
 
   if (search) {
-    // NOTE: keep your current OR; this is fine as-is
     query = query.or(
       `
-        matric_no.ilike.%${search}%,
-        profiles.first_name.ilike.%${search}%,
-        profiles.last_name.ilike.%${search}%,
-        profiles.email.ilike.%${search}%
+      matric_no.ilike.%${search}%,
+      profiles.first_name.ilike.%${search}%,
+      profiles.last_name.ilike.%${search}%,
+      profiles.email.ilike.%${search}%
       `
     );
   }
