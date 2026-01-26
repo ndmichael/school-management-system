@@ -108,9 +108,20 @@ export default function AdminStudentsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold">Students</h1>
-        <p className="text-gray-600">Manage all registered students</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Students</h1>
+          <p className="text-gray-600">Manage all registered students</p>
+        </div>
+
+        {/* CREATE STUDENT (ADMIN) */}
+        <a
+          href="/dashboard/admin/students/new"
+          className="px-4 py-2 rounded-xl text-sm font-medium
+                    bg-red-600 text-white hover:bg-red-700"
+        >
+          + Create Student
+        </a>
       </div>
 
       {/* Stats */}
