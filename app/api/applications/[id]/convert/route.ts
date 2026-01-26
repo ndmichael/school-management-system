@@ -45,6 +45,13 @@ type SessionRow = { name: string };
 type ProfileIdRow = { id: string };
 type StudentInsertReturn = { id: string; matric_no: string };
 
+type ApplicationDocumentRow = {
+  file: unknown; // jsonb
+  doc_type: string | null;
+  original_name: string | null;
+  mime_type: string | null;
+};
+
 type JsonRecord = Record<string, unknown>;
 
 function isRecord(v: unknown): v is JsonRecord {
@@ -87,15 +94,10 @@ function getBaseUrl(req: NextRequest) {
  * profiles.avatar_file constraint requires bucket === "avatars".
  * If application passport is stored in "applications", we copy it into "avatars".
  */
-async function ensureAvatarInAvatarsBucket(
-  file: StoredFile,
-  userId: string
-): Promise<StoredFile> {
+async function ensureAvatarInAvatarsBucket(file: StoredFile, userId: string): Promise<StoredFile> {
   if (file.bucket === "avatars") return file;
 
-  const { data: blob, error: dlErr } = await supabaseAdmin.storage
-    .from(file.bucket)
-    .download(file.path);
+  const { data: blob, error: dlErr } = await supabaseAdmin.storage.from(file.bucket).download(file.path);
 
   if (dlErr || !blob) {
     throw new Error(`Failed to download passport_file: ${dlErr?.message ?? "no data"}`);
@@ -217,7 +219,7 @@ export async function POST(req: NextRequest, context: { params: Promise<ConvertP
       return NextResponse.json({ error: programErr?.message ?? "Program not found." }, { status: 400 });
     }
 
-    // 3) Session
+    // 3) Session (optional validation, keep)
     const { data: session, error: sessionErr } = await supabaseAdmin
       .from("sessions")
       .select("name")
@@ -240,24 +242,19 @@ export async function POST(req: NextRequest, context: { params: Promise<ConvertP
       );
     }
 
-    // ✅ INVITE FLOW (correct for first-time set password)
-    // Only ONE next param, and it’s added by you.
+    // INVITE FLOW
     const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)).replace(/\/$/, "");
     const redirectTo = `${baseUrl}/api/auth/confirm`;
 
-    const { data: inviteRes, error: inviteErr } =
-      await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        redirectTo,
-        data: { onboarding_status: "pending", main_role: "student" },
-      });
+    const { data: inviteRes, error: inviteErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      redirectTo,
+      data: { onboarding_status: "pending", main_role: "student" },
+    });
 
     if (inviteErr) {
       const msg = inviteErr.message ?? "Invite failed";
       const isDup = isDuplicateAuthMessage(msg);
-      return NextResponse.json(
-        { error: isDup ? "User already exists" : msg },
-        { status: isDup ? 409 : 400 }
-      );
+      return NextResponse.json({ error: isDup ? "User already exists" : msg }, { status: isDup ? 409 : 400 });
     }
 
     const createdUserId = inviteRes?.user?.id ?? null;
@@ -307,14 +304,14 @@ export async function POST(req: NextRequest, context: { params: Promise<ConvertP
       return NextResponse.json({ error: profileErr2?.message ?? "Failed to create profile." }, { status: 400 });
     }
 
-    // Create student
+    // Create student (keep students.level null; registration holds the level)
     const { data: student, error: studentErr } = await supabaseAdmin
       .from("students")
       .insert({
         profile_id: profile.id,
         program_id: app.program_id,
         department_id: app.department_id,
-        admission_session_id: app.session_id,
+        admission_session_id: app.session_id, // your renamed column
         matric_no: String(matricNo),
         level: null,
         status: "active",
@@ -335,7 +332,47 @@ export async function POST(req: NextRequest, context: { params: Promise<ConvertP
       return NextResponse.json({ error: studentErr?.message ?? "Failed to create student." }, { status: 400 });
     }
 
-    // Mark application converted
+    // ✅ 5) Create registration for the admission session
+    const { error: regErr } = await supabaseAdmin.from("student_registrations").upsert(
+      [
+        {
+          student_id: student.id,
+          session_id: app.session_id,
+          level: null,
+          status: "registered",
+        },
+      ],
+      { onConflict: "student_id,session_id" }
+    );
+
+    // ✅ 6) Copy application_documents -> student_documents (best-effort)
+    let docsWarning: string | null = null;
+
+    const { data: appDocs, error: docsErr } = await supabaseAdmin
+      .from("application_documents")
+      .select("file, doc_type, original_name, mime_type")
+      .eq("application_id", applicationId)
+      .returns<ApplicationDocumentRow[]>();
+
+    if (docsErr) {
+      docsWarning = `Student created but failed to read application documents: ${docsErr.message}`;
+    } else if (Array.isArray(appDocs) && appDocs.length > 0) {
+      const insertRows = appDocs.map((d) => ({
+        student_id: student.id,
+        file: d.file,
+        doc_type: d.doc_type ?? null,
+        original_name: d.original_name ?? null,
+        mime_type: d.mime_type ?? null,
+      }));
+
+      const { error: insDocsErr } = await supabaseAdmin.from("student_documents").insert(insertRows);
+
+      if (insDocsErr) {
+        docsWarning = `Student created but failed to copy documents to student_documents: ${insDocsErr.message}`;
+      }
+    }
+
+    // ✅ 7) Mark application converted
     const { error: updateErr } = await supabaseAdmin
       .from("applications")
       .update({
@@ -352,8 +389,6 @@ export async function POST(req: NextRequest, context: { params: Promise<ConvertP
       );
     }
 
-    // IMPORTANT: do NOT mark onboarding_status "active" here.
-    // They haven't set a password yet. Mark active after they complete set-password.
     return NextResponse.json({
       success: true,
       studentId: student.id,
@@ -362,6 +397,10 @@ export async function POST(req: NextRequest, context: { params: Promise<ConvertP
       inviteQueued: true,
       redirectTo,
       avatarFile,
+      warning:
+        (regErr ? `Registration failed: ${regErr.message}` : null) ??
+        docsWarning ??
+        null,
     });
   } catch (err) {
     if (createdAuthUserId) {
