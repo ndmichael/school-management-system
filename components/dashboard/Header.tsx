@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Bell, User, LogOut, Settings, ChevronDown, ShieldCheck } from "lucide-react";
+import {
+  Bell,
+  User,
+  LogOut,
+  Settings,
+  ChevronDown,
+  ShieldCheck,
+} from "lucide-react";
 import { toast } from "react-toastify";
 import { createClient } from "@/lib/supabase/client";
 import type { DashboardUser, UserRole } from "@/types/dashboard";
@@ -34,6 +41,21 @@ function parseCsv(value: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+function withMiddleInitial(fullName: string): string {
+  // "First Middle Last" -> "First M. Last"
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 3) return fullName.trim();
+
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  const middle = parts.slice(1, -1).filter(Boolean);
+
+  if (middle.length === 0) return `${first} ${last}`;
+
+  const initial = middle[0]?.[0]?.toUpperCase();
+  return initial ? `${first} ${initial}. ${last}` : `${first} ${last}`;
+}
+
 export function Header({ user, title, notificationCount = 0 }: HeaderProps) {
   const [open, setOpen] = useState(false);
 
@@ -44,29 +66,32 @@ export function Header({ user, title, notificationCount = 0 }: HeaderProps) {
   const roleLabel = roleLabels[user.role];
   const avatarColor = roleColors[user.role];
 
-
   useEffect(() => {
-    // Only run on actual route change, not when you click to open the dropdown
     const t = window.setTimeout(() => setOpen(false), 0);
     return () => window.clearTimeout(t);
   }, [pathname]);
 
   const hasNotifications = notificationCount > 0;
 
-  // ✅ UI-only super admin allowlist (configure in Vercel as NEXT_PUBLIC_SUPER_ADMIN_EMAILS)
+  // UI-only allowlist (configure in Vercel as NEXT_PUBLIC_SUPER_ADMIN_EMAILS)
   const isSuperAdmin = useMemo(() => {
-    const env = typeof process !== "undefined" ? process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAILS : undefined;
+    const env =
+      typeof process !== "undefined"
+        ? process.env.NEXT_PUBLIC_SUPER_ADMIN_EMAILS
+        : undefined;
     const allow = parseCsv(env ?? "mickeyjayblest@gmail.com");
     return allow.includes(user.email.trim().toLowerCase());
   }, [user.email]);
 
-  // ✅ Choose where "Profile" goes
   const profilePath = useMemo(() => {
-    // Students → profile page (as you wanted)
     if (user.role === "student") return "/dashboard/student/profile";
-    // Staff/Admin → settings page
     return `/dashboard/${user.role}/settings`;
   }, [user.role]);
+
+  const displayName = useMemo(
+    () => withMiddleInitial(user.fullName),
+    [user.fullName]
+  );
 
   const handleLogout = async (): Promise<void> => {
     try {
@@ -82,7 +107,9 @@ export function Header({ user, title, notificationCount = 0 }: HeaderProps) {
   return (
     <header className="sticky top-0 z-30 border-b border-gray-200 bg-white">
       <div className="flex items-center justify-between gap-4 px-4 py-3">
-        <h1 className="truncate text-xl font-bold">{title || `${roleLabel} Dashboard`}</h1>
+        <h1 className="truncate text-xl font-bold">
+          {title || `${roleLabel} Dashboard`}
+        </h1>
 
         <div className="flex items-center gap-4">
           {/* Notifications */}
@@ -109,12 +136,14 @@ export function Header({ user, title, notificationCount = 0 }: HeaderProps) {
               aria-expanded={open}
               aria-haspopup="menu"
             >
-              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${avatarColor}`}>
+              <div
+                className={`flex h-8 w-8 items-center justify-center rounded-lg ${avatarColor}`}
+              >
                 <User className="h-4 w-4 text-white" />
               </div>
 
               <div className="hidden text-left md:block">
-                <p className="text-sm font-medium">{user.fullName}</p>
+                <p className="text-sm font-medium">{displayName}</p>
                 <p className="text-xs text-gray-600">{roleLabel}</p>
               </div>
 
@@ -132,7 +161,7 @@ export function Header({ user, title, notificationCount = 0 }: HeaderProps) {
 
                 <div className="absolute right-0 z-50 mt-2 w-60 rounded-xl border border-gray-200 bg-white py-2 shadow-xl">
                   <div className="border-b border-gray-200 px-4 py-3">
-                    <p className="text-sm font-medium">{user.fullName}</p>
+                    <p className="text-sm font-medium">{displayName}</p>
                     <p className="truncate text-xs text-gray-600">{user.email}</p>
                   </div>
 
@@ -149,7 +178,22 @@ export function Header({ user, title, notificationCount = 0 }: HeaderProps) {
                     Profile
                   </button>
 
-                  {/* ✅ Super Admin only */}
+                  {/* Admin-only link in dropdown */}
+                  {user.role === "admin" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOpen(false);
+                        router.push("/dashboard/admin/super/invite");
+                      }}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100"
+                    >
+                      <ShieldCheck className="h-4 w-4 text-purple-700" />
+                      Invite Admin
+                    </button>
+                  ) : null}
+
+                  {/* Super Admin only */}
                   {user.role === "admin" && isSuperAdmin ? (
                     <button
                       type="button"
