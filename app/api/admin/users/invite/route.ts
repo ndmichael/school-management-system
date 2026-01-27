@@ -1,20 +1,18 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getBaseUrl, requireSuperAdmin } from "@/lib/auth/super-admin";
 
-type InviteAdminBody = {
-  email: string;
-  first_name?: string;
-  last_name?: string;
-};
+export const runtime = "nodejs";
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+type JsonRecord = Record<string, unknown>;
+
+function isRecord(v: unknown): v is JsonRecord {
   return typeof v === "object" && v !== null;
 }
 
-function pickString(obj: Record<string, unknown>, key: string): string | null {
+function pickString(obj: JsonRecord, key: string): string {
   const v = obj[key];
-  return typeof v === "string" ? v : null;
+  return typeof v === "string" ? v.trim() : "";
 }
 
 function normalizeEmail(email: string): string {
@@ -47,9 +45,8 @@ function safeNameFromEmail(email: string): { first: string; last: string } {
   };
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   const auth = await requireSuperAdmin();
-
   if (!auth.ok) {
     if (!auth.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -57,18 +54,16 @@ export async function POST(req: Request) {
 
   const bodyUnknown: unknown = await req.json().catch(() => null);
   if (!isRecord(bodyUnknown)) {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const emailRaw = pickString(bodyUnknown, "email") ?? "";
-  const email = normalizeEmail(emailRaw);
-
+  const email = normalizeEmail(pickString(bodyUnknown, "email"));
   if (!email || !looksLikeEmail(email)) {
     return NextResponse.json({ error: "Please provide a valid email." }, { status: 400 });
   }
 
-  const firstNameRaw = (pickString(bodyUnknown, "first_name") ?? "").trim();
-  const lastNameRaw = (pickString(bodyUnknown, "last_name") ?? "").trim();
+  const firstNameRaw = pickString(bodyUnknown, "first_name");
+  const lastNameRaw = pickString(bodyUnknown, "last_name");
 
   const fallback = safeNameFromEmail(email);
   const first_name = firstNameRaw || fallback.first;
@@ -79,26 +74,24 @@ export async function POST(req: Request) {
     .from("profiles")
     .select("id")
     .eq("email", email)
-    .maybeSingle();
+    .maybeSingle<{ id: string }>();
 
-  if (profCheckErr) {
-    return NextResponse.json({ error: profCheckErr.message }, { status: 400 });
-  }
-
+  if (profCheckErr) return NextResponse.json({ error: profCheckErr.message }, { status: 400 });
   if (existingProfile?.id) {
-    return NextResponse.json({ error: "Profile already exists for this email." }, { status: 409 });
+    return NextResponse.json({ error: "A user with this email already exists." }, { status: 409 });
   }
 
-  // 2) Invite auth user (email will be sent by Supabase)
-  const redirectTo = new URL("/onboarding/admin", getBaseUrl(req)).toString();
+  // 2) INVITE auth user (token_hash flow)
+  const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)).replace(/\/$/, "");
+  const redirectTo = `${baseUrl}/api/auth/confirm`;
 
   const { data: inviteRes, error: inviteErr } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-    data: { onboarding_status: "pending", main_role: "admin" },
     redirectTo,
+    data: { onboarding_status: "pending", main_role: "admin" },
   });
 
   if (inviteErr) {
-    const msg = inviteErr.message ?? "Failed to invite user.";
+    const msg = inviteErr.message ?? "Invite failed";
     const isDup = isDuplicateAuthMessage(msg);
     return NextResponse.json(
       { error: isDup ? "User already exists in auth (delete them or use a different email)." : msg },
@@ -106,47 +99,45 @@ export async function POST(req: Request) {
     );
   }
 
-  const invitedUserId = inviteRes?.user?.id;
+  const invitedUserId = inviteRes?.user?.id ?? null;
   if (!invitedUserId) {
-    return NextResponse.json({ error: "Invite succeeded but no user id returned." }, { status: 400 });
+    return NextResponse.json({ error: "Auth invite failed (no user id)" }, { status: 400 });
   }
 
-  // 3) Create profile row (service role bypasses RLS)
-  const now = new Date().toISOString();
+  // 3) Create profile (keep onboarding_status pending)
+  const { data: profile, error: profileErr } = await supabaseAdmin
+    .from("profiles")
+    .insert({
+      id: invitedUserId,
+      first_name,
+      middle_name: null,
+      last_name,
+      email,
+      phone: null,
+      gender: null,
+      date_of_birth: null,
+      nin: null,
+      address: null,
+      state_of_origin: null,
+      lga_of_origin: null,
+      religion: null,
+      main_role: "admin",
+      onboarding_status: "pending",
+      avatar_file: null,
+    })
+    .select("id")
+    .single<{ id: string }>();
 
-  const { error: profileErr } = await supabaseAdmin.from("profiles").insert({
-    id: invitedUserId,
-    first_name,
-    middle_name: null,
-    last_name,
-    email,
-    phone: null,
-    date_of_birth: null,
-    gender: null,
-    nin: null,
-    address: null,
-    state_of_origin: null,
-    lga_of_origin: null,
-    religion: null,
-    main_role: "admin",
-    onboarding_status: "pending",
-    avatar_file: null,
-    created_at: now,
-    updated_at: now,
-  });
-
-  if (profileErr) {
-    // cleanup to avoid ghost auth user
+  if (profileErr || !profile) {
     await supabaseAdmin.auth.admin.deleteUser(invitedUserId).catch(() => null);
-    return NextResponse.json({ error: profileErr.message }, { status: 400 });
+    return NextResponse.json({ error: profileErr?.message ?? "Failed to create profile" }, { status: 400 });
   }
 
   return NextResponse.json({
     success: true,
     email,
     invitedUserId,
-    redirectTo,
     inviteQueued: true,
+    redirectTo,
   });
 }
-
