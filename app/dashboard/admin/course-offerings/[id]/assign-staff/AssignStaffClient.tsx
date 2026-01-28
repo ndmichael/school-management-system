@@ -121,7 +121,7 @@ export default function AssignStaffClient({ offeringId }: { offeringId: string }
                   {s.staff_code} — {s.profile?.first_name} {s.profile?.last_name}
                 </div>
                 <div className="text-sm text-gray-600">
-                  {s.designation ?? "Staff"} • {s.profile?.email ?? ""}
+                  {s.designation ?? "Staff"} • 
                 </div>
               </div>
             </li>
