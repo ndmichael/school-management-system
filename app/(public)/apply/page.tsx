@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { toast } from "react-toastify";
+
 import Step1Personal from "@/components/forms/Step1Personal";
 import Step2OriginProgram from "@/components/forms/Step2OriginProgram";
 import Step3Guardian from "@/components/forms/Step3Guardian";
@@ -8,16 +10,23 @@ import Step4AttachmentsReview from "@/components/forms/Step4AttachmentsReview";
 
 import type { ApplicationFormData } from "@/types/applications";
 import { PrimaryButton, SecondaryButton } from "@/components/shared";
-import { toast } from "react-toastify";
+
+/* =========================
+   CONSTANTS
+========================= */
 
 type ProgramOption = { id: string; name: string };
-
 const STORAGE_KEY = "applicationForm";
+
+/* =========================
+   DEFAULT FORM (SOURCE OF TRUTH)
+========================= */
 
 const defaultForm: ApplicationFormData = {
   firstName: "",
   middleName: "",
   lastName: "",
+
   gender: "male",
   dateOfBirth: "",
 
@@ -34,6 +43,7 @@ const defaultForm: ApplicationFormData = {
   programId: "",
   classAppliedFor: "",
   admissionType: "fresh",
+
   previousSchool: "",
   previousQualification: "",
 
@@ -49,8 +59,14 @@ const defaultForm: ApplicationFormData = {
 
   passportFile: null,
   signatureFile: null,
-  supportingFiles: [],
+  academicResultFile: null,
+  birthCertificateFile: null,
+  sponsorshipLetterFile: null,
 };
+
+/* =========================
+   STEP VALIDATIONS
+========================= */
 
 const stepValidations: Record<number, (d: ApplicationFormData) => boolean> = {
   1: (d) =>
@@ -62,20 +78,20 @@ const stepValidations: Record<number, (d: ApplicationFormData) => boolean> = {
 
   2: (d) => {
     if (
-      d.stateOfOrigin.trim() === "" ||
-      d.lgaOfOrigin.trim() === "" ||
-      d.address.trim() === "" ||
-      d.programId.trim() === "" ||
-      d.classAppliedFor.trim() === "" ||
-      !d.religion ||
-      !d.admissionType
+      !d.stateOfOrigin ||
+      !d.lgaOfOrigin ||
+      !d.address ||
+      !d.programId ||
+      !d.classAppliedFor
     ) {
       return false;
     }
 
-    if (d.admissionType === "direct_entry") {
-      if ((d.previousSchool ?? "").trim() === "" || (d.previousQualification ?? "").trim() === "")
-        return false;
+    if (
+      d.admissionType === "direct_entry" &&
+      (!d.previousSchool.trim() || !d.previousQualification.trim())
+    ) {
+      return false;
     }
 
     return true;
@@ -84,78 +100,94 @@ const stepValidations: Record<number, (d: ApplicationFormData) => boolean> = {
   3: (d) =>
     d.guardianFirstName.trim() !== "" &&
     d.guardianLastName.trim() !== "" &&
-    d.guardianPhone.trim() !== "" &&
-    !!d.guardianGender &&
-    !!d.guardianStatus,
+    d.guardianPhone.trim() !== "",
 
-  // ✅ required: passport + signature + attestation
   4: (d) =>
     !!d.passportFile?.path &&
     !!d.signatureFile?.path &&
+    !!d.academicResultFile?.path &&
+    !!d.birthCertificateFile?.path &&
     d.attestationDate.trim() !== "",
 };
+
+/* =========================
+   HELPERS
+========================= */
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
+/* =========================
+   PAGE
+========================= */
+
 export default function ApplyPage() {
   const [data, setData] = useState<ApplicationFormData>(() => {
-    if (typeof window === "undefined") return { ...defaultForm };
+    if (typeof window === "undefined") return defaultForm;
 
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (!saved) return { ...defaultForm };
+      if (!saved) return defaultForm;
 
       const parsed: unknown = JSON.parse(saved);
-      if (!isRecord(parsed)) return { ...defaultForm };
+      if (!isRecord(parsed)) return defaultForm;
 
-      // Merge defaults first so any new fields exist.
       return { ...defaultForm, ...(parsed as Partial<ApplicationFormData>) };
     } catch {
-      return { ...defaultForm };
+      return defaultForm;
     }
   });
 
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
-  const [step, setStep] = useState<number>(1);
+  const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+
+  /* =========================
+     PERSIST FORM
+  ========================= */
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   }, [data]);
 
+  /* =========================
+     LOAD PROGRAMS
+  ========================= */
+
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/programs", { method: "GET" });
-        if (!res.ok) throw new Error("Failed to load programs.");
+        const res = await fetch("/api/programs");
+        if (!res.ok) throw new Error();
 
         const json: unknown = await res.json();
-        if (!isRecord(json) || !Array.isArray(json.programs)) {
-          throw new Error("Unexpected programs response.");
-        }
+        if (!isRecord(json) || !Array.isArray(json.programs)) throw new Error();
 
-        const safe: ProgramOption[] = (json.programs as unknown[])
-          .filter(isRecord)
-          .filter((p) => typeof p.id === "string" && typeof p.name === "string")
-          .map((p) => ({ id: String(p.id), name: String(p.name) }));
-
-        setPrograms(safe);
-      } catch (err) {
-        console.error(err);
-        toast.error("Unable to fetch programs.");
+        setPrograms(
+          json.programs
+            .filter(isRecord)
+            .map((p) => ({ id: String(p.id), name: String(p.name) }))
+        );
+      } catch {
+        toast.error("Failed to load programs.");
       }
     })();
   }, []);
 
-  const updateData = useCallback((patch: Partial<ApplicationFormData>) => {
-    setData((prev) => ({ ...prev, ...patch }));
-  }, []);
+  /* =========================
+     ACTIONS
+  ========================= */
+
+  const updateData = useCallback(
+    (patch: Partial<ApplicationFormData>) =>
+      setData((prev) => ({ ...prev, ...patch })),
+    []
+  );
 
   const nextStep = () => {
-    if (!stepValidations[step]?.(data)) {
-      toast.error("Please fill all required fields before proceeding.");
+    if (!stepValidations[step](data)) {
+      toast.error("Please complete all required fields.");
       return;
     }
     setStep((s) => Math.min(s + 1, 4));
@@ -165,10 +197,9 @@ export default function ApplyPage() {
 
   const handleSubmit = async () => {
     if (!stepValidations[4](data)) {
-      toast.error("Please complete all required fields to submit.");
+      toast.error("Please complete all required documents.");
       return;
     }
-    if (submitting) return;
 
     try {
       setSubmitting(true);
@@ -180,31 +211,32 @@ export default function ApplyPage() {
       });
 
       if (!res.ok) {
-        const errJson: unknown = await res.json().catch(() => ({}));
-        const msg =
-          isRecord(errJson) && typeof errJson.error === "string" ? errJson.error : "Failed to submit.";
-        throw new Error(msg);
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error ?? "Submission failed");
       }
 
-      toast.success("Application submitted successfully!");
+      toast.success("Application submitted successfully");
       localStorage.removeItem(STORAGE_KEY);
-
-      setData({ ...defaultForm });
+      setData(defaultForm);
       setStep(1);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Submission failed.";
-      toast.error(msg);
-      console.error(err);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Submission failed");
     } finally {
       setSubmitting(false);
     }
   };
 
-  return (
-    <div className="max-w-3xl mx-auto p-6 pt-[calc(6rem+1rem)] space-y-6">
-      <h1 className="text-2xl font-bold">Apply to SYK School of Health Technology</h1>
+  /* =========================
+     RENDER
+  ========================= */
 
-      <div className="w-full bg-gray-200 rounded-full h-2 mb-6">
+  return (
+    <div className="max-w-3xl mx-auto p-6 pt-24 space-y-6">
+      <h1 className="text-2xl font-bold">
+        Apply to SYK School of Health Technology
+      </h1>
+
+      <div className="w-full bg-gray-200 rounded-full h-2">
         <div
           className="bg-primary-500 h-2 rounded-full transition-all"
           style={{ width: `${(step / 4) * 100}%` }}
@@ -213,18 +245,22 @@ export default function ApplyPage() {
 
       {step === 1 && <Step1Personal data={data} setData={updateData} />}
       {step === 2 && (
-        <Step2OriginProgram data={data} setData={updateData} programs={programs} />
+        <Step2OriginProgram
+          data={data}
+          setData={updateData}
+          programs={programs}
+        />
       )}
       {step === 3 && <Step3Guardian data={data} setData={updateData} />}
       {step === 4 && <Step4AttachmentsReview data={data} setData={updateData} />}
 
-      <div className="flex justify-between mt-6">
+      <div className="flex justify-between pt-4">
         {step > 1 ? (
           <SecondaryButton onClick={prevStep} disabled={submitting}>
             Back
           </SecondaryButton>
         ) : (
-          <div />
+          <span />
         )}
 
         {step < 4 ? (
@@ -235,9 +271,9 @@ export default function ApplyPage() {
           <PrimaryButton
             onClick={handleSubmit}
             disabled={submitting}
-            className="bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
+            className="bg-green-600 hover:bg-green-700"
           >
-            {submitting ? "Submitting..." : "Submit"}
+            {submitting ? "Submitting…" : "Submit"}
           </PrimaryButton>
         )}
       </div>
