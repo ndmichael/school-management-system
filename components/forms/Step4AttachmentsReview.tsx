@@ -1,255 +1,194 @@
 "use client";
 
 import type { FC, ChangeEvent } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { toast } from "react-toastify";
-
-import type { ApplicationFormData, StorageFileRef } from "@/types/applications";
 import { Input } from "@/components/shared";
 import { createClient } from "@/lib/supabase/client";
+import type { ApplicationFormData, StorageFileRef } from "@/types/applications";
 
-interface Step4Props {
-  data: ApplicationFormData;
-  setData: (patch: Partial<ApplicationFormData>) => void;
-}
+/* ================= CONSTANTS ================= */
 
-const MAX_SUPPORTING_DOCS = 4;
 const MAX_FILE_SIZE_MB = 1;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
+const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 const BUCKET = "applications";
 const PASSPORT_FOLDER = "passports";
 const SIGNATURE_FOLDER = "signatures";
-const DOCUMENTS_FOLDER = "documents";
+const RESULTS_FOLDER = "results";
+const BIRTH_FOLDER = "birth-certificates";
+const SPONSOR_FOLDER = "sponsorships";
 
-function isImageRef(ref: StorageFileRef | null): boolean {
-  if (!ref?.path) return false;
-  if (ref.contentType?.startsWith("image/")) return true;
-  return /\.(jpe?g|png|webp|gif|bmp|svg)$/i.test(ref.path);
+/* ================= TYPES ================= */
+
+type PreviewMap = {
+  passport?: string;
+  signature?: string;
+  academic?: string;
+  birth?: string;
+  sponsor?: string;
+};
+
+/* ================= COMPONENT ================= */
+
+interface Props {
+  data: ApplicationFormData;
+  setData: (patch: Partial<ApplicationFormData>) => void;
 }
 
-function safeExt(name: string): string {
-  const ext = name.split(".").pop()?.trim().toLowerCase();
-  return ext && ext.length <= 8 ? ext : "bin";
-}
-
-const Step4AttachmentsReview: FC<Step4Props> = ({ data, setData }) => {
+const Step4AttachmentsReview: FC<Props> = ({ data, setData }) => {
   const supabase = useMemo(() => createClient(), []);
   const [uploading, setUploading] = useState(false);
+  const [previews, setPreviews] = useState<PreviewMap>({});
 
-  const publicUrlFromRef = (ref: StorageFileRef | null) => {
-    if (!ref?.bucket || !ref.path) return "";
-    const { data: urlData } = supabase.storage.from(ref.bucket).getPublicUrl(ref.path);
-    return urlData?.publicUrl ?? "";
+  /* ============ HELPERS ============ */
+
+  const validateFile = (file: File): boolean => {
+    if (file.size > MAX_FILE_SIZE) {
+      toast.error(`File too large. Max ${MAX_FILE_SIZE_MB}MB`);
+      return false;
+    }
+    return true;
   };
 
-  const uploadFileToStorage = async (
+  const upload = async (
     file: File,
     folder: string
   ): Promise<StorageFileRef | null> => {
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      toast.error(`File "${file.name}" is too large. Max ${MAX_FILE_SIZE_MB}MB.`);
-      return null;
-    }
+    if (!validateFile(file)) return null;
 
-    const ext = safeExt(file.name);
+    const ext = file.name.split(".").pop() || "bin";
     const path = `${folder}/${crypto.randomUUID()}.${ext}`;
 
-    const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
-      upsert: false,
-      contentType: file.type || undefined,
-    });
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, file, { upsert: true, contentType: file.type });
 
     if (error) {
-      console.error("Supabase upload error:", error);
-      toast.error(error.message || "Failed to upload file.");
+      toast.error(error.message);
       return null;
     }
 
     return {
       bucket: BUCKET,
       path,
-      contentType: file.type || undefined,
+      contentType: file.type,
       size: file.size,
       originalName: file.name,
     };
   };
 
-  const handlePassportChange = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    const ref = await uploadFileToStorage(file, PASSPORT_FOLDER);
-    setUploading(false);
-
-    if (!ref) return;
-    setData({ passportFile: ref });
-    toast.success("Passport uploaded.");
+  const makePreview = async (ref: StorageFileRef, key: keyof PreviewMap) => {
+    const { data } = supabase.storage.from(ref.bucket).getPublicUrl(ref.path);
+    setPreviews((p) => ({ ...p, [key]: data.publicUrl }));
   };
 
-  const handleSignatureChange = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  /* ============ HANDLERS ============ */
 
-    setUploading(true);
-    const ref = await uploadFileToStorage(file, SIGNATURE_FOLDER);
-    setUploading(false);
+  const handleFile =
+    (
+      key: keyof ApplicationFormData,
+      folder: string,
+      previewKey: keyof PreviewMap
+    ) =>
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
 
-    if (!ref) return;
-    setData({ signatureFile: ref });
-    toast.success("Signature uploaded.");
-  };
+      setUploading(true);
+      const ref = await upload(file, folder);
+      setUploading(false);
 
-  const handleSupportingFilesChange = async (e: ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files) return;
+      if (!ref) return;
 
-    const filesArray = Array.from(e.target.files);
-    const current = data.supportingFiles ?? [];
-    const availableSlots = MAX_SUPPORTING_DOCS - current.length;
+      setData({ [key]: ref } as Partial<ApplicationFormData>);
+      await makePreview(ref, previewKey);
+      toast.success("Uploaded");
+    };
 
-    if (availableSlots <= 0) {
-      toast.error(`Max ${MAX_SUPPORTING_DOCS} documents allowed.`);
-      return;
-    }
+  /* ============ INIT PREVIEWS (EDIT / BACK NAV) ============ */
 
-    const filesToUpload = filesArray.slice(0, availableSlots);
+  useEffect(() => {
+    const init = async () => {
+      if (data.passportFile) await makePreview(data.passportFile, "passport");
+      if (data.signatureFile) await makePreview(data.signatureFile, "signature");
+      if (data.academicResultFile) await makePreview(data.academicResultFile, "academic");
+      if (data.birthCertificateFile) await makePreview(data.birthCertificateFile, "birth");
+      if (data.sponsorshipLetterFile) await makePreview(data.sponsorshipLetterFile, "sponsor");
+    };
+    void init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-    setUploading(true);
-    const uploaded: StorageFileRef[] = [];
-
-    for (const file of filesToUpload) {
-      const ref = await uploadFileToStorage(file, DOCUMENTS_FOLDER);
-      if (ref) uploaded.push(ref);
-    }
-
-    setUploading(false);
-
-    if (!uploaded.length) return;
-
-    setData({ supportingFiles: [...current, ...uploaded] });
-    toast.success(`${uploaded.length} document(s) uploaded.`);
-  };
-
-  const removeSupportingFile = (index: number) => {
-    const current = data.supportingFiles ?? [];
-    setData({ supportingFiles: current.filter((_, i) => i !== index) });
-    toast.info("Removed (not deleted from storage).");
-  };
-
-  const passportUrl = publicUrlFromRef(data.passportFile);
-  const signatureUrl = publicUrlFromRef(data.signatureFile);
+  /* ================= RENDER ================= */
 
   return (
     <div className="space-y-6">
-      {/* Passport */}
-      <div className="space-y-2">
-        <Input
-          label="Passport Photograph"
-          type="file"
-          accept="image/*"
-          onChange={handlePassportChange}
-          required
-          disabled={uploading}
-        />
+      <Input
+        label="Passport Photograph"
+        type="file"
+        accept="image/*"
+        required
+        disabled={uploading}
+        onChange={handleFile("passportFile", PASSPORT_FOLDER, "passport")}
+      />
+      {previews.passport && (
+        <Image src={previews.passport} alt="passport" width={120} height={120} />
+      )}
 
-        {passportUrl && isImageRef(data.passportFile) && (
-          <div className="mt-2 w-32 h-32 relative">
-            <Image
-              src={passportUrl}
-              alt="Passport preview"
-              fill
-              sizes="128px"
-              className="object-cover rounded border"
-            />
-          </div>
-        )}
-      </div>
+      <Input
+        label="Signature"
+        type="file"
+        accept="image/*"
+        required
+        disabled={uploading}
+        onChange={handleFile("signatureFile", SIGNATURE_FOLDER, "signature")}
+      />
+      {previews.signature && (
+        <Image src={previews.signature} alt="signature" width={120} height={120} />
+      )}
 
-      {/* Signature (required) */}
-      <div className="space-y-2">
-        <Input
-          label="Signature"
-          type="file"
-          accept="image/*"
-          onChange={handleSignatureChange}
-          required
-          disabled={uploading}
-        />
+      <Input
+        label="Academic Result (WAEC / NECO / NABTEB)"
+        type="file"
+        accept="image/*,application/pdf"
+        required
+        disabled={uploading}
+        onChange={handleFile("academicResultFile", RESULTS_FOLDER, "academic")}
+      />
+      {previews.academic && (
+        <a href={previews.academic} target="_blank" className="text-sm text-blue-600">
+          View academic result
+        </a>
+      )}
 
-        {signatureUrl && isImageRef(data.signatureFile) && (
-          <div className="mt-2 w-32 h-32 relative">
-            <Image
-              src={signatureUrl}
-              alt="Signature preview"
-              fill
-              sizes="128px"
-              className="object-cover rounded border"
-            />
-          </div>
-        )}
-      </div>
+      <Input
+        label="Birth Certificate / Age Declaration"
+        type="file"
+        accept="image/*,application/pdf"
+        required
+        disabled={uploading}
+        onChange={handleFile("birthCertificateFile", BIRTH_FOLDER, "birth")}
+      />
+      {previews.birth && (
+        <a href={previews.birth} target="_blank" className="text-sm text-blue-600">
+          View birth document
+        </a>
+      )}
 
-      {/* Supporting docs */}
-      <div className="space-y-2">
-        <Input
-          label="Upload Supporting Documents (optional)"
-          type="file"
-          multiple
-          accept="image/*,application/pdf"
-          onChange={handleSupportingFilesChange}
-          disabled={uploading}
-        />
-
-        {(data.supportingFiles?.length ?? 0) > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-2">
-            {(data.supportingFiles ?? []).map((ref, idx) => {
-              const url = publicUrlFromRef(ref);
-              const isImg = isImageRef(ref);
-
-              return (
-                <div key={`${ref.path}-${idx}`} className="relative border p-1 rounded">
-                  {url && isImg ? (
-                    <Image
-                      src={url}
-                      alt={ref.originalName ? ref.originalName : `document-${idx + 1}`}
-                      width={150}
-                      height={150}
-                      className="object-cover rounded"
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-[150px] text-xs text-gray-700 bg-gray-100 rounded px-2 text-center">
-                      {ref.originalName ? ref.originalName : `Document ${idx + 1}`}
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    className="absolute top-1 right-1 bg-red-500 text-white px-2 py-1 rounded text-xs"
-                    onClick={() => removeSupportingFile(idx)}
-                    disabled={uploading}
-                  >
-                    X
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Attestation date */}
-      <div className="space-y-2">
-        <Input
-          label="Attestation Date"
-          type="date"
-          value={data.attestationDate}
-          onChange={(e) => setData({ attestationDate: e.target.value })}
-          required
-          disabled={uploading}
-        />
-      </div>
+      <Input
+        label="Sponsorship Letter (optional)"
+        type="file"
+        accept="image/*,application/pdf"
+        disabled={uploading}
+        onChange={handleFile("sponsorshipLetterFile", SPONSOR_FOLDER, "sponsor")}
+      />
+      {previews.sponsor && (
+        <a href={previews.sponsor} target="_blank" className="text-sm text-blue-600">
+          View sponsorship letter
+        </a>
+      )}
 
       {uploading && <p className="text-sm text-blue-600">Uploading…</p>}
     </div>
