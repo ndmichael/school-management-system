@@ -42,15 +42,21 @@ type StudentProfile = {
   last_name: string;
 };
 
+type RegistrationRow = {
+  session_id: string;
+  level: string | null;
+  status: string;
+};
+
 type StudentRowRaw = {
   id: string;
   matric_no: string;
-  level: string | null;
   program_id: string | null;
   profile_id: string;
 
   // IMPORTANT: supabase join can be object OR array OR null
   profile: StudentProfile | StudentProfile[] | null;
+  registrations: RegistrationRow[];
 };
 
 type Student = {
@@ -169,7 +175,7 @@ export default function AcademicStaffOfferingResultsPage({
           .from('course_offering_staff')
           .select('id')
           .eq('course_offering_id', offeringId)
-          .eq('staff_profile_id', profileId)
+          .eq('staff_id', profileId)
           .maybeSingle();
 
         if (assignErr) throw new Error(assignErr.message);
@@ -225,32 +231,36 @@ export default function AcademicStaffOfferingResultsPage({
           session,
         };
 
-        // Eligible students
+        // Eligible students (via student_registrations for the offering session)
         let studentsQuery = supabase
-          .from('students')
+          .from("students")
           .select(
             `
             id,
             matric_no,
-            level,
             program_id,
             profile_id,
-            profile:profiles!students_profile_id_fkey ( first_name, middle_name, last_name )
+            profile:profiles!students_profile_id_fkey ( first_name, middle_name, last_name ),
+            registrations:student_registrations!inner ( session_id, level, status )
           `
           )
-          .eq('course_session_id', offeringDetails.session_id)
-          .eq('status', 'active')
-          .order('matric_no', { ascending: true });
+          .eq("status", "active")
+          .eq("registrations.session_id", offeringDetails.session_id)
+          .order("matric_no", { ascending: true });
 
+        // scope by program
         if (offeringDetails.program_id) {
-          studentsQuery = studentsQuery.eq('program_id', offeringDetails.program_id);
+          studentsQuery = studentsQuery.eq("program_id", offeringDetails.program_id);
         }
+
+        // scope by level (use registrations.level, not students.level)
         if (offeringDetails.level) {
-          studentsQuery = studentsQuery.eq('level', offeringDetails.level);
+          studentsQuery = studentsQuery.eq("registrations.level", offeringDetails.level);
         }
 
         const { data: studentsRaw, error: stErr } = await studentsQuery;
         if (stErr) throw new Error(stErr.message);
+
 
         const students: Student[] = (Array.isArray(studentsRaw) ? studentsRaw : [])
           .filter(isStudentRowRaw)
@@ -261,7 +271,7 @@ export default function AcademicStaffOfferingResultsPage({
             return {
               id: s.id,
               matric_no: s.matric_no,
-              level: s.level,
+              level: s.registrations[0]?.level ?? null,
               program_id: s.program_id,
               profile_id: s.profile_id,
               profile,
@@ -384,7 +394,7 @@ export default function AcademicStaffOfferingResultsPage({
 
         {/* Header */}
         <div className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
-          <div className="bg-gradient-to-r from-purple-50 via-white to-white p-6 sm:p-8">
+          <div className="bg-linear-to-r from-purple-50 via-white to-white p-6 sm:p-8">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
               <div className="space-y-2">
                 <div className="flex items-start gap-3">
