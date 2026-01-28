@@ -25,6 +25,26 @@ type CourseOfferingRow = {
   }[];
 };
 
+type ProgramItem = { id: string; name: string };
+
+type ApiRow = {
+  course_offering_id: string;
+  course_code: string;
+  course_title: string;
+  credits: number;
+  session_name: string;
+  session_active: boolean;
+  semester: string;
+  programs: ProgramItem[];
+  program_count: number;
+  level: string | null;
+  is_published: boolean;
+  eligible_students: number;
+  submitted_results: number;
+  pending_results: number;
+  assigned_staff: number;
+};
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -61,43 +81,40 @@ export async function GET() {
       .returns<CourseOfferingRow[]>();
 
     if (error) throw error;
-    if (!data) return NextResponse.json([]);
+    if (!data) return NextResponse.json<ApiRow[]>([]);
 
-    const results = await Promise.all(
+    const results: ApiRow[] = await Promise.all(
       data.map(async (offering) => {
-        const programs =
+        const programs: ProgramItem[] =
           offering.course_offering_programs?.map((p) => ({
             id: p.programs.id,
             name: p.programs.name,
           })) ?? [];
 
-        let studentsQuery = supabase
-          .from("students")
+        // ✅ Eligible students = enrollments for THIS offering
+        const { count: eligibleCount, error: eligErr } = await supabase
+          .from("enrollments")
           .select("id", { count: "exact", head: true })
-          .eq("course_session_id", offering.session_id);
+          .eq("course_offering_id", offering.id);
 
-        if (programs.length > 0) {
-          studentsQuery = studentsQuery.in(
-            "program_id",
-            programs.map((p) => p.id)
-          );
-        }
+        if (eligErr) throw eligErr;
 
-        if (offering.level) {
-          studentsQuery = studentsQuery.eq("level", offering.level);
-        }
-
-        const { count: eligible_students } = await studentsQuery;
-
-        const { count: submitted_results } = await supabase
+        const { count: submittedCount, error: resErr } = await supabase
           .from("results")
           .select("id", { count: "exact", head: true })
           .eq("course_offering_id", offering.id);
 
-        const { count: assigned_staff } = await supabase
+        if (resErr) throw resErr;
+
+        const { count: staffCount, error: staffErr } = await supabase
           .from("course_offering_staff")
           .select("id", { count: "exact", head: true })
           .eq("course_offering_id", offering.id);
+
+        if (staffErr) throw staffErr;
+
+        const eligible_students = eligibleCount ?? 0;
+        const submitted_results = submittedCount ?? 0;
 
         return {
           course_offering_id: offering.id,
@@ -111,16 +128,15 @@ export async function GET() {
           program_count: programs.length,
           level: offering.level,
           is_published: offering.is_published,
-          eligible_students: eligible_students ?? 0,
-          submitted_results: submitted_results ?? 0,
-          pending_results:
-            (eligible_students ?? 0) - (submitted_results ?? 0),
-          assigned_staff: assigned_staff ?? 0,
+          eligible_students,
+          submitted_results,
+          pending_results: Math.max(eligible_students - submitted_results, 0),
+          assigned_staff: staffCount ?? 0,
         };
       })
     );
 
-    return NextResponse.json(results);
+    return NextResponse.json<ApiRow[]>(results);
   } catch (error) {
     console.error("Admin course-offerings error:", error);
     return NextResponse.json(
