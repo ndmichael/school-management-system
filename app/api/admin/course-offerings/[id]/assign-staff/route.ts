@@ -4,31 +4,42 @@ import { createClient } from "@supabase/supabase-js";
 type ErrorResponse = { error: string };
 
 type AssignedRow = {
-  staff_id: string; // UUID
+  staff_id: string;
 };
 
-type StaffItem = {
-  id: string; // staff.id (UUID)
-  staff_code: string; // staff.staff_id (TEXT, display)
+type ProfileRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  main_role: string;
+};
+
+type StaffRow = {
+  id: string;
+  staff_id: string;
   profile_id: string;
   designation: string | null;
   status: string | null;
-  profile: {
-    id: string;
-    first_name: string | null;
-    last_name: string | null;
-    email: string | null;
-    main_role: string;
-  } | null;
+  profile: ProfileRow;
+};
+
+type StaffItem = {
+  id: string;
+  staff_code: string;
+  profile_id: string;
+  designation: string | null;
+  status: string | null;
+  profile: ProfileRow;
 };
 
 type GetResponse = {
-  assigned_staff_ids: string[]; // UUIDs
+  assigned_staff_ids: string[];
   eligible_staff: StaffItem[];
 };
 
 type PostBody = {
-  staff_ids: string[]; // UUIDs
+  staff_ids: string[];
 };
 
 function isUuid(v: string): boolean {
@@ -46,11 +57,14 @@ export async function GET(
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id: offeringId } = await ctx.params;
+
   if (!isUuid(offeringId)) {
-    return NextResponse.json<ErrorResponse>({ error: "Invalid offering id" }, { status: 400 });
+    return NextResponse.json<ErrorResponse>(
+      { error: "Invalid offering id" },
+      { status: 400 }
+    );
   }
 
-  // Assigned staff UUIDs
   const { data: assigned } = await supabaseAdmin
     .from("course_offering_staff")
     .select("staff_id")
@@ -59,8 +73,7 @@ export async function GET(
 
   const assignedStaffIds = (assigned ?? []).map((r) => r.staff_id);
 
-  // Eligible = active + academic
-  const { data: staff, error } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("staff")
     .select(
       `
@@ -69,7 +82,7 @@ export async function GET(
       profile_id,
       designation,
       status,
-      profiles:profile_id (
+      profile:profile_id!inner (
         id,
         first_name,
         last_name,
@@ -79,37 +92,29 @@ export async function GET(
     `
     )
     .eq("status", "active")
-    .eq("profiles.main_role", "academic_staff")
-    .order("staff_id", { ascending: true });
+    .eq("profile.main_role", "academic_staff")
+    .order("staff_id", { ascending: true })
+    .returns<StaffRow[]>();
 
   if (error) {
-    return NextResponse.json<ErrorResponse>({ error: error.message }, { status: 500 });
+    return NextResponse.json<ErrorResponse>(
+      { error: error.message },
+      { status: 500 }
+    );
   }
 
-  const eligible: StaffItem[] = (staff ?? []).map((s) => {
-    const p = Array.isArray(s.profiles) ? s.profiles[0] : null;
-
-    return {
-      id: s.id,
-      staff_code: s.staff_id,
-      profile_id: s.profile_id,
-      designation: s.designation,
-      status: s.status,
-      profile: p
-        ? {
-            id: p.id,
-            first_name: p.first_name,
-            last_name: p.last_name,
-            email: p.email,
-            main_role: p.main_role,
-          }
-        : null,
-    };
-  });
+  const eligible_staff: StaffItem[] = (data ?? []).map((s) => ({
+    id: s.id,
+    staff_code: s.staff_id,
+    profile_id: s.profile_id,
+    designation: s.designation,
+    status: s.status,
+    profile: s.profile,
+  }));
 
   return NextResponse.json<GetResponse>({
     assigned_staff_ids: assignedStaffIds,
-    eligible_staff: eligible,
+    eligible_staff,
   });
 }
 
@@ -119,12 +124,16 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id: offeringId } = await ctx.params;
+
   if (!isUuid(offeringId)) {
-    return NextResponse.json<ErrorResponse>({ error: "Invalid offering id" }, { status: 400 });
+    return NextResponse.json<ErrorResponse>(
+      { error: "Invalid offering id" },
+      { status: 400 }
+    );
   }
 
-  const body = (await req.json()) as PostBody;
-  const staffIds = (body.staff_ids ?? []).filter(isUuid);
+  const body: PostBody = await req.json();
+  const staffIds = body.staff_ids.filter(isUuid);
 
   if (staffIds.length === 0) {
     return NextResponse.json<ErrorResponse>(
@@ -133,13 +142,13 @@ export async function POST(
     );
   }
 
-  // Validate academic + active
   const { data: validStaff } = await supabaseAdmin
     .from("staff")
-    .select(`id, profiles:profile_id ( main_role )`)
+    .select(`id, profile:profile_id!inner ( main_role )`)
     .in("id", staffIds)
     .eq("status", "active")
-    .eq("profiles.main_role", "academic_staff");
+    .eq("profile.main_role", "academic_staff")
+    .returns<{ id: string }[]>();
 
   const validSet = new Set((validStaff ?? []).map((s) => s.id));
   const filtered = staffIds.filter((id) => validSet.has(id));
@@ -163,7 +172,10 @@ export async function POST(
     });
 
   if (error) {
-    return NextResponse.json<ErrorResponse>({ error: error.message }, { status: 500 });
+    return NextResponse.json<ErrorResponse>(
+      { error: error.message },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ ok: true });
