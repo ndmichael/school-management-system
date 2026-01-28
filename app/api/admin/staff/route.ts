@@ -280,7 +280,7 @@ export async function POST(req: Request) {
 
     // ✅ IMPORTANT: redirectTo must be the confirm route (token_hash verification)
     // Your invite template will append token_hash/type/next.
-    const baseUrl = getBaseUrl(req);
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req);
     const redirectTo = new URL("/api/auth/confirm", baseUrl).toString();
 
     // 1) INVITE AUTH USER
