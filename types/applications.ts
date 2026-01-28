@@ -5,29 +5,26 @@ export type GuardianStatus = "father" | "mother" | "guardian" | "other";
 export type Religion = "muslim" | "christian" | "other";
 export type AdmissionType = "fresh" | "direct_entry";
 
-/**
- * Stored in DB jsonb columns (passport_file, signature_file, application_documents.file)
- */
 export type StorageFileRef = {
-  bucket: string;         // e.g. "applications"
-  path: string;           // e.g. "passports/uuid.png"
-  contentType?: string;   // e.g. "image/png"
-  size?: number;          // bytes
-  originalName?: string;  // original filename
+  bucket: string;
+  path: string;
+  contentType?: string;
+  size?: number;
+  originalName?: string;
 };
 
 export interface ApplicationFormData {
   firstName: string;
-  middleName?: string | null;
+  middleName: string;
   lastName: string;
 
   gender: Gender;
-  dateOfBirth: string; // YYYY-MM-DD (DB: date)
+  dateOfBirth: string;
 
   email: string;
   phone: string;
   nin: string;
-  specialNeeds?: string;
+  specialNeeds: string;
 
   stateOfOrigin: string;
   lgaOfOrigin: string;
@@ -36,25 +33,27 @@ export interface ApplicationFormData {
 
   programId: string;
   classAppliedFor: string;
-
-  // You’re using this to populate DB: application_type
   admissionType: AdmissionType;
 
-  previousSchool?: string;
-  previousQualification?: string;
+  previousSchool: string;
+  previousQualification: string;
 
   guardianFirstName: string;
-  guardianMiddleName?: string | null;
+  guardianMiddleName: string;
   guardianLastName: string;
   guardianGender: Gender;
   guardianStatus: GuardianStatus;
   guardianPhone: string;
-  guardianEmail?: string | null;
+  guardianEmail: string;
 
-  attestationDate: string; // YYYY-MM-DD (DB: timestamptz)
+  attestationDate: string;
 
-  // ✅ Option B: JSON file refs
+  // REQUIRED FILES
   passportFile: StorageFileRef | null;
   signatureFile: StorageFileRef | null;
-  supportingFiles: StorageFileRef[];
+  academicResultFile: StorageFileRef | null;
+  birthCertificateFile: StorageFileRef | null;
+
+  // OPTIONAL
+  sponsorshipLetterFile: StorageFileRef | null;
 }
