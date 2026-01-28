@@ -151,7 +151,12 @@ export default function AdminCourseOfferingsPage() {
               <th className="px-6 py-4 text-left">Course</th>
               <th className="px-6 py-4 text-left">Session</th>
               <th className="px-6 py-4 text-left">Programs</th>
-              <th className="px-6 py-4 text-left">Students</th>
+              <th className="px-6 py-4 text-left">
+                Students
+                <div className="text-xs font-normal text-gray-500">
+                  Submitted / Enrolled
+                </div>
+                </th>
               <th className="px-6 py-4 text-left">Staff</th>
               <th className="px-6 py-4 text-left">Published</th>
               <th className="px-6 py-4 text-left">Actions</th>

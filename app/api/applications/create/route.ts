@@ -36,7 +36,55 @@ function getFileRef(v: unknown): FileRef | null {
 
 function getFileRefArray(v: unknown): FileRef[] {
   if (!Array.isArray(v)) return [];
-  return v.map(getFileRef).filter((x): x is FileRef => Boolean(x));
+  const out: FileRef[] = [];
+  for (const item of v) {
+    const ref = getFileRef(item);
+    if (ref) out.push(ref);
+  }
+  return out;
+}
+
+type SupportingDocType = "academic_result" | "birth_or_age" | "sponsorship_letter" | "supporting_optional";
+
+type SupportingDocInput = {
+  doc_type: SupportingDocType;
+  file: FileRef;
+  original_name?: string | null;
+  mime_type?: string | null;
+};
+
+function isSupportingDocType(v: unknown): v is SupportingDocType {
+  return (
+    v === "academic_result" ||
+    v === "birth_or_age" ||
+    v === "sponsorship_letter" ||
+    v === "supporting_optional"
+  );
+}
+
+function parseSupportingDocs(v: unknown): SupportingDocInput[] {
+  if (!Array.isArray(v)) return [];
+  const out: SupportingDocInput[] = [];
+
+  for (const item of v) {
+    if (!isObject(item)) continue;
+
+    const docType = item.doc_type;
+    const file = item.file;
+
+    if (!isSupportingDocType(docType)) continue;
+    const ref = getFileRef(file);
+    if (!ref) continue;
+
+    out.push({
+      doc_type: docType,
+      file: ref,
+      original_name: typeof item.original_name === "string" ? item.original_name : null,
+      mime_type: typeof item.mime_type === "string" ? item.mime_type : null,
+    });
+  }
+
+  return out;
 }
 
 export async function POST(req: Request) {
@@ -57,10 +105,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
     }
 
-    // Required uploads (Option B)
+    // Required uploads
     const passportFile = getFileRef(raw.passportFile);
     const signatureFile = getFileRef(raw.signatureFile);
-    const supportingFiles = getFileRefArray(raw.supportingFiles);
 
     if (!passportFile || passportFile.bucket !== BUCKET) {
       return NextResponse.json({ error: "Passport is required." }, { status: 400 });
@@ -69,6 +116,21 @@ export async function POST(req: Request) {
     if (!signatureFile || signatureFile.bucket !== BUCKET) {
       return NextResponse.json({ error: "Signature is required." }, { status: 400 });
     }
+
+    // ✅ Supporting docs (NEW typed input)
+    const supportingDocs = parseSupportingDocs(raw.supportingDocs);
+
+    // ✅ Legacy fallback: supportingFiles[] (untyped)
+    const legacySupportingFiles = getFileRefArray(raw.supportingFiles);
+    const legacyDocs =
+      legacySupportingFiles.length > 0
+        ? legacySupportingFiles.map((f) => ({
+            doc_type: "supporting_document" as const,
+            file: f,
+            original_name: null,
+            mime_type: null,
+          }))
+        : [];
 
     // Direct entry checks
     const admissionType = getString(raw.admissionType).trim();
@@ -83,7 +145,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // ✅ Use service role client (bypasses RLS)
     const supabase = supabaseAdmin;
 
     // 1) active session
@@ -99,7 +160,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No active session configured." }, { status: 400 });
     }
 
-    // 2) derive department_id from program (applications.department_id is NOT NULL)
+    // 2) derive department_id from program
     const { data: programRow, error: programErr } = await supabase
       .from("programs")
       .select("department_id")
@@ -116,7 +177,6 @@ export async function POST(req: Request) {
     // 3) Insert application
     const applicationPayload = {
       application_no: crypto.randomUUID(),
-
       session_id: activeSession.id,
       program_id: programId,
       department_id: programRow.department_id,
@@ -174,14 +234,28 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4) Insert supporting docs into application_documents (if any)
-    if (supportingFiles.length > 0) {
-      const docsPayload = supportingFiles.map((f) => ({
-        application_id: app.id,
-        file: f,
-      }));
+    // 4) Insert typed docs (preferred), else legacy docs
+    // NOTE: application_documents now requires doc_type
+    const docsToInsert:
+      | { application_id: string; doc_type: string; file: FileRef; original_name: string | null; mime_type: string | null }[]
+      | [] = supportingDocs.length
+      ? supportingDocs.map((d) => ({
+          application_id: app.id,
+          doc_type: d.doc_type,
+          file: d.file,
+          original_name: d.original_name ?? null,
+          mime_type: d.mime_type ?? null,
+        }))
+      : legacyDocs.map((d) => ({
+          application_id: app.id,
+          doc_type: d.doc_type,
+          file: d.file,
+          original_name: d.original_name,
+          mime_type: d.mime_type,
+        }));
 
-      const { error: docsErr } = await supabase.from("application_documents").insert(docsPayload);
+    if (docsToInsert.length > 0) {
+      const { error: docsErr } = await supabase.from("application_documents").insert(docsToInsert);
 
       if (docsErr) {
         return NextResponse.json(
