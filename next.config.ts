@@ -4,19 +4,22 @@ const nextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "api.dicebear.com" },
       { protocol: "https", hostname: "images.unsplash.com" },
-
-      // ✅ add this
       { protocol: "https", hostname: "source.unsplash.com" },
 
+      // public objects
       {
         protocol: "https",
-        hostname: "**.supabase.co",
+        hostname: "hcwlgzarrweenvdacddj.supabase.co",
         pathname: "/storage/v1/object/public/**",
       },
+
+      // signed objects
+      {
+        protocol: "https",
+        hostname: "hcwlgzarrweenvdacddj.supabase.co",
+        pathname: "/storage/v1/object/sign/**",
+      },
     ],
-    dangerouslyAllowSVG: true,
-    contentDispositionType: "inline",
-    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
 };
 
