@@ -1,23 +1,33 @@
+// app/api/applications/[id]/route.ts
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+
+type Json = Record<string, unknown>;
 
 type StoredFile = { bucket: string; path: string };
+type FileWithUrl = { file: StoredFile; url: string | null };
 
 type ApplicationRow = {
   id: string;
   application_no: string;
-  status: "pending" | "accepted" | "rejected";
+  status: "pending" | "accepted" | "rejected" | string;
   created_at: string;
+
   first_name: string;
   middle_name: string | null;
   last_name: string;
+
   email: string;
   phone: string | null;
+
   application_type: string | null;
+
   program_id: string;
   session_id: string;
   department_id: string;
+
   class_applied_for: string;
+
   passport_file: unknown | null;
   signature_file: unknown | null;
 };
@@ -28,15 +38,12 @@ type DepartmentRow = { id: string; name: string };
 
 type ApplicationDocumentRow = {
   id: string;
-  application_id: string;
-  file: unknown;
   doc_type: string | null;
   original_name: string | null;
   mime_type: string | null;
   created_at: string;
+  file: unknown | null; // jsonb
 };
-
-type FileWithUrl = { file: StoredFile; url: string | null };
 
 type DocumentWithUrl = {
   id: string;
@@ -47,7 +54,7 @@ type DocumentWithUrl = {
   file: FileWithUrl | null;
 };
 
-type ApplicationDetailsResponse = {
+type DetailsResponse = {
   application: ApplicationRow;
   program: ProgramRow | null;
   session: SessionRow | null;
@@ -57,132 +64,144 @@ type ApplicationDetailsResponse = {
   documents: DocumentWithUrl[];
 };
 
-function isRecord(v: unknown): v is Record<string, unknown> {
+function isObject(v: unknown): v is Json {
   return typeof v === "object" && v !== null;
 }
 
-function isUuid(v: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
-}
-
 function toStoredFile(v: unknown): StoredFile | null {
-  if (!isRecord(v)) return null;
-  const bucket = v.bucket;
-  const path = v.path;
-  if (typeof bucket !== "string" || bucket.trim() === "") return null;
-  if (typeof path !== "string" || path.trim() === "") return null;
+  if (!isObject(v)) return null;
+
+  const bucket = typeof v.bucket === "string" ? v.bucket : "";
+  const path = typeof v.path === "string" ? v.path : "";
+
+  if (!bucket || !path) return null;
   return { bucket, path };
 }
 
-async function fileUrl(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  file: StoredFile
-): Promise<string | null> {
-  const signed = await supabase.storage.from(file.bucket).createSignedUrl(file.path, 60 * 30);
-  if (!signed.error && signed.data?.signedUrl) return signed.data.signedUrl;
+async function signedUrlFor(file: StoredFile): Promise<string | null> {
+  const { data, error } = await supabaseAdmin.storage
+    .from(file.bucket)
+    .createSignedUrl(file.path, 60 * 30); // 30 mins
 
-  const pub = supabase.storage.from(file.bucket).getPublicUrl(file.path);
-  return pub.data?.publicUrl ?? null;
+  if (error) return null;
+  return data?.signedUrl ?? null;
 }
+
+async function fileWithUrl(v: unknown): Promise<FileWithUrl | null> {
+  const stored = toStoredFile(v);
+  if (!stored) return null;
+  return { file: stored, url: await signedUrlFor(stored) };
+}
+
+type RouteParams = { id: string };
 
 export async function GET(
   _req: Request,
-  context: { params: Promise<{ id: string }> } // ✅ IMPORTANT
-) {
-  const supabase = await createClient();
+  ctx: { params: Promise<RouteParams> | RouteParams }
+): Promise<NextResponse> {
+  try {
+    const params: RouteParams =
+      ctx.params instanceof Promise ? await ctx.params : ctx.params;
 
-  const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+    const id = params.id?.trim();
+    if (!id) {
+      return NextResponse.json({ error: "Missing application id." }, { status: 400 });
+    }
 
-  // ✅ unwrap params Promise
-  const { id } = await context.params;
+    // 1) application
+    const { data: application, error: appErr } = await supabaseAdmin
+      .from("applications")
+      .select(
+        `
+          id,
+          application_no,
+          status,
+          created_at,
+          first_name,
+          middle_name,
+          last_name,
+          email,
+          phone,
+          application_type,
+          program_id,
+          session_id,
+          department_id,
+          class_applied_for,
+          passport_file,
+          signature_file
+        `
+      )
+      .eq("id", id)
+      .single<ApplicationRow>();
 
-  if (!id || id === "undefined") {
-    return NextResponse.json({ error: "Missing application id" }, { status: 400 });
-  }
-  if (!isUuid(id)) {
-    return NextResponse.json({ error: "Invalid application id" }, { status: 400 });
-  }
+    if (appErr || !application) {
+      return NextResponse.json(
+        { error: appErr?.message ?? "Application not found." },
+        { status: 404 }
+      );
+    }
 
-  const { data: app, error: appErr } = await supabase
-    .from("applications")
-    .select(
-      `
-      id,
-      application_no,
-      status,
-      created_at,
-      first_name,
-      middle_name,
-      last_name,
-      email,
-      phone,
-      application_type,
-      program_id,
-      session_id,
-      department_id,
-      class_applied_for,
-      passport_file,
-      signature_file
-    `
-    )
-    .eq("id", id)
-    .single<ApplicationRow>();
+    // 2) lookups (optional)
+    const [programRes, sessionRes, departmentRes] = await Promise.all([
+      supabaseAdmin
+        .from("programs")
+        .select("id,name,code")
+        .eq("id", application.program_id)
+        .maybeSingle<ProgramRow>(),
+      supabaseAdmin
+        .from("sessions")
+        .select("id,name")
+        .eq("id", application.session_id)
+        .maybeSingle<SessionRow>(),
+      supabaseAdmin
+        .from("departments")
+        .select("id,name")
+        .eq("id", application.department_id)
+        .maybeSingle<DepartmentRow>(),
+    ]);
 
-  if (appErr || !app) {
-    return NextResponse.json({ error: appErr?.message ?? "Application not found" }, { status: 404 });
-  }
+    // 3) passport/signature
+    const [passport, signature] = await Promise.all([
+      fileWithUrl(application.passport_file),
+      fileWithUrl(application.signature_file),
+    ]);
 
-  const [programRes, sessionRes, deptRes] = await Promise.all([
-    supabase.from("programs").select("id,name,code").eq("id", app.program_id).maybeSingle<ProgramRow>(),
-    supabase.from("sessions").select("id,name").eq("id", app.session_id).maybeSingle<SessionRow>(),
-    supabase.from("departments").select("id,name").eq("id", app.department_id).maybeSingle<DepartmentRow>(),
-  ]);
+    // 4) supporting docs (application_documents)
+    const { data: docs, error: docsErr } = await supabaseAdmin
+      .from("application_documents")
+      .select("id, doc_type, original_name, mime_type, created_at, file")
+      .eq("application_id", id)
+      .order("created_at", { ascending: true })
+      .returns<ApplicationDocumentRow[]>();
 
-  const { data: docs } = await supabase
-    .from("application_documents")
-    .select("id,application_id,file,doc_type,original_name,mime_type,created_at")
-    .eq("application_id", id)
-    .order("created_at", { ascending: false })
-    .returns<ApplicationDocumentRow[]>();
+    if (docsErr) {
+      return NextResponse.json({ error: docsErr.message }, { status: 400 });
+    }
 
-  const passportFile = toStoredFile(app.passport_file);
-  const signatureFile = toStoredFile(app.signature_file);
-
-  const [passportUrl, signatureUrl] = await Promise.all([
-    passportFile ? fileUrl(supabase, passportFile) : Promise.resolve(null),
-    signatureFile ? fileUrl(supabase, signatureFile) : Promise.resolve(null),
-  ]);
-
-  const passport: FileWithUrl | null = passportFile ? { file: passportFile, url: passportUrl } : null;
-  const signature: FileWithUrl | null = signatureFile ? { file: signatureFile, url: signatureUrl } : null;
-
-  const documents: DocumentWithUrl[] = await Promise.all(
-    (docs ?? []).map(async (d) => {
-      const f = toStoredFile(d.file);
-      const u = f ? await fileUrl(supabase, f) : null;
-      return {
+    const documents: DocumentWithUrl[] = await Promise.all(
+      (docs ?? []).map(async (d): Promise<DocumentWithUrl> => ({
         id: d.id,
         doc_type: d.doc_type,
         original_name: d.original_name,
         mime_type: d.mime_type,
         created_at: d.created_at,
-        file: f ? { file: f, url: u } : null,
-      };
-    })
-  );
+        file: await fileWithUrl(d.file),
+      }))
+    );
 
-  const payload: ApplicationDetailsResponse = {
-    application: app,
-    program: programRes.data ?? null,
-    session: sessionRes.data ?? null,
-    department: deptRes.data ?? null,
-    passport,
-    signature,
-    documents,
-  };
+    const payload: DetailsResponse = {
+      application,
+      program: programRes.data ?? null,
+      session: sessionRes.data ?? null,
+      department: departmentRes.data ?? null,
+      passport,
+      signature,
+      documents,
+    };
 
-  return NextResponse.json(payload);
+    return NextResponse.json(payload);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Unexpected error";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
