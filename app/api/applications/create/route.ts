@@ -44,7 +44,11 @@ function getFileRefArray(v: unknown): FileRef[] {
   return out;
 }
 
-type SupportingDocType = "academic_result" | "birth_or_age" | "sponsorship_letter" | "supporting_optional";
+type SupportingDocType =
+  | "academic_result"
+  | "birth_or_age"
+  | "sponsorship_letter"
+  | "supporting_optional";
 
 type SupportingDocInput = {
   doc_type: SupportingDocType;
@@ -87,7 +91,7 @@ function parseSupportingDocs(v: unknown): SupportingDocInput[] {
   return out;
 }
 
-export async function POST(req: Request) {
+export async function POST(req: Request): Promise<NextResponse> {
   try {
     const raw: unknown = await req.json();
     if (!isObject(raw)) {
@@ -105,7 +109,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
     }
 
-    // Required uploads
+    // Required uploads (passport + signature)
     const passportFile = getFileRef(raw.passportFile);
     const signatureFile = getFileRef(raw.signatureFile);
 
@@ -117,20 +121,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Signature is required." }, { status: 400 });
     }
 
-    // ✅ Supporting docs (NEW typed input)
+    // NEW: required supporting docs come as dedicated fields on the payload
+    const academicResultFile = getFileRef(raw.academicResultFile);
+    const birthCertificateFile = getFileRef(raw.birthCertificateFile);
+    const sponsorshipLetterFile = getFileRef(raw.sponsorshipLetterFile);
+
+    if (!academicResultFile || academicResultFile.bucket !== BUCKET) {
+      return NextResponse.json(
+        { error: "Academic result document is required." },
+        { status: 400 }
+      );
+    }
+
+    if (!birthCertificateFile || birthCertificateFile.bucket !== BUCKET) {
+      return NextResponse.json(
+        { error: "Birth certificate / age declaration is required." },
+        { status: 400 }
+      );
+    }
+
+    // Optional typed supporting docs array (if you still send it)
     const supportingDocs = parseSupportingDocs(raw.supportingDocs);
 
-    // ✅ Legacy fallback: supportingFiles[] (untyped)
+    // Legacy fallback: supportingFiles[] (untyped extra docs)
     const legacySupportingFiles = getFileRefArray(raw.supportingFiles);
-    const legacyDocs =
-      legacySupportingFiles.length > 0
-        ? legacySupportingFiles.map((f) => ({
-            doc_type: "supporting_document" as const,
-            file: f,
-            original_name: null,
-            mime_type: null,
-          }))
-        : [];
 
     // Direct entry checks
     const admissionType = getString(raw.admissionType).trim();
@@ -234,39 +248,72 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4) Insert typed docs (preferred), else legacy docs
-    // NOTE: application_documents now requires doc_type
-    const docsToInsert:
-      | { application_id: string; doc_type: string; file: FileRef; original_name: string | null; mime_type: string | null }[]
-      | [] = supportingDocs.length
-      ? supportingDocs.map((d) => ({
-          application_id: app.id,
-          doc_type: d.doc_type,
-          file: d.file,
-          original_name: d.original_name ?? null,
-          mime_type: d.mime_type ?? null,
-        }))
-      : legacyDocs.map((d) => ({
-          application_id: app.id,
-          doc_type: d.doc_type,
-          file: d.file,
-          original_name: d.original_name,
-          mime_type: d.mime_type,
-        }));
+    // 4) Insert supporting documents into application_documents (SOURCE OF TRUTH)
+    const docsToInsert: {
+      application_id: string;
+      doc_type: string;
+      file: FileRef;
+      original_name: string | null;
+      mime_type: string | null;
+    }[] = [
+      {
+        application_id: app.id,
+        doc_type: "academic_result",
+        file: academicResultFile,
+        original_name: null,
+        mime_type: null,
+      },
+      {
+        application_id: app.id,
+        doc_type: "birth_or_age",
+        file: birthCertificateFile,
+        original_name: null,
+        mime_type: null,
+      },
+    ];
 
-    if (docsToInsert.length > 0) {
-      const { error: docsErr } = await supabase.from("application_documents").insert(docsToInsert);
+    if (sponsorshipLetterFile && sponsorshipLetterFile.bucket === BUCKET) {
+      docsToInsert.push({
+        application_id: app.id,
+        doc_type: "sponsorship_letter",
+        file: sponsorshipLetterFile,
+        original_name: null,
+        mime_type: null,
+      });
+    }
 
-      if (docsErr) {
-        return NextResponse.json(
-          {
-            success: true,
-            application: app,
-            warning: `Application saved but documents failed: ${docsErr.message}`,
-          },
-          { status: 200 }
-        );
-      }
+    // Optional: also accept supportingDocs array (if sent)
+    for (const d of supportingDocs) {
+      docsToInsert.push({
+        application_id: app.id,
+        doc_type: d.doc_type,
+        file: d.file,
+        original_name: d.original_name ?? null,
+        mime_type: d.mime_type ?? null,
+      });
+    }
+
+    // Optional: legacy extra docs
+    for (const f of legacySupportingFiles) {
+      docsToInsert.push({
+        application_id: app.id,
+        doc_type: "supporting_optional",
+        file: f,
+        original_name: null,
+        mime_type: null,
+      });
+    }
+
+    const { error: docsErr } = await supabase.from("application_documents").insert(docsToInsert);
+    if (docsErr) {
+      return NextResponse.json(
+        {
+          success: true,
+          application: app,
+          warning: `Application saved but documents failed: ${docsErr.message}`,
+        },
+        { status: 200 }
+      );
     }
 
     return NextResponse.json({ success: true, application: app });
