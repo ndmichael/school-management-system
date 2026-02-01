@@ -177,7 +177,22 @@ export default async function StudentDashboardPage() {
     ]),
   ]);
 
-  let offeringsQuery = supabase
+  // 1️⃣ Get course offering IDs allowed for student's program
+  const { data: programLinks, error: linkErr } = await supabase
+    .from("course_offering_programs")
+    .select("course_offering_id")
+    .eq("program_id", student.program_id);
+
+  if (linkErr) {
+    throw linkErr;
+  }
+
+  const allowedOfferingIds = (programLinks ?? []).map(
+    (r) => r.course_offering_id
+  );
+
+  // 2️⃣ Fetch offerings (NO duplicates, M2M-correct)
+  const { data: courseOfferings, error: offErr } = await supabase
     .from("course_offerings")
     .select(
       `
@@ -185,7 +200,6 @@ export default async function StudentDashboardPage() {
       session_id,
       semester,
       level,
-      program_id,
       is_published,
       course:courses (
         id,
@@ -193,20 +207,17 @@ export default async function StudentDashboardPage() {
         title,
         credits
       )
-    `
+      `
     )
     .eq("is_published", true)
-    .order("created_at", { ascending: false });
+    .eq("session_id", student.admission_session_id)
+    .in("id", allowedOfferingIds)
+    .order("created_at", { ascending: false })
+    .limit(4)
+    .returns<CourseOfferingRow[]>();
 
-  if (student.admission_session_id) offeringsQuery = offeringsQuery.eq("session_id", student.admission_session_id);
-  if (student.program_id) offeringsQuery = offeringsQuery.eq("program_id", student.program_id);
-  if (student.level) offeringsQuery = offeringsQuery.eq("level", student.level);
+  const offerings = offErr ? null : courseOfferings ?? [];
 
-  const { data: courseOfferings, error: offErr } = await offeringsQuery.limit(10);
-
-  const offerings = offErr
-    ? null
-    : ((courseOfferings ?? []) as unknown as CourseOfferingRow[]);
 
   const profileMissing = [
     profile.phone ? null : "phone",
