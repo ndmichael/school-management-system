@@ -69,6 +69,7 @@ const roleConfig: Record<UserRole, RoleConfig> = {
     label: "Student",
     items: [
       { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard/student" },
+      { icon: BookOpen, label: "Course Enrollment", href: "/dashboard/student/enrollments" },
       { icon: Receipt, label: "Payments", href: "/dashboard/student/payments" },
       { icon: FileText, label: "Results", href: "/dashboard/student/results" },
       { icon: Users, label: "Profile", href: "/dashboard/student/settings" },
