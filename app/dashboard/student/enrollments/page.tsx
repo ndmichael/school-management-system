@@ -40,7 +40,6 @@ function semesterLabel(s: string | null): string {
 
 function sessionYearLabel(session: Offering["session"]): string {
   if (!session) return "Session";
-  // Prefer explicit year range from start/end if available
   const startY = session.start_date ? new Date(session.start_date).getFullYear() : null;
   const endY = session.end_date ? new Date(session.end_date).getFullYear() : null;
 
@@ -130,7 +129,6 @@ export default function StudentEnrollmentsPage() {
   }, [supabase]);
 
   const grouped = useMemo(() => {
-    // group by sessionHeader + semester
     const map = new Map<string, Offering[]>();
     for (const o of offerings) {
       const s = sessionHeader(o.session);
@@ -190,6 +188,70 @@ export default function StudentEnrollmentsPage() {
     }
   };
 
+  // ✅ PRINT HELPER (NEW)
+  const printGroup = (key: string) => {
+    const [sessionText, semesterText] = key.split("__");
+
+    const rows = offerings.filter(
+      (o) =>
+        enrolledIds.has(o.id) &&
+        sessionHeader(o.session) === sessionText &&
+        semesterLabel(o.semester) === semesterText
+    );
+
+    if (rows.length === 0) return;
+
+    const html = `
+      <html>
+        <head>
+          <title>Enrolled Courses</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; }
+            h1 { font-size: 18px; margin-bottom: 4px; }
+            h2 { font-size: 14px; color: #555; margin-bottom: 16px; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { border: 1px solid #ccc; padding: 8px; }
+            th { background: #f5f5f5; }
+          </style>
+        </head>
+        <body>
+          <h1>${sessionText}</h1>
+          <h2>${semesterText}</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Title</th>
+                <th>Credits</th>
+                <th>Level</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows
+                .map(
+                  (o) => `
+                <tr>
+                  <td>${o.course?.code ?? "-"}</td>
+                  <td>${o.course?.title ?? "-"}</td>
+                  <td>${o.course?.credits ?? "-"}</td>
+                  <td>${o.level ?? "-"}</td>
+                </tr>`
+                )
+                .join("")}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    w.print();
+  };
+
   if (loading) {
     return <div className="p-8 text-center text-slate-600">Loading…</div>;
   }
@@ -221,15 +283,36 @@ export default function StudentEnrollmentsPage() {
 
         return (
           <section key={key} className="space-y-4">
-            <div className="space-y-1">
-              <h2 className="text-xl font-bold text-slate-900">{sessionText}</h2>
-              <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
-                <span className="capitalize">{semesterText}</span>
-                <span>•</span>
-                <span>
-                  {used}/{MAX_PER_SEMESTER} enrolled
-                </span>
+            {/* ✅ HEADER WITH PRINT BUTTON (NEW) */}
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <h2 className="text-xl font-bold text-slate-900">{sessionText}</h2>
+                <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+                  <span className="capitalize">{semesterText}</span>
+                  <span>•</span>
+                  <span>
+                    {used}/{MAX_PER_SEMESTER} enrolled
+                  </span>
+                </div>
               </div>
+
+              <button
+                type="button"
+                disabled={used === 0}
+                onClick={() => printGroup(key)}
+                className="
+                    inline-flex items-center gap-2
+                    rounded-lg border border-slate-300
+                    bg-slate-50 px-4 py-2
+                    text-sm font-medium text-slate-700
+                    shadow-sm
+                    hover:bg-slate-100 hover:text-slate-900
+                    focus:outline-none focus:ring-2 focus:ring-slate-300
+                    disabled:cursor-not-allowed disabled:opacity-50
+                "
+                >
+                🖨️ Print
+                </button>
             </div>
 
             <div className="space-y-3">
@@ -242,65 +325,55 @@ export default function StudentEnrollmentsPage() {
                     className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-start sm:justify-between"
                   >
                     <div className="min-w-0 flex-1">
-  {/* Course title */}
-  <div className="font-semibold text-slate-900">
-    <span className="font-mono text-blue-600">
-      {o.course?.code ?? "—"}
-    </span>
-    {" · "}
-    {o.course ? o.course.title : "Course data not loaded"}
-  </div>
+                      {/* Course title */}
+                      <div className="font-semibold text-slate-900">
+                        <span className="font-mono text-blue-600">{o.course?.code ?? "—"}</span>
+                        {" · "}
+                        {o.course ? o.course.title : "Course data not loaded"}
+                      </div>
 
-  {/* Course description */}
-  {o.course?.description ? (
-    <p className="mt-1 line-clamp-3 text-sm text-slate-600">
-      {o.course.description}
-    </p>
-  ) : (
-    <p className="mt-1 text-sm text-slate-500">
-      No course description available.
-    </p>
-  )}
+                      {/* Course description */}
+                      {o.course?.description ? (
+                        <p className="mt-1 line-clamp-3 text-sm text-slate-600">
+                          {o.course.description}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-sm text-slate-500">No course description available.</p>
+                      )}
 
-  {/* Metadata chips */}
-  <div className="mt-2 flex flex-wrap gap-2 text-xs">
-    <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
-      Session: {sessionYearLabel(o.session)}
-    </span>
+                      {/* Metadata chips */}
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
+                          Session: {sessionYearLabel(o.session)}
+                        </span>
 
-    <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
-      Semester: {semesterLabel(o.semester)}
-    </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
+                          Semester: {semesterLabel(o.semester)}
+                        </span>
 
-    <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
-      Level: {o.level ?? "All levels"}
-    </span>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
+                          Level: {o.level ?? "All levels"}
+                        </span>
 
-    <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
-      Status: {enrolled ? "Enrolled" : "Not enrolled"}
-    </span>
-  </div>
+                        <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
+                          Status: {enrolled ? "Enrolled" : "Not enrolled"}
+                        </span>
+                      </div>
 
-  {/* Lecturers */}
-  <div className="mt-3 text-sm text-slate-600">
-    <span className="font-medium">Lecturer(s): </span>
-    {o.lecturers.length > 0 ? (
-      o.lecturers.map((l) => l.name).join(", ")
-    ) : (
-      <span className="text-amber-600">
-        No lecturers assigned to this offering.
-      </span>
-    )}
-  </div>
-</div>
-
+                      {/* Lecturers */}
+                      <div className="mt-3 text-sm text-slate-600">
+                        <span className="font-medium">Lecturer(s): </span>
+                        {o.lecturers.length > 0 ? (
+                          o.lecturers.map((l) => l.name).join(", ")
+                        ) : (
+                          <span className="text-amber-600">No lecturers assigned to this offering.</span>
+                        )}
+                      </div>
+                    </div>
 
                     <div className="shrink-0">
                       {enrolled ? (
-                        <SecondaryButton
-                          disabled={loadingId === o.id}
-                          onClick={() => unenroll(o.id)}
-                        >
+                        <SecondaryButton disabled={loadingId === o.id} onClick={() => unenroll(o.id)}>
                           Un-enroll
                         </SecondaryButton>
                       ) : (
