@@ -112,7 +112,7 @@ export async function GET(req: Request) {
       supabase
         .from("profiles")
         .select("first_name, middle_name, last_name")
-        .eq("id", user.id)
+        .eq("id", user.profile_id)
         .maybeSingle<ProfileRow>(),
       supabase
         .from("students")
