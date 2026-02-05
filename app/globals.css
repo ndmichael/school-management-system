@@ -158,3 +158,19 @@
 .animate-scroll { animation: scroll 2s ease-in-out infinite; }
 .animate-spin-slow { animation: spin-slow 20s linear infinite; }
 .animation-delay-2000 { animation-delay: 2s; }
+
+@media print {
+  nav,
+  header,
+  aside,
+  .navbar,
+  .mobile-nav,
+  .bottom-nav,
+  [role="navigation"] {
+    display: none !important;
+  }
+
+  body {
+    margin: 0 !important;
+  }
+}
