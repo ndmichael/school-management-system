@@ -7,13 +7,11 @@ import { Badge } from '@/components/ui/badge';
 import {
   GraduationCap,
   Building2,
-  Layers,
-  CalendarRange,
   Info,
 } from 'lucide-react';
 
-type ProgramType = 'certificate' | 'diploma' | 'nd' | 'hnd' | 'post_basic';
-type ProgramLevel = 'basic' | 'post_basic' | 'nd' | 'hnd';
+type ProgramType = 'Certificate' | 'Diploma' | 'Higher Diploma'
+type ProgramLevel = 'Cert' | 'ND' | 'HND';
 
 type DepartmentSummary = {
   id: string;
@@ -44,18 +42,15 @@ interface ViewProgramModalProps {
 }
 
 const programTypeLabel: Record<ProgramType, string> = {
-  certificate: 'Certificate',
-  diploma: 'Diploma',
-  nd: 'ND',
-  hnd: 'HND',
-  post_basic: 'Post Basic',
-};
+  Certificate: 'Certificate',
+  Diploma: 'Diploma',
+  'Higher Diploma' : 'Higher Diploma'
+}
 
 const programLevelLabel: Record<ProgramLevel, string> = {
-  basic: 'Basic',
-  post_basic: 'Post Basic',
-  nd: 'ND',
-  hnd: 'HND',
+  Cert: 'Cert',
+  ND: 'ND',
+  HND: 'HND'
 };
 
 function slugify(name: string): string {
@@ -152,7 +147,7 @@ export function ViewProgramModal({
         {/* Image / visual */}
         <div className="relative h-32 w-full overflow-hidden rounded-2xl bg-primary-600/10">
           {brokenImage ? (
-            <div className="flex h-full items-center justify-center bg-gradient-to-br from-primary-600 to-primary-700 text-xl font-semibold text-white">
+            <div className="flex h-full items-center justify-center bg-linear-to-br from-primary-600 to-primary-700 text-xl font-semibold text-white">
               {initials}
             </div>
           ) : (
