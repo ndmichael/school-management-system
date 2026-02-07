@@ -30,8 +30,8 @@ import { AddProgramModal } from '@/components/modals/AddProgramModal';
 import { EditProgramModal } from '@/components/modals/EditProgramModal';
 import { ViewProgramModal } from '@/components/modals/ViewProgramModal';
 
-type ProgramType = 'certificate' | 'diploma' | 'nd' | 'hnd' | 'post_basic';
-type ProgramLevel = 'basic' | 'post_basic' | 'nd' | 'hnd';
+type ProgramType = 'Certificate' | 'Diploma' | 'Higher Diploma';
+type ProgramLevel = 'Cert' | 'ND' | 'HND';
 
 type DepartmentSummary = {
   id: string;
@@ -60,18 +60,15 @@ type Program = ProgramRow & {
 };
 
 const programTypeLabel: Record<ProgramType, string> = {
-  certificate: 'Certificate',
-  diploma: 'Diploma',
-  nd: 'ND',
-  hnd: 'HND',
-  post_basic: 'Post Basic',
+  Certificate: 'Certificate',
+  Diploma: 'Diploma',
+  'Higher Diploma': 'Higher Diploma',
 };
 
 const programLevelLabel: Record<ProgramLevel, string> = {
-  basic: 'Basic',
-  post_basic: 'Post Basic',
-  nd: 'ND',
-  hnd: 'HND',
+  Cert: 'Cert',
+  ND: 'ND',
+  HND: 'HND',
 };
 
 function slugify(name: string): string {
@@ -99,7 +96,7 @@ function ProgramImage({ program }: ProgramImageProps) {
 
   if (broken || !slug) {
     return (
-      <div className="flex h-28 items-center justify-center rounded-2xl bg-gradient-to-br from-admin-600 to-admin-700 text-lg font-semibold text-white">
+      <div className="flex h-28 items-center justify-center rounded-2xl bg-linear-to-br from-admin-600 to-admin-700 text-lg font-semibold text-white">
         {initials}
       </div>
     );
@@ -295,7 +292,7 @@ export default function ProgramsPage() {
       <h3 className="text-base font-semibold tracking-tight">No programs yet</h3>
       <p className="mt-2 max-w-sm text-sm text-muted-foreground">
         Create academic programs under your departments. You can assign levels and
-        types like Certificate, ND, HND, or Post Basic.
+        types like Cert, ND, HND.
       </p>
       <div className="mt-4">
         <AdminPrimaryButton onClick={() => setIsAddModalOpen(true)}>
@@ -440,11 +437,9 @@ export default function ProgramsPage() {
               className="h-8 rounded-xl border border-border bg-background px-3 text-xs outline-none transition-colors hover:border-admin-600/40 focus-visible:border-admin-600 focus-visible:ring-1 focus-visible:ring-admin-600"
             >
               <option value="all">All types</option>
-              <option value="certificate">Certificate</option>
-              <option value="diploma">Diploma</option>
-              <option value="nd">ND</option>
-              <option value="hnd">HND</option>
-              <option value="post_basic">Post Basic</option>
+              <option value="Certificate">Certificate</option>
+              <option value="Diploma">Diploma</option>
+              <option value="Higher Diploma">Higher Diploma</option>
             </select>
           </div>
 
