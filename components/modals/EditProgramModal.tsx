@@ -7,8 +7,8 @@ import { Input } from '@/components/shared/Input';
 import { AdminPrimaryButton } from "@/components/shared/AdminPrimaryButton";
 import { AlertCircle, CheckCircle } from 'lucide-react';
 
-type ProgramType = 'certificate' | 'diploma' | 'nd' | 'hnd' | 'post_basic';
-type ProgramLevel = 'basic' | 'post_basic' | 'nd' | 'hnd';
+type ProgramType = 'Certificate' | 'Diploma' | 'Higher Diploma'
+type ProgramLevel = 'Cert' | 'ND' | 'HND';
 
 export type ProgramRow = {
   id: string;
@@ -60,19 +60,32 @@ interface FormErrors {
 }
 
 const typeOptions: { value: ProgramType; label: string }[] = [
-  { value: 'certificate', label: 'Certificate' },
-  { value: 'diploma', label: 'Diploma' },
-  { value: 'nd', label: 'ND' },
-  { value: 'hnd', label: 'HND' },
-  { value: 'post_basic', label: 'Post Basic' },
+  { value: 'Certificate', label: 'Certificate' },
+  { value: 'Diploma', label: 'Diploma' },
+  { value: 'Higher Diploma', label: 'Higher Diploma' },
+
 ];
 
 const levelOptions: { value: ProgramLevel; label: string }[] = [
-  { value: 'basic', label: 'Basic' },
-  { value: 'post_basic', label: 'Post Basic' },
-  { value: 'nd', label: 'ND' },
-  { value: 'hnd', label: 'HND' },
+  { value: 'Cert', label: 'Cert' },
+  { value: 'ND', label: 'ND' },
+  { value: 'HND', label: 'HND' },
 ];
+
+
+function programToForm(program: ProgramRow): FormState {
+  return {
+    name: program.name,
+    code: program.code,
+    type: program.type,
+    level: program.level,
+    departmentId: program.department_id ?? 'none',
+    description: program.description ?? '',
+    requirements: program.requirements ?? '',
+    features: (program.features ?? []).join(', '),
+    isActive: program.is_active,
+  };
+}
 
 export function EditProgramModal({
   isOpen,
@@ -83,36 +96,17 @@ export function EditProgramModal({
 }: EditProgramModalProps) {
   const supabase = createClient();
 
-  const [form, setForm] = useState<FormState>({
-    name: program.name,
-    code: program.code,
-    type: program.type,
-    level: program.level,
-    departmentId: program.department_id ?? 'none',
-    description: program.description ?? '',
-    requirements: program.requirements ?? '',
-    features: (program.features ?? []).join(', '),
-    isActive: program.is_active,
-  });
+  const [form, setForm] = useState<FormState>(() => programToForm(program));
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
 
   // Reset form when program changes (safety)
   useEffect(() => {
-    setForm({
-      name: program.name,
-      code: program.code,
-      type: program.type,
-      level: program.level,
-      departmentId: program.department_id ?? 'none',
-      description: program.description ?? '',
-      requirements: program.requirements ?? '',
-      features: (program.features ?? []).join(', '),
-      isActive: program.is_active,
-    });
+    setForm(programToForm(program));
     setErrors({});
-  }, [program]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [program.id]);
 
   const handleChange = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
