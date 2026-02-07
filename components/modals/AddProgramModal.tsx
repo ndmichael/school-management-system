@@ -8,8 +8,8 @@ import { AdminPrimaryButton } from "@/components/shared/AdminPrimaryButton";
 import { AlertCircle, CheckCircle, GraduationCap } from 'lucide-react';
 import { toast } from 'react-toastify';
 
-type ProgramType = 'certificate' | 'diploma' | 'nd' | 'hnd' | 'post_basic';
-type ProgramLevel = 'basic' | 'post_basic' | 'nd' | 'hnd';
+type ProgramType = 'Certificate' | 'Diploma' | 'Higher Diploma';
+type ProgramLevel = 'Cert' | 'ND' | 'HND';
 
 export type ProgramRow = {
   id: string;
@@ -60,18 +60,15 @@ interface FormErrors {
 }
 
 const typeOptions: { value: ProgramType; label: string }[] = [
-  { value: 'certificate', label: 'Certificate' },
-  { value: 'diploma', label: 'Diploma' },
-  { value: 'nd', label: 'ND' },
-  { value: 'hnd', label: 'HND' },
-  { value: 'post_basic', label: 'Post Basic' },
+  { value: 'Certificate', label: 'Certificate' },
+  { value: 'Diploma', label: 'Diploma' },
+  { value: 'Higher Diploma', label: 'Higher Diploma' },
 ];
 
 const levelOptions: { value: ProgramLevel; label: string }[] = [
-  { value: 'basic', label: 'Basic' },
-  { value: 'post_basic', label: 'Post Basic' },
-  { value: 'nd', label: 'ND' },
-  { value: 'hnd', label: 'HND' },
+  { value: 'Cert', label: 'Cert' },
+  { value: 'ND', label: 'ND' },
+  { value: 'HND', label: 'HND' },
 ];
 
 export function AddProgramModal({
@@ -85,8 +82,8 @@ export function AddProgramModal({
   const [form, setForm] = useState<FormState>({
     name: '',
     code: '',
-    type: 'certificate',
-    level: 'basic',
+    type: 'Diploma',
+    level: 'ND',
     departmentId: 'none',
     description: '',
     requirements: '',
@@ -182,8 +179,8 @@ export function AddProgramModal({
     setForm({
       name: '',
       code: '',
-      type: 'certificate',
-      level: 'basic',
+      type: 'Diploma',
+      level: 'ND',
       departmentId: 'none',
       description: '',
       requirements: '',
