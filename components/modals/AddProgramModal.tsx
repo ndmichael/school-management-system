@@ -50,6 +50,7 @@ interface FormState {
   requirements: string;
   features: string;
   isActive: boolean;
+  imageUrl: string; 
 }
 
 interface FormErrors {
@@ -89,6 +90,7 @@ export function AddProgramModal({
     requirements: '',
     features: '',
     isActive: true,
+    imageUrl: '',
   });
 
   const [errors, setErrors] = useState<FormErrors>({});
@@ -186,6 +188,7 @@ export function AddProgramModal({
       requirements: '',
       features: '',
       isActive: true,
+      imageUrl: '',
     });
     setErrors({});
     onClose();
@@ -329,6 +332,20 @@ export function AddProgramModal({
             className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             placeholder="Short overview of what this program covers..."
           />
+        </div>
+
+        <div className="space-y-2">
+          <label className="block text-sm font-semibold text-gray-700">
+            Image URL (optional)
+          </label>
+          <Input
+            value={form.imageUrl}
+            onChange={(e) => handleChange('imageUrl', e.target.value)}
+            placeholder="https://example.com/program-image.jpg"
+          />
+          <p className="text-xs text-gray-500">
+            Paste a public image URL (unsplash, pixabay). Leave empty to use placeholder.
+          </p>
         </div>
 
         {/* Requirements & Features */}
