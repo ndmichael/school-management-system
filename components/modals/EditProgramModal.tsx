@@ -24,6 +24,7 @@ export type ProgramRow = {
   requirements: string | null;
   features: string[] | null;
   description: string | null;
+   imageUrl: string | null; 
 };
 
 type DepartmentSummary = {
@@ -50,6 +51,7 @@ interface FormState {
   requirements: string;
   features: string;
   isActive: boolean;
+   imageUrl: string; 
 }
 
 interface FormErrors {
@@ -84,6 +86,7 @@ function programToForm(program: ProgramRow): FormState {
     requirements: program.requirements ?? '',
     features: (program.features ?? []).join(', '),
     isActive: program.is_active,
+     imageUrl: program.image_url ?? '',
   };
 }
 
@@ -168,6 +171,7 @@ export function EditProgramModal({
         description: form.description.trim() || null,
         requirements: form.requirements.trim() || null,
         features: featuresArray,
+        image_url: form.imageUrl.trim() || null,
       })
       .eq('id', program.id)
       .select('*')
@@ -319,6 +323,21 @@ export function EditProgramModal({
             rows={3}
             className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-primary-500 focus:border-transparent"
           />
+        </div>
+
+         {/* Image Url */}   
+        <div className="space-y-2">
+          <label className="block text-sm font-semibold text-gray-700">
+            Image URL (optional)
+          </label>
+          <Input
+            value={form.imageUrl}
+            onChange={(e) => handleChange('imageUrl', e.target.value)}
+            placeholder="https://example.com/program-image.jpg"
+          />
+          <p className="text-xs text-gray-500">
+            Paste a public image URL (Unsplash, Pixabay). Leave empty to use placeholder.
+          </p>
         </div>
 
         {/* Requirements & Features */}
