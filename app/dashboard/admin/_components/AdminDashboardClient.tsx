@@ -42,13 +42,13 @@ function StatItem({ title, value, icon, href, accent = "neutral" }: StatItemProp
   const card = (
     <div
       className={cx(
-        "group relative overflow-hidden rounded-3xl border bg-gradient-to-br p-6 transition-all duration-300",
+        "group relative overflow-hidden rounded-3xl border bg-linear-to-br p-6 transition-all duration-300",
         accent === "red"
           ? "from-red-50 via-white to-white border-red-100 hover:shadow-xl hover:shadow-red-100/50 hover:border-red-200"
           : "from-slate-50 via-white to-white border-slate-200/60 hover:shadow-xl hover:shadow-slate-100/50 hover:border-slate-300"
       )}
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-transparent via-transparent to-white/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+      <div className="absolute inset-0 bg-linear-to-br from-transparent via-transparent to-white/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
       <div className="relative">
         <div className="mb-4 flex items-start justify-between">
@@ -90,7 +90,7 @@ export default function AdminDashboardClient({ data }: Props) {
   const activeSessionName = data.activeSession?.name ?? "Not set";
 
   return (
-    <div className="min-h-screen w-full bg-gradient-to-br from-slate-50 via-white to-slate-50/50 p-4 sm:p-6 lg:p-8">
+    <div className="min-h-screen w-full bg-linear-to-br from-slate-50 via-white to-slate-50/50 p-4 sm:p-6 lg:p-8">
       <div className="mx-auto w-full max-w-7xl space-y-8">
         {/* HEADER */}
         <div className="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
@@ -111,7 +111,7 @@ export default function AdminDashboardClient({ data }: Props) {
           <div className="flex flex-wrap gap-3">
             <Link
               href="/dashboard/admin/receipts"
-              className="group inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-red-600 to-red-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-red-500/25 transition-all hover:shadow-xl hover:shadow-red-500/30 hover:scale-[1.02] active:scale-[0.98]"
+              className="group inline-flex items-center justify-center gap-2 rounded-2xl bg-linear-to-r from-red-600 to-red-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-red-500/25 transition-all hover:shadow-xl hover:shadow-red-500/30 hover:scale-[1.02] active:scale-[0.98]"
             >
               <ReceiptIcon className="h-4 w-4 transition-transform group-hover:rotate-12" />
               Review Receipts
