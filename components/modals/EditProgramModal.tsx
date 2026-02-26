@@ -24,7 +24,6 @@ export type ProgramRow = {
   requirements: string | null;
   features: string[] | null;
   description: string | null;
-   imageUrl: string | null; 
 };
 
 type DepartmentSummary = {
