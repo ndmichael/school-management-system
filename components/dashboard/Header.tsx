@@ -84,7 +84,7 @@ export function Header({ user, title, notificationCount = 0 }: HeaderProps) {
   }, [user.email]);
 
   const profilePath = useMemo(() => {
-    if (user.role === "student") return "/dashboard/student/profile";
+    // if (user.role === "student") return "/dashboard/student/profile";
     return `/dashboard/${user.role}/settings`;
   }, [user.role]);
 
