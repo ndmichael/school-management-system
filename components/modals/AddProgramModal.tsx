@@ -160,6 +160,7 @@ export function AddProgramModal({
         description: form.description.trim() || null,
         requirements: form.requirements.trim() || null,
         features: featuresArray,
+        image_url: form.imageUrl.trim() || null,
         // image_url remains null for now (static /public used on UI)
       })
       .select('*')
