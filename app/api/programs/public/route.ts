@@ -8,6 +8,8 @@ type ProgramRow = {
   features: string[] | null
   image_url: string | null
   type: string
+  level: string
+  duration: number | null
   is_active: boolean
 }
 
@@ -18,6 +20,7 @@ type ProgramDTO = {
   duration: string
   students: string
   level: string
+  type: string
   featured: boolean
   features: string[]
   image: string
@@ -39,8 +42,6 @@ function parseLimit(req: NextRequest): number | null {
   return Math.min(i, 50)
 }
 
-// upload this file to a public bucket once (recommended):
-// /storage/v1/object/public/programs/placeholder.jpg
 function placeholderImage(): string {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL
   if (!base) return ''
@@ -48,19 +49,21 @@ function placeholderImage(): string {
 }
 
 function normalize(row: ProgramRow): ProgramDTO {
-  const title = row.name
   const image = row.image_url?.trim() ? row.image_url : placeholderImage()
 
   return {
     id: row.id,
-    title,
+    title: row.name,
     description: row.description ?? '',
-    duration: '—',
+    duration: row.duration ? `${row.duration} Years` : '—',
     students: 'TBA',
-    level: toTitleCase(row.type), // Diploma / Certificate for your filters
+    level: row.level,          // Cert / ND / HND
+    type: toTitleCase(row.type), // Certificate / Diploma / Higher Diploma
     featured: false,
     features: Array.isArray(row.features) ? row.features : [],
-    image: image || 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=800&h=600&fit=crop&q=80',
+    image:
+      image ||
+      'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=800&h=600&fit=crop&q=80',
   }
 }
 
@@ -70,19 +73,33 @@ export async function GET(req: NextRequest) {
 
     let q = supabaseAdmin
       .from('programs')
-      .select('id,name,description,features,image_url,type,is_active')
+      .select(
+        'id,name,description,features,image_url,type,level,duration,is_active'
+      )
       .eq('is_active', true)
       .order('name', { ascending: true })
 
     if (limit) q = q.limit(limit)
 
     const { data, error } = await q
-    if (error) return NextResponse.json<ErrorResponse>({ error: error.message }, { status: 400 })
+    if (error) {
+      return NextResponse.json<ErrorResponse>(
+        { error: error.message },
+        { status: 400 }
+      )
+    }
 
     const rows = (data ?? []) as ProgramRow[]
-    return NextResponse.json<ProgramDTO[]>(rows.map(normalize), { status: 200 })
+    return NextResponse.json<ProgramDTO[]>(
+      rows.map(normalize),
+      { status: 200 }
+    )
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unexpected server error'
-    return NextResponse.json<ErrorResponse>({ error: message }, { status: 500 })
+    const message =
+      err instanceof Error ? err.message : 'Unexpected server error'
+    return NextResponse.json<ErrorResponse>(
+      { error: message },
+      { status: 500 }
+    )
   }
 }
