@@ -267,7 +267,7 @@ export default async function StudentDashboardPage() {
           </div>
 
           <Link
-            href="/dashboard/student/profile"
+            href="/dashboard/student/settings"
             className="group inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-6 py-3 text-sm font-semibold text-slate-900 shadow-sm transition-all hover:bg-slate-50 hover:shadow-md hover:scale-[1.02] active:scale-[0.98]"
           >
             <User className="h-4 w-4 transition-transform group-hover:scale-110" />
