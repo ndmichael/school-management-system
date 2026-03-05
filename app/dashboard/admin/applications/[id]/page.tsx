@@ -55,6 +55,11 @@ type DetailsResponse = {
   documents: DocumentWithUrl[];
 };
 
+type ProfileResponse = {
+  main_role: string;
+  unit: string | null;
+};
+
 function formatDateTime(value?: string | null): string {
   if (!value) return "-";
   const d = new Date(value);
@@ -163,6 +168,7 @@ export default function ApplicationDetailsPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<DetailsResponse | null>(null);
+  const [canEdit, setCanEdit] = useState(false);
 
   const fullName = useMemo(() => {
     if (!data) return "";
@@ -188,6 +194,24 @@ export default function ApplicationDetailsPage() {
       setError(null);
 
       try {
+        // 1️⃣ Load profile (permission)
+        const profileRes = await fetch("/api/profile/me", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+
+        if (profileRes.ok) {
+          const profile = (await profileRes.json()) as ProfileResponse;
+          console.log("profile: ", profile.main_role)
+
+          const allowed =
+            profile.main_role === "admin" ||
+            (profile.main_role === "non_academic_staff" &&
+              profile.unit?.toLowerCase() === "admissions");
+          setCanEdit(allowed);
+        }
+
+      // Load Application details
         const res = await fetch(`/api/applications/${id}`, {
           cache: "no-store",
           signal: controller.signal,
@@ -253,12 +277,25 @@ export default function ApplicationDetailsPage() {
           <p className="text-xs text-gray-500 mt-1">Submitted: {formatDateTime(a.created_at)}</p>
         </div>
 
-        <button
-          onClick={() => router.push("/dashboard/admin/applications")}
-          className="px-3 py-1 text-sm rounded border bg-white hover:bg-gray-50"
-        >
-          Back
-        </button>
+        <div className="flex gap-2">
+          {canEdit && a.status === "pending" && (
+            <button
+              onClick={() =>
+                router.push(`/dashboard/admin/applications/${a.id}/edit`)
+              }
+              className="px-3 py-1 text-sm rounded bg-primary-600 text-white hover:bg-primary-700"
+            >
+              Edit
+            </button>
+          )}
+
+          <button
+            onClick={() => router.push("/dashboard/admin/applications")}
+            className="px-3 py-1 text-sm rounded border bg-white hover:bg-gray-50"
+          >
+            Back {canEdit}
+          </button>
+        </div>
       </div>
 
       <section className="border rounded-lg bg-white p-5 space-y-3">
