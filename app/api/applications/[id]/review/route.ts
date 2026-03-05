@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
 type Action = "accept" | "reject";
 
@@ -8,83 +10,161 @@ interface ReviewBody {
   rejectionReason?: string;
 }
 
+function isUuid(v: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
+
 export async function PATCH(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  console.log("🔥 REVIEW ROUTE HIT");
-
-  // Next.js 14: params is a Promise
   const { id: applicationId } = await context.params;
 
-  console.log("🔥 Extracted applicationId:", applicationId);
-
-  if (!applicationId) {
+  if (!isUuid(applicationId)) {
     return NextResponse.json(
-      { error: "Missing application id." },
+      { error: "Invalid application id." },
       { status: 400 }
     );
   }
 
-  const { action, rejectionReason } = (await req.json()) as ReviewBody;
+  // ------------------------------------------------------------------
+  // AUTHENTICATE USER (SSR compatible with your current version)
+  // ------------------------------------------------------------------
+  const cookieStore = await cookies();
 
-  console.log("🔥 Action:", action, "Reason:", rejectionReason);
-
-  // --------------------------------------------------------------------------------------
-  // ❌ REJECT LOGIC
-  // --------------------------------------------------------------------------------------
-  if (action === "reject") {
-    const { data, error } = await supabaseAdmin
-      .from("applications")
-      .update({
-        status: "rejected",
-        rejection_reason: rejectionReason ?? null,
-        reviewed_by: "SYSTEM",
-        reviewed_date: new Date().toISOString(),
-      })
-      .eq("id", applicationId)
-      .select();
-
-    console.log("🔥 REJECT UPDATE DATA:", data);
-    console.log("🔥 REJECT UPDATE ERROR:", error);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set() {},
+        remove() {},
+      },
     }
-
-    return NextResponse.json({ success: true, rejection: true });
-  }
-
-  // --------------------------------------------------------------------------------------
-  // ✅ ACCEPT LOGIC (No conversion here—only marking as accepted)
-  // --------------------------------------------------------------------------------------
-  if (action === "accept") {
-    const { data, error } = await supabaseAdmin
-      .from("applications")
-      .update({
-        status: "accepted",
-        rejection_reason: null,
-        reviewed_by: "SYSTEM",
-        reviewed_date: new Date().toISOString(),
-      })
-      .eq("id", applicationId)
-      .select();
-
-    console.log("🔥 ACCEPT UPDATE DATA:", data);
-    console.log("🔥 ACCEPT UPDATE ERROR:", error);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
-
-    return NextResponse.json({ success: true, accepted: true });
-  }
-
-  // --------------------------------------------------------------------------------------
-  // Invalid action fallback
-  // --------------------------------------------------------------------------------------
-  return NextResponse.json(
-    { error: "Invalid action." },
-    { status: 400 }
   );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // LOAD PROFILE (ROLE CHECK)
+  // ------------------------------------------------------------------
+  const { data: profile, error: profileErr } = await supabaseAdmin
+    .from("profiles")
+    .select("main_role, unit")
+    .eq("id", user.id)
+    .single();
+
+  if (profileErr || !profile) {
+    return NextResponse.json(
+      { error: "Profile not found" },
+      { status: 403 }
+    );
+  }
+
+  const authorized =
+    profile.main_role === "admin" ||
+    (profile.main_role === "non_academic_staff" &&
+      profile.unit === "admissions");
+
+  if (!authorized) {
+    return NextResponse.json(
+      { error: "Not authorized to review applications" },
+      { status: 403 }
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // PARSE BODY SAFELY
+  // ------------------------------------------------------------------
+  const body: unknown = await req.json().catch(() => null);
+
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("action" in body)
+  ) {
+    return NextResponse.json(
+      { error: "Invalid request body" },
+      { status: 400 }
+    );
+  }
+
+  const { action, rejectionReason } = body as ReviewBody;
+
+  if (action !== "accept" && action !== "reject") {
+    return NextResponse.json(
+      { error: "Invalid action." },
+      { status: 400 }
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // PREVENT DOUBLE REVIEW
+  // ------------------------------------------------------------------
+  const { data: existing } = await supabaseAdmin
+    .from("applications")
+    .select("status")
+    .eq("id", applicationId)
+    .single();
+
+  if (!existing) {
+    return NextResponse.json(
+      { error: "Application not found" },
+      { status: 404 }
+    );
+  }
+
+  if (existing.status === "accepted" || existing.status === "rejected") {
+    return NextResponse.json(
+      { error: "Application already reviewed" },
+      { status: 400 }
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // UPDATE STATUS
+  // ------------------------------------------------------------------
+  const updatePayload =
+    action === "reject"
+      ? {
+          status: "rejected",
+          rejection_reason: rejectionReason ?? null,
+        }
+      : {
+          status: "accepted",
+          rejection_reason: null,
+        };
+
+  const { error: updateErr } = await supabaseAdmin
+    .from("applications")
+    .update({
+      ...updatePayload,
+      reviewed_by: user.id, // ✅ real reviewer
+      reviewed_date: new Date().toISOString(),
+    })
+    .eq("id", applicationId);
+
+  if (updateErr) {
+    return NextResponse.json(
+      { error: updateErr.message },
+      { status: 400 }
+    );
+  }
+
+  return NextResponse.json({
+    success: true,
+    action,
+  });
 }
