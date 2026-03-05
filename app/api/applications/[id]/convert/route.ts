@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   validateDocSet,
@@ -14,6 +16,7 @@ type ApplicationRow = {
   id: string;
   passport_file: FileRef;
   signature_file: FileRef;
+  status: string;
 };
 
 type AppDocRow = {
@@ -36,12 +39,11 @@ function isSponsorshipType(v: unknown): v is SponsorshipType {
 }
 
 function mapAppDocTypeToStudentDocType(docType: string): StudentDocType | null {
-  // application_documents doc_type values (you control these)
   if (docType === "academic_result") return "academic_result";
   if (docType === "birth_or_age") return "birth_or_age";
   if (docType === "sponsorship_letter") return "sponsorship_letter";
   if (docType === "supporting_optional") return "supporting_optional";
-  return null; // ignore unknown
+  return null;
 }
 
 export async function POST(
@@ -51,17 +53,125 @@ export async function POST(
   const { id: applicationId } = await ctx.params;
 
   if (!isUuid(applicationId)) {
-    return NextResponse.json<ErrorResponse>({ error: "Invalid application id" }, { status: 400 });
+    return NextResponse.json<ErrorResponse>(
+      { error: "Invalid application id" },
+      { status: 400 }
+    );
   }
 
+  // ------------------------------------------------------------------
+  // AUTHENTICATE USER (Modern Supabase SSR pattern)
+  // ------------------------------------------------------------------
+
+const cookieStore = await cookies();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set() {
+          // not needed in route handlers
+        },
+        remove() {
+          // not needed in route handlers
+        },
+      },
+    }
+  );
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // AUTHORIZE ROLE
+  // ------------------------------------------------------------------
+  const { data: profile, error: profileErr } = await supabaseAdmin
+    .from("profiles")
+    .select("main_role, unit")
+    .eq("id", user.id)
+    .single();
+
+  if (profileErr || !profile) {
+    return NextResponse.json(
+      { error: "Profile not found" },
+      { status: 403 }
+    );
+  }
+
+  const authorized =
+    profile.main_role === "admin" ||
+    (profile.main_role === "non_academic_staff" &&
+      profile.unit === "admissions");
+
+  if (!authorized) {
+    return NextResponse.json(
+      { error: "Not authorized to convert applications" },
+      { status: 403 }
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // LOAD APPLICATION
+  // ------------------------------------------------------------------
+  const { data: app, error: appErr } = await supabaseAdmin
+    .from("applications")
+    .select("id, passport_file, signature_file, status")
+    .eq("id", applicationId)
+    .single<ApplicationRow>();
+
+  if (appErr || !app) {
+    return NextResponse.json(
+      { error: appErr?.message ?? "Application not found" },
+      { status: 404 }
+    );
+  }
+
+  if (app.status === "converted") {
+    return NextResponse.json(
+      { error: "Application already converted" },
+      { status: 400 }
+    );
+  }
+
+  if (app.status !== "accepted") {
+    return NextResponse.json(
+      { error: "Application must be accepted before conversion" },
+      { status: 400 }
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // VALIDATE REQUEST BODY
+  // ------------------------------------------------------------------
   const raw: unknown = await req.json().catch(() => null);
+
   if (!isRecord(raw)) {
-    return NextResponse.json<ErrorResponse>({ error: "Invalid payload" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid payload" },
+      { status: 400 }
+    );
   }
 
-  const student_id = typeof raw.student_id === "string" ? raw.student_id : "";
+  const student_id =
+    typeof raw.student_id === "string" ? raw.student_id : "";
+
   if (!isUuid(student_id)) {
-    return NextResponse.json<ErrorResponse>({ error: "Invalid student_id" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Invalid student_id" },
+      { status: 400 }
+    );
   }
 
   const sponsorship_type: SponsorshipType | null =
@@ -71,21 +181,9 @@ export async function POST(
       ? raw.sponsorship_type
       : null;
 
-  // 1) Load application (passport/signature)
-  const { data: app, error: appErr } = await supabaseAdmin
-    .from("applications")
-    .select("id, passport_file, signature_file")
-    .eq("id", applicationId)
-    .single<ApplicationRow>();
-
-  if (appErr || !app) {
-    return NextResponse.json<ErrorResponse>(
-      { error: appErr?.message ?? "Application not found" },
-      { status: 404 }
-    );
-  }
-
-  // 2) Load application_documents (typed)
+  // ------------------------------------------------------------------
+  // LOAD APPLICATION DOCUMENTS
+  // ------------------------------------------------------------------
   const { data: docs, error: docsErr } = await supabaseAdmin
     .from("application_documents")
     .select("doc_type, file, original_name, mime_type")
@@ -93,10 +191,12 @@ export async function POST(
     .returns<AppDocRow[]>();
 
   if (docsErr) {
-    return NextResponse.json<ErrorResponse>({ error: docsErr.message }, { status: 500 });
+    return NextResponse.json(
+      { error: docsErr.message },
+      { status: 500 }
+    );
   }
 
-  // 3) Build the final student doc list (including passport/signature)
   const mapped: {
     doc_type: StudentDocType;
     file: FileRef;
@@ -121,6 +221,7 @@ export async function POST(
   for (const d of docs ?? []) {
     const t = mapAppDocTypeToStudentDocType(d.doc_type);
     if (!t) continue;
+
     mapped.push({
       doc_type: t,
       file: d.file,
@@ -129,28 +230,36 @@ export async function POST(
     });
   }
 
-  // 4) Validate policy at conversion time
   const check = validateDocSet(
     mapped.map((m) => m.doc_type),
     sponsorship_type
   );
 
   if (!check.ok) {
-    return NextResponse.json<ErrorResponse>({ error: check.error }, { status: 422 });
+    return NextResponse.json(
+      { error: check.error },
+      { status: 422 }
+    );
   }
 
-  // 5) Update student sponsorship_type (single source of truth)
+  // ------------------------------------------------------------------
+  // UPDATE STUDENT
+  // ------------------------------------------------------------------
   const { error: stErr } = await supabaseAdmin
     .from("students")
     .update({ sponsorship_type })
     .eq("id", student_id);
 
   if (stErr) {
-    return NextResponse.json<ErrorResponse>({ error: stErr.message }, { status: 500 });
+    return NextResponse.json(
+      { error: stErr.message },
+      { status: 500 }
+    );
   }
 
-  // 6) Replace docs by doc_type (clean, deterministic)
-  // delete existing doc_types we are writing
+  // ------------------------------------------------------------------
+  // REPLACE STUDENT DOCUMENTS
+  // ------------------------------------------------------------------
   const docTypes = mapped.map((m) => m.doc_type);
 
   const { error: delErr } = await supabaseAdmin
@@ -160,7 +269,10 @@ export async function POST(
     .in("doc_type", docTypes);
 
   if (delErr) {
-    return NextResponse.json<ErrorResponse>({ error: delErr.message }, { status: 500 });
+    return NextResponse.json(
+      { error: delErr.message },
+      { status: 500 }
+    );
   }
 
   const insertRows = mapped.map((m) => ({
@@ -176,7 +288,29 @@ export async function POST(
     .insert(insertRows);
 
   if (insErr) {
-    return NextResponse.json<ErrorResponse>({ error: insErr.message }, { status: 500 });
+    return NextResponse.json(
+      { error: insErr.message },
+      { status: 500 }
+    );
+  }
+
+  // ------------------------------------------------------------------
+  // MARK APPLICATION AS CONVERTED
+  // ------------------------------------------------------------------
+  const { error: lockErr } = await supabaseAdmin
+    .from("applications")
+    .update({
+      status: "converted",
+      converted_by: user.id,
+      converted_at: new Date().toISOString(),
+    })
+    .eq("id", applicationId);
+
+  if (lockErr) {
+    return NextResponse.json(
+      { error: lockErr.message },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({ ok: true });
