@@ -42,14 +42,37 @@ export async function GET() {
 
   const { data: profile, error } = await supabase
     .from("profiles")
-    .select("id, first_name, middle_name, last_name, email, phone, address, state_of_origin, lga_of_origin, avatar_file, updated_at")
+    .select("id, first_name, middle_name, last_name, email, phone, address, state_of_origin, lga_of_origin, avatar_file, main_role, updated_at")
     .eq("id", user.id)
     .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   if (!profile) return NextResponse.json({ error: "Profile not found" }, { status: 404 });
 
-  return NextResponse.json({ profile });
+  // 2️⃣ Load staff unit (if staff)
+  let unit: string | null = null;
+
+  if (
+    profile.main_role === "non_academic_staff" ||
+    profile.main_role === "academic_staff"
+  ) {
+    const { data: staff, error: staffErr } = await supabase
+      .from("staff")
+      .select("unit")
+      .eq("profile_id", profile.id)
+      .maybeSingle();
+
+    if (staffErr) {
+      return NextResponse.json({ error: staffErr.message }, { status: 400 });
+    }
+
+    unit = staff?.unit ?? null;
+  }
+
+  return NextResponse.json({
+    ...profile,
+    unit,
+  });
 }
 
 export async function PATCH(req: Request) {
