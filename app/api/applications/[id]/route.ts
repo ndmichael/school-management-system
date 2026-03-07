@@ -64,6 +64,25 @@ type DetailsResponse = {
   documents: DocumentWithUrl[];
 };
 
+type UpdatePayload = Partial<
+  Pick<
+    ApplicationRow,
+    | "first_name"
+    | "middle_name"
+    | "last_name"
+    | "email"
+    | "phone"
+    | "application_type"
+    | "class_applied_for"
+    | "program_id"
+    | "session_id"
+    | "passport_file"
+    | "signature_file"
+  >
+> & {
+  edit_reason: string;
+};
+
 function isObject(v: unknown): v is Json {
   return typeof v === "object" && v !== null;
 }
@@ -200,6 +219,58 @@ export async function GET(
     };
 
     return NextResponse.json(payload);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Unexpected error";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
+
+
+export async function PATCH(
+  req: Request,
+  ctx: { params: Promise<RouteParams> | RouteParams }
+): Promise<NextResponse> {
+  try {
+    const params: RouteParams =
+      ctx.params instanceof Promise ? await ctx.params : ctx.params;
+
+    const id = params.id?.trim();
+    if (!id) {
+      return NextResponse.json(
+        { error: "Missing application id." },
+        { status: 400 }
+      );
+    }
+
+    const body = (await req.json()) as UpdatePayload;
+
+    const updateData: Partial<ApplicationRow> = {
+      first_name: body.first_name,
+      middle_name: body.middle_name ?? null,
+      last_name: body.last_name,
+      email: body.email,
+      phone: body.phone ?? null,
+      application_type: body.application_type ?? null,
+      class_applied_for: body.class_applied_for,
+      program_id: body.program_id,
+      session_id: body.session_id,
+      passport_file: body.passport_file,
+      signature_file: body.signature_file,
+    };
+
+    const { error } = await supabaseAdmin
+      .from("applications")
+      .update(updateData)
+      .eq("id", id);
+
+    if (error) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : "Unexpected error";
     return NextResponse.json({ error: msg }, { status: 500 });
