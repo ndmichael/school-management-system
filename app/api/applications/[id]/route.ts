@@ -188,17 +188,27 @@ export async function GET(
     // 4) supporting docs (application_documents)
     const { data: docs, error: docsErr } = await supabaseAdmin
       .from("application_documents")
-      .select("id, doc_type, original_name, mime_type, created_at, file")
+      .select("id, doc_type, original_name, mime_type, created_at, file, version")
       .eq("application_id", id)
-      .order("created_at", { ascending: true })
-      .returns<ApplicationDocumentRow[]>();
+      .order("doc_type")
+      .order("version", { ascending: false })
+      .returns<(ApplicationDocumentRow & { version: number })[]>();
 
     if (docsErr) {
       return NextResponse.json({ error: docsErr.message }, { status: 400 });
     }
 
+    const latestDocs = new Map<string, ApplicationDocumentRow>();
+
+    for (const d of docs ?? []) {
+      if (!d.doc_type) continue;
+      if (!latestDocs.has(d.doc_type)) {
+        latestDocs.set(d.doc_type, d);
+      }
+    }
+
     const documents: DocumentWithUrl[] = await Promise.all(
-      (docs ?? []).map(async (d): Promise<DocumentWithUrl> => ({
+      Array.from(latestDocs.values()).map(async (d): Promise<DocumentWithUrl> => ({
         id: d.id,
         doc_type: d.doc_type,
         original_name: d.original_name,
@@ -231,43 +241,36 @@ export async function PATCH(
   ctx: { params: Promise<RouteParams> | RouteParams }
 ): Promise<NextResponse> {
   try {
-    const params: RouteParams =
+    const params =
       ctx.params instanceof Promise ? await ctx.params : ctx.params;
 
     const id = params.id?.trim();
     if (!id) {
-      return NextResponse.json(
-        { error: "Missing application id." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing application id." }, { status: 400 });
     }
 
-    const body = (await req.json()) as UpdatePayload;
+    const body = await req.json();
 
-    const updateData: Partial<ApplicationRow> = {
-      first_name: body.first_name,
-      middle_name: body.middle_name ?? null,
-      last_name: body.last_name,
-      email: body.email,
-      phone: body.phone ?? null,
-      application_type: body.application_type ?? null,
-      class_applied_for: body.class_applied_for,
-      program_id: body.program_id,
-      session_id: body.session_id,
-      passport_file: body.passport_file,
-      signature_file: body.signature_file,
-    };
-
-    const { error } = await supabaseAdmin
-      .from("applications")
-      .update(updateData)
-      .eq("id", id);
+    const { error } = await supabaseAdmin.rpc("update_application_full", {
+      p_application_id: id,
+      p_first_name: body.first_name,
+      p_middle_name: body.middle_name,
+      p_last_name: body.last_name,
+      p_email: body.email,
+      p_phone: body.phone,
+      p_application_type: body.application_type,
+      p_class_applied_for: body.class_applied_for,
+      p_program_id: body.program_id,
+      p_session_id: body.session_id,
+      p_passport_file: body.passport_file ?? null,
+      p_signature_file: body.signature_file ?? null,
+      p_academic_result: body.academic_result ?? null,
+      p_birth_certificate: body.birth_certificate ?? null,
+    });
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 400 }
-      );
+      console.error("PATCH applications error:", error);
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
     return NextResponse.json({ success: true });
