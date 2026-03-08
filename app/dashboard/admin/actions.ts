@@ -37,14 +37,17 @@ type SessionRow = {
   id: string;
   name: string | null;
   is_active: boolean | null;
-  created_at: string | null;
 };
 
-type ReceiptMetricRow = {
-  session_id: string | null;
-  status: ReceiptStatus | string; // DB constraint allows only 3, but keep safe
-  approved_amount: number | string | null; // numeric can come back as string
-  amount_paid: number | string | null; // numeric can come back as string
+type ReceiptRow = {
+  status: ReceiptStatus | string;
+  approved_amount: number | string | null;
+  amount_submitted: number | string | null;
+  student_fee_accounts: {
+    student_registrations: {
+      session_id: string | null;
+    } | null;
+  } | null;
 };
 
 const toNumber = (v: number | string | null | undefined): number => {
@@ -66,14 +69,12 @@ async function countExact(table: string): Promise<number> {
 }
 
 export async function getAdminDashboardData(): Promise<AdminDashboardData> {
-  // Active session
   const activeSessionPromise = supabaseAdmin
     .from("sessions")
     .select("id,name")
     .eq("is_active", true)
     .maybeSingle();
 
-  // Counts (fast)
   const studentsPromise = countExact("students");
   const applicationsPromise = countExact("applications");
   const receiptsPromise = countExact("payment_receipts");
@@ -83,7 +84,6 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .from("applications")
       .select("id", { head: true, count: "exact" })
       .eq("status", "pending");
-    // don’t crash if your applications schema differs
     if (error) return 0;
     return count ?? 0;
   })();
@@ -115,16 +115,24 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     return count ?? 0;
   })();
 
-  // Sessions + minimal receipts rows for money + session breakdown
   const sessionsPromise = supabaseAdmin
     .from("sessions")
-    .select("id,name,is_active,created_at")
+    .select("id,name,is_active")
     .returns<SessionRow[]>();
 
   const receiptsRowsPromise = supabaseAdmin
     .from("payment_receipts")
-    .select("session_id,status,approved_amount,amount_paid")
-    .returns<ReceiptMetricRow[]>();
+    .select(`
+      status,
+      approved_amount,
+      amount_submitted,
+      student_fee_accounts(
+        student_registrations(
+          session_id
+        )
+      )
+    `)
+    .returns<ReceiptRow[]>();
 
   const [
     { data: activeSession, error: aErr },
@@ -156,23 +164,25 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
 
   const staff = academicStaff + nonAcademicStaff;
 
-  // Money totals
   const activeId = activeSession?.id ?? null;
+
   let approvedAllTime = 0;
   let approvedActiveSession = 0;
 
   for (const r of receiptRows ?? []) {
     if (r.status !== "approved") continue;
 
-    const value = toNumber(r.approved_amount ?? r.amount_paid);
+    const value = toNumber(r.approved_amount ?? r.amount_submitted);
     approvedAllTime += value;
 
-    if (activeId && r.session_id === activeId) {
+    const sid =
+      r.student_fee_accounts?.student_registrations?.session_id ?? null;
+
+    if (activeId && sid === activeId) {
       approvedActiveSession += value;
     }
   }
 
-  // Session metrics
   const map = new Map<string, AdminDashboardData["bySession"][number]>();
 
   for (const s of sessions ?? []) {
@@ -188,7 +198,9 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
   }
 
   for (const r of receiptRows ?? []) {
-    const sid = r.session_id;
+    const sid =
+      r.student_fee_accounts?.student_registrations?.session_id ?? null;
+
     if (!sid) continue;
 
     const bucket = map.get(sid);
@@ -200,17 +212,21 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
 
     if (r.status === "approved") {
       bucket.receipts_approved += 1;
-      bucket.approved_amount += toNumber(r.approved_amount ?? r.amount_paid);
+      bucket.approved_amount += toNumber(
+        r.approved_amount ?? r.amount_submitted
+      );
     }
   }
 
   const bySession = Array.from(map.values()).sort((x, y) => {
-    if (x.is_active !== y.is_active) return x.is_active ? -1 : 1; // active first
+    if (x.is_active !== y.is_active) return x.is_active ? -1 : 1;
     return (y.session_name ?? "").localeCompare(x.session_name ?? "");
   });
 
   return {
-    activeSession: activeSession ? { id: activeSession.id, name: activeSession.name ?? null } : null,
+    activeSession: activeSession
+      ? { id: activeSession.id, name: activeSession.name ?? null }
+      : null,
     stats: {
       students,
       staff,
