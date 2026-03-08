@@ -11,7 +11,9 @@ interface ReviewBody {
 }
 
 function isUuid(v: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    v
+  );
 }
 
 export async function PATCH(
@@ -27,9 +29,6 @@ export async function PATCH(
     );
   }
 
-  // ------------------------------------------------------------------
-  // AUTHENTICATE USER (SSR compatible with your current version)
-  // ------------------------------------------------------------------
   const cookieStore = await cookies();
 
   const supabase = createServerClient(
@@ -51,32 +50,58 @@ export async function PATCH(
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json(
-      { error: "Unauthorized" },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // ------------------------------------------------------------------
-  // LOAD PROFILE (ROLE CHECK)
-  // ------------------------------------------------------------------
+  // ------------------------------------------------------------
+  // LOAD PROFILE
+  // ------------------------------------------------------------
   const { data: profile, error: profileErr } = await supabaseAdmin
     .from("profiles")
-    .select("main_role, unit")
+    .select("main_role")
     .eq("id", user.id)
     .single();
 
-  if (profileErr || !profile) {
+  if (profileErr) {
+    return NextResponse.json(
+      { error: profileErr.message },
+      { status: 403 }
+    );
+  }
+
+  if (!profile) {
     return NextResponse.json(
       { error: "Profile not found" },
       { status: 403 }
     );
   }
 
-  const authorized =
-    profile.main_role === "admin" ||
-    (profile.main_role === "non_academic_staff" &&
-      profile.unit === "admissions");
+  // ------------------------------------------------------------
+  // AUTHORIZATION
+  // admin OR non_academic_staff in admissions unit
+  // ------------------------------------------------------------
+  let authorized = false;
+
+  if (profile.main_role === "admin") {
+    authorized = true;
+  } else if (profile.main_role === "non_academic_staff") {
+    const { data: staff, error: staffErr } = await supabaseAdmin
+      .from("staff")
+      .select("unit")
+      .eq("id", user.id)
+      .single();
+
+    if (staffErr) {
+      return NextResponse.json(
+        { error: staffErr.message },
+        { status: 403 }
+      );
+    }
+
+    if (staff?.unit === "admissions") {
+      authorized = true;
+    }
+  }
 
   if (!authorized) {
     return NextResponse.json(
@@ -85,16 +110,12 @@ export async function PATCH(
     );
   }
 
-  // ------------------------------------------------------------------
-  // PARSE BODY SAFELY
-  // ------------------------------------------------------------------
+  // ------------------------------------------------------------
+  // PARSE BODY
+  // ------------------------------------------------------------
   const body: unknown = await req.json().catch(() => null);
 
-  if (
-    typeof body !== "object" ||
-    body === null ||
-    !("action" in body)
-  ) {
+  if (typeof body !== "object" || body === null || !("action" in body)) {
     return NextResponse.json(
       { error: "Invalid request body" },
       { status: 400 }
@@ -110,14 +131,21 @@ export async function PATCH(
     );
   }
 
-  // ------------------------------------------------------------------
+  // ------------------------------------------------------------
   // PREVENT DOUBLE REVIEW
-  // ------------------------------------------------------------------
-  const { data: existing } = await supabaseAdmin
+  // ------------------------------------------------------------
+  const { data: existing, error: existingErr } = await supabaseAdmin
     .from("applications")
     .select("status")
     .eq("id", applicationId)
     .single();
+
+  if (existingErr) {
+    return NextResponse.json(
+      { error: existingErr.message },
+      { status: 404 }
+    );
+  }
 
   if (!existing) {
     return NextResponse.json(
@@ -133,9 +161,9 @@ export async function PATCH(
     );
   }
 
-  // ------------------------------------------------------------------
+  // ------------------------------------------------------------
   // UPDATE STATUS
-  // ------------------------------------------------------------------
+  // ------------------------------------------------------------
   const updatePayload =
     action === "reject"
       ? {
@@ -151,7 +179,7 @@ export async function PATCH(
     .from("applications")
     .update({
       ...updatePayload,
-      reviewed_by: user.id, // ✅ real reviewer
+      reviewed_by: user.id,
       reviewed_date: new Date().toISOString(),
     })
     .eq("id", applicationId);
