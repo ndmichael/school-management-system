@@ -11,6 +11,8 @@ import Step4AttachmentsReview from "@/components/forms/Step4AttachmentsReview";
 import type { ApplicationFormData } from "@/types/applications";
 import { PrimaryButton, SecondaryButton } from "@/components/shared";
 
+import { normalizeNigerianPhone, normalizeNin } from "@/lib/validation/nigeria";
+
 /* =========================
    CONSTANTS
 ========================= */
@@ -201,13 +203,38 @@ export default function ApplyPage() {
       return;
     }
 
+    let normalizedPhone: string;
+    let normalizedNin: string | null = null;
+
+    try {
+      normalizedPhone = normalizeNigerianPhone(data.phone);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Invalid phone number");
+      return;
+    }
+
+    if (data.nin?.trim()) {
+      try {
+        normalizedNin = normalizeNin(data.nin);
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Invalid NIN");
+        return;
+      }
+    }
+
     try {
       setSubmitting(true);
+
+      const payload = {
+        ...data,
+        phone: normalizedPhone,
+        nin: normalizedNin,
+      };
 
       const res = await fetch("/api/applications/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
