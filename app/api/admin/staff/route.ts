@@ -135,6 +135,37 @@ function parseQualificationDocuments(v: unknown): QualificationDocumentInput[] {
   return out;
 }
 
+function serializeError(err: unknown) {
+  if (!err) return null;
+  if (typeof err === "string") return { message: err };
+
+  if (typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    return {
+      message: typeof e.message === "string" ? e.message : null,
+      code: typeof e.code === "string" ? e.code : null,
+      status: typeof e.status === "number" ? e.status : null,
+      details: typeof e.details === "string" ? e.details : null,
+      hint: typeof e.hint === "string" ? e.hint : null,
+      name: typeof e.name === "string" ? e.name : null,
+      raw: e,
+    };
+  }
+
+  return { message: String(err) };
+}
+
+function fail(step: string, error: unknown, status = 400) {
+  const payload = {
+    error: `Failed at step: ${step}`,
+    step,
+    debug: serializeError(error),
+  };
+
+  console.error("[CREATE_STAFF_ERROR]", JSON.stringify(payload, null, 2));
+  return NextResponse.json(payload, { status });
+}
+
 async function requireAdmin(): Promise<NextResponse | null> {
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
@@ -327,8 +358,48 @@ export async function POST(req: Request) {
       }
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req);
-    const redirectTo = new URL("/api/auth/confirm", baseUrl).toString();
+    const { data: existingProfile, error: existingProfileErr } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (existingProfileErr) {
+      return fail("check_existing_profile", existingProfileErr, 400);
+    }
+
+    if (existingProfile) {
+      return NextResponse.json(
+        { error: "User with this email already exists" },
+        { status: 409 }
+      );
+    }
+
+    const { data: authUsersData, error: listUsersErr } =
+      await supabaseAdmin.auth.admin.listUsers();
+
+    if (listUsersErr) {
+      return fail("list_auth_users", listUsersErr, 500);
+    }
+
+    const authExists = authUsersData.users.some(
+      (u) => (u.email ?? "").toLowerCase() === email
+    );
+
+    if (authExists) {
+      return NextResponse.json(
+        {
+          error:
+            "User already exists in auth (delete them or use a different email).",
+        },
+        { status: 409 }
+      );
+    }
+
+    const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)).replace(/\/$/, "");
+    const redirectTo = `${baseUrl}/api/auth/confirm`;
+
+    console.log("[CREATE_STAFF] inviting auth user", { email, redirectTo });
 
     const { data: inviteRes, error: inviteErr } =
       await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
@@ -339,17 +410,25 @@ export async function POST(req: Request) {
     if (inviteErr) {
       const msg = inviteErr.message ?? "Invite failed";
       const isDup = isDuplicateAuthMessage(msg);
-      return NextResponse.json(
-        { error: isDup ? "User already exists" : msg },
-        { status: isDup ? 409 : 400 }
+
+      return fail(
+        "invite_auth_user",
+        {
+          ...serializeError(inviteErr),
+          duplicate_detected: isDup,
+          email,
+          redirectTo,
+        },
+        isDup ? 409 : 400
       );
     }
 
     const invitedUser = inviteRes?.user;
     if (!invitedUser?.id) {
-      return NextResponse.json(
-        { error: "Auth invite failed (no user id)" },
-        { status: 400 }
+      return fail(
+        "invite_auth_user_no_id",
+        { message: "Auth invite failed (no user id)" },
+        400
       );
     }
 
@@ -380,9 +459,10 @@ export async function POST(req: Request) {
     if (profileErr || !profile) {
       await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
       createdAuthUserId = null;
-      return NextResponse.json(
-        { error: profileErr?.message ?? "Failed to create profile" },
-        { status: 400 }
+      return fail(
+        "create_profile",
+        profileErr ?? { message: "Failed to create profile" },
+        400
       );
     }
 
@@ -390,11 +470,18 @@ export async function POST(req: Request) {
     const deptIdForCode = main_role === "academic_staff" ? department_id : null;
 
     if (deptIdForCode) {
-      const { data: dept } = await supabaseAdmin
+      const { data: dept, error: deptErr } = await supabaseAdmin
         .from("departments")
         .select("id,code")
         .eq("id", deptIdForCode)
         .maybeSingle<DepartmentRow>();
+
+      if (deptErr) {
+        await supabaseAdmin.from("profiles").delete().eq("id", profile.id);
+        await supabaseAdmin.auth.admin.deleteUser(profile.id);
+        createdAuthUserId = null;
+        return fail("load_department_code", deptErr, 400);
+      }
 
       if (dept?.code) deptCode = dept.code;
     }
@@ -419,7 +506,7 @@ export async function POST(req: Request) {
       await supabaseAdmin.from("profiles").delete().eq("id", profile.id);
       await supabaseAdmin.auth.admin.deleteUser(profile.id);
       createdAuthUserId = null;
-      return NextResponse.json({ error: countErr.message }, { status: 400 });
+      return fail("count_existing_staff", countErr, 400);
     }
 
     const seq = String((count ?? 0) + 1).padStart(4, "0");
@@ -450,9 +537,10 @@ export async function POST(req: Request) {
       await supabaseAdmin.from("profiles").delete().eq("id", profile.id);
       await supabaseAdmin.auth.admin.deleteUser(profile.id);
       createdAuthUserId = null;
-      return NextResponse.json(
-        { error: staffErr?.message ?? "Failed to create staff record" },
-        { status: 400 }
+      return fail(
+        "create_staff_record",
+        staffErr ?? { message: "Failed to create staff record" },
+        400
       );
     }
 
@@ -476,10 +564,7 @@ export async function POST(req: Request) {
         await supabaseAdmin.auth.admin.deleteUser(profile.id);
         createdAuthUserId = null;
 
-        return NextResponse.json(
-          { error: docsErr.message },
-          { status: 400 }
-        );
+        return fail("insert_staff_documents", docsErr, 400);
       }
     }
 
@@ -491,12 +576,18 @@ export async function POST(req: Request) {
       staff,
     });
   } catch (err) {
+    console.error("[CREATE_STAFF_FATAL]", err);
+
     if (createdAuthUserId) {
       await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
     }
 
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Unexpected server error" },
+      {
+        error: "Unexpected server error",
+        step: "unhandled_catch",
+        debug: serializeError(err),
+      },
       { status: 500 }
     );
   }
