@@ -1,58 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { Input } from "@/components/shared/Input";
-import { Select } from "@/components/shared/Select";
 import { Textarea } from "@/components/shared/Textarea";
-import { Eye, Upload, X } from "lucide-react";
+import { Eye, Upload, X, Receipt, Wallet } from "lucide-react";
 import { format } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
 import { toast } from "react-toastify";
 
-type Semester = "first" | "second";
-type Status = "pending" | "approved" | "rejected";
-type PaymentType =
-  | "school_fees"
-  | "acceptance_fee"
-  | "registration_fee"
-  | "departmental_fee"
-  | "examination_fee"
-  | "accommodation_fee"
-  | "id_card_fee"
-  | "other";
+type FileRef = {
+  bucket: string;
+  path: string;
+};
 
-type PaymentRow = {
+type ReceiptStatus = "pending" | "approved" | "rejected";
+
+type StudentRow = {
   id: string;
-  student_id: string;
-
-  session_id?: string | null;
-  semester?: Semester | string | null;
-
-  payment_type: PaymentType | string;
-  amount_expected?: number | null;
-  amount_paid?: number | null;
-  approved_amount?: number | null;
-
-  payment_date?: string | null; // date
-  receipt_url: string;
-
-  status: Status | string;
-  remarks?: string | null;
-
-  transaction_reference?: string | null;
-
-  uploaded_by?: string | null;
-  verified_by?: string | null;
-  verified_at?: string | null;
-
-  rejected_by?: string | null;
-  rejected_at?: string | null;
-
-  is_late_payment?: boolean | null;
-
-  created_at: string;
-  updated_at: string;
+  profile_id: string;
+  matric_no: string | null;
 };
 
 type ActiveSessionRow = {
@@ -62,36 +29,59 @@ type ActiveSessionRow = {
   is_active: boolean | null;
 };
 
+type StudentRegistrationRow = {
+  id: string;
+  student_id: string;
+  session_id: string;
+  level: string | null;
+  status: string;
+};
+
+type StudentFeeAccountRow = {
+  id: string;
+  student_registration_id: string;
+  program_id: string;
+  annual_fee: number | string;
+  total_paid_approved: number | string;
+  balance_due: number | string | null;
+  payment_status: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type PaymentReceiptRow = {
+  id: string;
+  student_fee_account_id: string;
+  amount_submitted: number | string;
+  approved_amount: number | string | null;
+  transaction_reference: string | null;
+  remarks: string | null;
+  status: ReceiptStatus | string;
+  receipt_file: FileRef | null;
+  uploaded_by: string | null;
+  verified_by: string | null;
+  rejected_by: string | null;
+  verified_at: string | null;
+  rejected_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 const BUCKET = "receipts";
+const MAX_FILE_SIZE_MB = 2;
+const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
+const ALLOWED_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+];
 
-function semesterLabel(s: string | null | undefined) {
-  if (s === "first") return "First Semester";
-  if (s === "second") return "Second Semester";
-  return s ?? "—";
-}
-
-function paymentTypeLabel(t: string | null | undefined) {
-  const map: Record<string, string> = {
-    school_fees: "School Fees",
-    acceptance_fee: "Acceptance Fee",
-    registration_fee: "Registration Fee",
-    departmental_fee: "Departmental Fee",
-    examination_fee: "Examination Fee",
-    accommodation_fee: "Accommodation Fee",
-    id_card_fee: "ID Card Fee",
-    other: "Other",
-  };
-  return t ? map[t] ?? t : "—";
-}
-
-function statusBadge(status: string | null | undefined) {
-  if (status === "approved") return "bg-green-100 text-green-700";
-  if (status === "pending") return "bg-yellow-100 text-yellow-700";
-  return "bg-red-100 text-red-700";
-}
-
-function money(v: number | null | undefined) {
-  return v == null ? "—" : `₦${Number(v).toLocaleString()}`;
+function money(v: number | string | null | undefined) {
+  if (v == null || v === "") return "—";
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return `₦${n.toLocaleString()}`;
 }
 
 function fmtDate(d: string | null | undefined) {
@@ -103,80 +93,68 @@ function fmtDate(d: string | null | undefined) {
   }
 }
 
+function statusBadge(status: string | null | undefined) {
+  if (status === "approved") return "bg-green-100 text-green-700";
+  if (status === "pending") return "bg-yellow-100 text-yellow-700";
+  if (status === "rejected") return "bg-red-100 text-red-700";
+  if (status === "paid") return "bg-green-100 text-green-700";
+  if (status === "partial") return "bg-yellow-100 text-yellow-700";
+  return "bg-gray-200 text-gray-700";
+}
+
+function validateReceiptFile(file: File): string | null {
+  if (file.size > MAX_FILE_SIZE) {
+    return `File too large. Max ${MAX_FILE_SIZE_MB}MB`;
+  }
+  if (!ALLOWED_TYPES.includes(file.type)) {
+    return "Only JPG, PNG, WebP, or PDF files are allowed";
+  }
+  return null;
+}
+
+function isImageFile(file: File | null): boolean {
+  return !!file && file.type.startsWith("image/");
+}
+
+function isImagePath(path: string | null | undefined): boolean {
+  if (!path) return false;
+  return /\.(png|jpe?g|webp)$/i.test(path);
+}
+
 export default function StudentPaymentsPage() {
-  const supabase = createClient();
-
-  const [filterSemester, setFilterSemester] = useState<"" | Semester>("");
-  const [statusFilter, setStatusFilter] = useState<"" | Status>("");
-
+  const supabase = useMemo(() => createClient(), []);
   const [loading, setLoading] = useState(true);
-  const [payments, setPayments] = useState<PaymentRow[]>([]);
-
-  // ✅ active session
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [activeSessionName, setActiveSessionName] = useState<string | null>(null);
-
-  // ✅ slide-in state
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [activePayment, setActivePayment] = useState<PaymentRow | null>(null);
-
-  // upload form state
-  const [paymentType, setPaymentType] = useState<PaymentType | "">("");
-  const [semester, setSemester] = useState<Semester | "">("");
-  const [amount, setAmount] = useState<string>("");
-  const [paymentProof, setPaymentProof] = useState<File | null>(null);
-  const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const semesterOptions = [
-    { value: "first", label: "First Semester" },
-    { value: "second", label: "Second Semester" },
-  ] as const;
+  const [student, setStudent] = useState<StudentRow | null>(null);
+  const [activeSession, setActiveSession] = useState<ActiveSessionRow | null>(null);
+  const [registration, setRegistration] = useState<StudentRegistrationRow | null>(null);
+  const [feeAccount, setFeeAccount] = useState<StudentFeeAccountRow | null>(null);
+  const [receipts, setReceipts] = useState<PaymentReceiptRow[]>([]);
 
-  const statusOptions = [
-    { value: "pending", label: "Pending" },
-    { value: "approved", label: "Approved" },
-    { value: "rejected", label: "Rejected" },
-  ] as const;
+  const [statusFilter, setStatusFilter] = useState<"" | ReceiptStatus>("");
+  const [amountSubmitted, setAmountSubmitted] = useState("");
+  const [transactionReference, setTransactionReference] = useState("");
+  const [remarks, setRemarks] = useState("");
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptPreviewUrl, setReceiptPreviewUrl] = useState<string | null>(null);
 
-  const paymentTypeOptions = [
-    { value: "school_fees", label: "School Fees" },
-    { value: "acceptance_fee", label: "Acceptance Fee" },
-    { value: "registration_fee", label: "Registration Fee" },
-    { value: "departmental_fee", label: "Departmental Fee" },
-    { value: "examination_fee", label: "Examination Fee" },
-    { value: "accommodation_fee", label: "Accommodation Fee" },
-    { value: "id_card_fee", label: "ID Card Fee" },
-    { value: "other", label: "Other" },
-  ] as const;
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeReceipt, setActiveReceipt] = useState<PaymentReceiptRow | null>(null);
 
-  const filteredPayments = useMemo(() => {
-    return payments.filter((p) => {
-      const semOk = filterSemester ? p.semester === filterSemester : true;
-      const stOk = statusFilter ? p.status === statusFilter : true;
-      return semOk && stOk;
-    });
-  }, [payments, filterSemester, statusFilter]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  async function loadActiveSession() {
-    const { data, error } = await supabase
-      .from("sessions")
-      .select("id, name, current_semester, is_active")
-      .eq("is_active", true)
-      .maybeSingle<ActiveSessionRow>();
+  const filteredReceipts = useMemo(() => {
+    return receipts.filter((r) => (statusFilter ? r.status === statusFilter : true));
+  }, [receipts, statusFilter]);
 
-    if (error) throw new Error(error.message);
-    if (!data?.id) throw new Error("No active session found. Please contact admin.");
+  useEffect(() => {
+    return () => {
+      if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl);
+    };
+  }, [receiptPreviewUrl]);
 
-    setActiveSessionId(data.id);
-    setActiveSessionName(data.name);
-
-    if (!semester && (data.current_semester === "first" || data.current_semester === "second")) {
-      setSemester(data.current_semester);
-    }
-  }
-
-  async function loadPayments() {
+  async function loadEverything() {
     setLoading(true);
     try {
       const { data: sessRes, error: sessErr } = await supabase.auth.getSession();
@@ -184,78 +162,199 @@ export default function StudentPaymentsPage() {
       const uid = sessRes.session?.user?.id;
       if (!uid) throw new Error("Not authenticated.");
 
-      const { data: student, error: sErr } = await supabase
+      const { data: activeSess, error: activeSessErr } = await supabase
+        .from("sessions")
+        .select("id, name, current_semester, is_active")
+        .eq("is_active", true)
+        .maybeSingle<ActiveSessionRow>();
+
+      if (activeSessErr) throw new Error(activeSessErr.message);
+      if (!activeSess?.id) throw new Error("No active session found. Please contact admin.");
+
+      setActiveSession(activeSess);
+
+      const { data: studentRow, error: studentErr } = await supabase
         .from("students")
-        .select("id")
+        .select("id, profile_id, matric_no")
         .eq("profile_id", uid)
-        .single<{ id: string }>();
+        .single<StudentRow>();
 
-      if (sErr || !student) throw new Error(sErr?.message || "Student record not found.");
+      if (studentErr || !studentRow) {
+        throw new Error(studentErr?.message || "Student record not found.");
+      }
 
-      const { data, error } = await supabase
+      setStudent(studentRow);
+
+      const { data: regRow, error: regErr } = await supabase
+        .from("student_registrations")
+        .select("id, student_id, session_id, level, status")
+        .eq("student_id", studentRow.id)
+        .eq("session_id", activeSess.id)
+        .maybeSingle<StudentRegistrationRow>();
+
+      if (regErr) throw new Error(regErr.message);
+
+      setRegistration(regRow ?? null);
+
+      if (!regRow?.id) {
+        setFeeAccount(null);
+        setReceipts([]);
+        return;
+      }
+
+      const { data: feeRow, error: feeErr } = await supabase
+        .from("student_fee_accounts")
+        .select(
+          "id, student_registration_id, program_id, annual_fee, total_paid_approved, balance_due, payment_status, created_at, updated_at"
+        )
+        .eq("student_registration_id", regRow.id)
+        .maybeSingle<StudentFeeAccountRow>();
+
+      if (feeErr) throw new Error(feeErr.message);
+
+      setFeeAccount(feeRow ?? null);
+
+      if (!feeRow?.id) {
+        setReceipts([]);
+        return;
+      }
+
+      const { data: receiptRows, error: receiptErr } = await supabase
         .from("payment_receipts")
-        .select("*")
-        .eq("student_id", student.id)
+        .select(
+          "id, student_fee_account_id, amount_submitted, approved_amount, transaction_reference, remarks, status, receipt_file, uploaded_by, verified_by, rejected_by, verified_at, rejected_at, created_at, updated_at"
+        )
+        .eq("student_fee_account_id", feeRow.id)
         .order("created_at", { ascending: false })
-        .returns<PaymentRow[]>();
+        .returns<PaymentReceiptRow[]>();
 
-      if (error) throw new Error(error.message);
-      setPayments(data ?? []);
+      if (receiptErr) throw new Error(receiptErr.message);
+
+      setReceipts(receiptRows ?? []);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load payments");
-      setPayments([]);
+      setStudent(null);
+      setActiveSession(null);
+      setRegistration(null);
+      setFeeAccount(null);
+      setReceipts([]);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    (async () => {
-      try {
-        await loadActiveSession();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Failed to load active session");
-      }
-    })();
-
-    void loadPayments();
+    void loadEverything();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function openDrawer(p: PaymentRow) {
-    setActivePayment(p);
+  async function uploadReceipt(file: File): Promise<FileRef> {
+    const { data: sessRes, error: sessErr } = await supabase.auth.getSession();
+    if (sessErr) throw new Error(sessErr.message);
+    const uid = sessRes.session?.user?.id;
+    if (!uid) throw new Error("No active session. Please login again.");
+
+    const ext = file.name.split(".").pop()?.trim().toLowerCase() || "bin";
+    const path = `${uid}/${crypto.randomUUID()}.${ext}`;
+
+    const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+      upsert: false,
+      contentType: file.type || undefined,
+    });
+
+    if (error) throw new Error(error.message);
+
+    return {
+      bucket: BUCKET,
+      path,
+    };
+  }
+
+  function handleReceiptFileChange(file: File | null) {
+    if (receiptPreviewUrl) {
+      URL.revokeObjectURL(receiptPreviewUrl);
+      setReceiptPreviewUrl(null);
+    }
+
+    if (!file) {
+      setReceiptFile(null);
+      return;
+    }
+
+    const err = validateReceiptFile(file);
+    if (err) {
+      toast.error(err);
+      setReceiptFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setReceiptFile(file);
+    if (isImageFile(file)) {
+      setReceiptPreviewUrl(URL.createObjectURL(file));
+    }
+  }
+
+  function clearReceiptForm() {
+    if (receiptPreviewUrl) {
+      URL.revokeObjectURL(receiptPreviewUrl);
+    }
+    setAmountSubmitted("");
+    setTransactionReference("");
+    setRemarks("");
+    setReceiptFile(null);
+    setReceiptPreviewUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function openDrawer(receipt: PaymentReceiptRow) {
+    setActiveReceipt(receipt);
     setDrawerOpen(true);
   }
 
   function closeDrawer() {
     setDrawerOpen(false);
-    // keep activePayment so animation doesn’t flash; clear after a tick
-    window.setTimeout(() => setActivePayment(null), 150);
+    window.setTimeout(() => setActiveReceipt(null), 150);
   }
 
-  async function handleView(payment: PaymentRow) {
+  async function handleViewReceipt(receipt: PaymentReceiptRow) {
     try {
-      if (!payment.receipt_url) {
-        toast.info("No receipt attached for this payment.");
+      if (!receipt.receipt_file?.bucket || !receipt.receipt_file?.path) {
+        toast.info("No receipt file attached.");
         return;
       }
-      window.open(payment.receipt_url, "_blank", "noopener,noreferrer");
-    } catch {
-      toast.error("Unable to open receipt");
+
+      const { data } = supabase.storage
+        .from(receipt.receipt_file.bucket)
+        .getPublicUrl(receipt.receipt_file.path);
+
+      if (!data?.publicUrl) {
+        throw new Error("Could not generate file URL.");
+      }
+
+      window.open(data.publicUrl, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Unable to open receipt");
     }
   }
 
-  const handleUpload = async (e: React.FormEvent) => {
+  async function handleUpload(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!activeSessionId) return toast.error("No active session found. Please contact admin.");
-    if (!paymentType) return toast.error("Select payment type.");
-    if (!semester) return toast.error("Select semester.");
-    if (!paymentProof) return toast.error("Please select a file.");
+    if (!feeAccount?.id) {
+      toast.error("No fee account found for the active session.");
+      return;
+    }
 
-    const parsedAmount = amount.trim() ? Number(amount) : null;
-    if (amount.trim() && (parsedAmount == null || Number.isNaN(parsedAmount))) {
-      return toast.error("Amount must be a valid number.");
+    const parsedAmount = Number(amountSubmitted);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      toast.error("Enter a valid amount greater than 0.");
+      return;
+    }
+
+    if (!receiptFile) {
+      toast.error("Please select a receipt file.");
+      return;
     }
 
     setSubmitting(true);
@@ -266,280 +365,332 @@ export default function StudentPaymentsPage() {
       const uid = sessRes.session?.user?.id;
       if (!uid) throw new Error("No active session. Please login again.");
 
-      const { data: student, error: sErr } = await supabase
-        .from("students")
-        .select("id, profile_id")
-        .eq("profile_id", uid)
-        .single<{ id: string; profile_id: string }>();
-
-      if (sErr || !student) throw new Error(sErr?.message || "Student record not found.");
-      if (student.profile_id !== uid) throw new Error("Student record mismatch.");
-
-      const ext = paymentProof.name.split(".").pop()?.toLowerCase() || "jpg";
-      const path = `${uid}/${crypto.randomUUID()}.${ext}`;
-
-      const up = await supabase.storage.from(BUCKET).upload(path, paymentProof, {
-        upsert: false,
-        contentType: paymentProof.type,
-      });
-      if (up.error) throw new Error(up.error.message);
-
-      const receiptUrl = supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
-      if (!receiptUrl) throw new Error("Could not generate receipt URL.");
+      const receiptRef = await uploadReceipt(receiptFile);
 
       const payload = {
-        student_id: student.id,
-        session_id: activeSessionId,
-        uploaded_by: uid,
-        payment_type: paymentType,
-        semester: semester,
-        amount_paid: parsedAmount,
-        receipt_url: receiptUrl,
+        student_fee_account_id: feeAccount.id,
+        amount_submitted: parsedAmount,
+        approved_amount: null,
+        transaction_reference: transactionReference.trim()
+          ? transactionReference.trim()
+          : null,
+        remarks: remarks.trim() ? remarks.trim() : null,
         status: "pending" as const,
-        remarks: description.trim() ? description.trim() : null,
+        receipt_file: receiptRef,
+        uploaded_by: uid,
+        verified_by: null,
+        rejected_by: null,
+        verified_at: null,
+        rejected_at: null,
       };
 
       const { error: insErr } = await supabase.from("payment_receipts").insert(payload);
-      if (insErr) {
-        throw new Error(
-          [insErr.message, insErr.details, insErr.hint, insErr.code ? `code=${insErr.code}` : null]
-            .filter(Boolean)
-            .join(" | ")
-        );
-      }
 
-      toast.success("Payment proof submitted for verification.");
+      if (insErr) throw new Error(insErr.message);
 
-      setPaymentType("");
-      setAmount("");
-      setPaymentProof(null);
-      setDescription("");
-
-      await loadPayments();
+      toast.success("Receipt submitted for verification.");
+      clearReceiptForm();
+      await loadEverything();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setSubmitting(false);
     }
-  };
+  }
+
+  const summaryCards = [
+    {
+      label: "Annual Fee",
+      value: money(feeAccount?.annual_fee),
+      icon: Wallet,
+    },
+    {
+      label: "Approved Paid",
+      value: money(feeAccount?.total_paid_approved),
+      icon: Receipt,
+    },
+    {
+      label: "Balance Due",
+      value: money(feeAccount?.balance_due),
+      icon: Wallet,
+    },
+  ];
 
   return (
     <div className="space-y-8">
-      {/* Page Header + Filters */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Payments</h1>
-          <p className="text-xs text-gray-500 mt-1">
-            Active session: <span className="font-medium">{activeSessionName ?? "—"}</span>
-          </p>
-        </div>
+      <div className="flex flex-col gap-2">
+        <h1 className="text-2xl font-bold text-gray-900">Payments</h1>
+        <p className="text-sm text-gray-500">
+          Active session: <span className="font-medium">{activeSession?.name ?? "—"}</span>
+        </p>
+        <p className="text-sm text-gray-500">
+          Matric No: <span className="font-medium">{student?.matric_no ?? "—"}</span>
+        </p>
+      </div>
 
-        <div className="flex flex-col sm:flex-row gap-4">
-          <Select<Semester>
-            label="Filter by Semester"
-            options={semesterOptions}
-            value={filterSemester}
-            onChange={(v) => setFilterSemester(v)}
-          />
-          <Select<Status>
-            label="Filter by Status"
-            options={statusOptions}
-            value={statusFilter}
-            onChange={(v) => setStatusFilter(v)}
-          />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {summaryCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <div key={card.label} className="rounded-2xl border border-gray-200 bg-white p-5">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-500">{card.label}</p>
+                <Icon className="w-5 h-5 text-gray-400" />
+              </div>
+              <p className="mt-3 text-2xl font-bold text-gray-900">{card.value}</p>
+            </div>
+          );
+        })}
+
+        <div className="rounded-2xl border border-gray-200 bg-white p-5">
+          <p className="text-sm text-gray-500">Account Status</p>
+          <div className="mt-3">
+            <span
+              className={`inline-flex px-3 py-1 rounded-full text-sm font-semibold ${statusBadge(
+                feeAccount?.payment_status ?? null
+              )}`}
+            >
+              {(feeAccount?.payment_status ?? "—").toString()}
+            </span>
+          </div>
+          <p className="mt-3 text-xs text-gray-500">
+            Registration: {registration?.status ?? "—"}
+          </p>
         </div>
       </div>
 
-      {/* Desktop Table */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <h2 className="text-xl font-bold text-gray-900">Submitted Receipts</h2>
+
+        <div className="w-full sm:w-64">
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Filter by Status
+          </label>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter((e.target.value as "" | ReceiptStatus) ?? "")}
+            className="w-full rounded-xl border border-gray-300 px-3 py-3 text-sm bg-white"
+          >
+            <option value="">All</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+      </div>
+
       <div className="hidden lg:block bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[200px]">Payment Type</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[160px]">Amount</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[180px]">Semester</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[150px]">Status</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[180px]">Date</th>
-                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900 w-[120px]">Actions</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Submitted</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Approved</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Reference</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Status</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Date</th>
+                <th className="px-6 py-4 text-left text-sm font-semibold text-gray-900">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {loading ? (
                 <tr>
                   <td colSpan={6} className="px-6 py-10 text-sm text-gray-600">
-                    Loading payments...
+                    Loading receipts...
+                  </td>
+                </tr>
+              ) : filteredReceipts.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-6 py-10 text-sm text-gray-600">
+                    No receipts found.
                   </td>
                 </tr>
               ) : (
-                filteredPayments.map((p) => {
-                  const bestAmount = p.amount_paid ?? p.approved_amount ?? p.amount_expected ?? null;
-                  const bestDate = p.payment_date ?? p.created_at ?? null;
-
-                  return (
-                    <tr key={p.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-6 py-4 text-sm text-gray-900">{paymentTypeLabel(p.payment_type ?? null)}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{money(bestAmount)}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900">{semesterLabel(p.semester ?? null)}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-3 py-1 text-xs font-semibold rounded-full whitespace-nowrap ${statusBadge(p.status)}`}>
-                          {(p.status ?? "unknown").charAt(0).toUpperCase() + (p.status ?? "unknown").slice(1)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-500">{bestDate ? fmtDate(bestDate) : "—"}</td>
-                      <td className="px-6 py-4">
-                        <button
-                          onClick={() => openDrawer(p)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                          title="View details"
-                        >
-                          <Eye className="w-4 h-4 text-gray-600" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })
+                filteredReceipts.map((r) => (
+                  <tr key={r.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {money(r.amount_submitted)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {money(r.approved_amount)}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-900">
+                      {r.transaction_reference ?? "—"}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`px-3 py-1 text-xs font-semibold rounded-full whitespace-nowrap ${statusBadge(
+                          r.status
+                        )}`}
+                      >
+                        {String(r.status).charAt(0).toUpperCase() + String(r.status).slice(1)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500">
+                      {fmtDate(r.created_at)}
+                    </td>
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={() => openDrawer(r)}
+                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                        title="View details"
+                      >
+                        <Eye className="w-4 h-4 text-gray-600" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
         </div>
-
-        {!loading && filteredPayments.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-600">No payments found for the selected filters</p>
-          </div>
-        )}
       </div>
 
-      {/* Mobile Cards */}
       <div className="lg:hidden space-y-4">
         {loading ? (
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 text-sm text-gray-600">
-            Loading payments...
+            Loading receipts...
+          </div>
+        ) : filteredReceipts.length === 0 ? (
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm p-4 text-sm text-gray-600">
+            No receipts found.
           </div>
         ) : (
-          filteredPayments.map((p) => {
-            const bestAmount = p.amount_paid ?? p.approved_amount ?? p.amount_expected ?? null;
-            const bestDate = p.payment_date ?? p.created_at ?? null;
+          filteredReceipts.map((r) => (
+            <div key={r.id} className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
+              <div className="flex justify-between items-center mb-2">
+                <span className="font-semibold text-gray-900">
+                  {money(r.amount_submitted)}
+                </span>
+                <span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusBadge(r.status)}`}>
+                  {String(r.status).charAt(0).toUpperCase() + String(r.status).slice(1)}
+                </span>
+              </div>
 
-            return (
-              <div key={p.id} className="bg-white border border-gray-200 rounded-xl shadow-sm p-4">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="font-semibold text-gray-900">{paymentTypeLabel(p.payment_type ?? null)}</span>
-                  <span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusBadge(p.status)}`}>
-                    {(p.status ?? "unknown").charAt(0).toUpperCase() + (p.status ?? "unknown").slice(1)}
-                  </span>
+              <div className="grid grid-cols-1 gap-2 text-sm text-gray-700">
+                <div>
+                  <span className="font-semibold">Approved:</span> {money(r.approved_amount)}
                 </div>
-
-                <div className="grid grid-cols-2 gap-2 text-sm text-gray-700">
-                  <div>
-                    <span className="font-semibold">Amount:</span> {money(bestAmount)}
-                  </div>
-                  <div>
-                    <span className="font-semibold">Semester:</span> {semesterLabel(p.semester ?? null)}
-                  </div>
-                  <div className="col-span-2">
-                    <span className="font-semibold">Date:</span> {bestDate ? fmtDate(bestDate) : "—"}
-                  </div>
+                <div>
+                  <span className="font-semibold">Reference:</span> {r.transaction_reference ?? "—"}
                 </div>
-
-                <div className="mt-3">
-                  <button
-                    onClick={() => openDrawer(p)}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm"
-                  >
-                    <Eye className="w-4 h-4" /> View details
-                  </button>
+                <div>
+                  <span className="font-semibold">Date:</span> {fmtDate(r.created_at)}
                 </div>
               </div>
-            );
-          })
-        )}
 
-        {!loading && filteredPayments.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-600">No payments found for the selected filters</p>
-          </div>
+              <div className="mt-3">
+                <button
+                  onClick={() => openDrawer(r)}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm"
+                >
+                  <Eye className="w-4 h-4" /> View details
+                </button>
+              </div>
+            </div>
+          ))
         )}
       </div>
 
-      {/* Upload Payment Proof Form */}
       <div className="bg-white rounded-2xl p-6 border border-gray-200 space-y-6">
         <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
           <Upload className="w-5 h-5 text-blue-600" />
-          Upload Payment Proof
+          Upload Payment Receipt
         </h2>
 
-        <form onSubmit={handleUpload} className="space-y-4">
-          <Select<PaymentType>
-            label="Payment Type"
-            options={paymentTypeOptions}
-            value={paymentType}
-            onChange={(v) => setPaymentType(v)}
-            required
-          />
+        {!feeAccount?.id ? (
+          <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
+            No fee account is available for the active session yet. Contact admissions or bursary.
+          </div>
+        ) : (
+          <form onSubmit={handleUpload} className="space-y-4">
+            <Input
+              label="Amount Submitted (₦)"
+              type="number"
+              placeholder="e.g. 25000"
+              value={amountSubmitted}
+              onChange={(e) => setAmountSubmitted(e.target.value)}
+              required
+            />
 
-          <Select<Semester>
-            label="Semester"
-            options={semesterOptions}
-            value={semester}
-            onChange={(v) => setSemester(v)}
-            required
-          />
+            <Input
+              label="Transaction Reference (optional)"
+              placeholder="Bank teller / transfer reference"
+              value={transactionReference}
+              onChange={(e) => setTransactionReference(e.target.value)}
+            />
 
-          <Input
-            label="Amount Paid (₦)"
-            type="number"
-            placeholder="e.g. 250000"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
+            <Input
+              ref={fileInputRef}
+              label="Receipt File"
+              type="file"
+              accept=".jpg,.jpeg,.png,.webp,.pdf"
+              onChange={(e) => handleReceiptFileChange(e.target.files?.[0] ?? null)}
+              required
+            />
 
-          <Input
-            label="Select File"
-            type="file"
-            accept=".jpg,.jpeg,.png,.webp,.pdf"
-            onChange={(e) => setPaymentProof(e.target.files ? e.target.files[0] : null)}
-            required
-          />
+            {receiptFile ? (
+              <div className="rounded-xl border border-gray-200 p-3">
+                <div className="text-xs text-gray-500 mb-2">Selected File</div>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{receiptFile.name}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {(receiptFile.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearReceiptForm}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border bg-white text-red-600 hover:bg-red-50"
+                    aria-label="Remove receipt"
+                    title="Remove receipt"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
 
-          {paymentProof && paymentProof.type.startsWith("image/") ? (
-            <div className="rounded-xl border border-gray-200 p-3">
-              <div className="text-xs text-gray-500 mb-2">Preview</div>
-              <div className="relative w-full h-48">
-                <Image src={URL.createObjectURL(paymentProof)} alt="Payment proof preview" fill className="object-contain" />
+                {receiptPreviewUrl ? (
+                  <div className="relative w-full h-56 mt-3 rounded-lg overflow-hidden border bg-gray-50">
+                    <Image
+                      src={receiptPreviewUrl}
+                      alt="Receipt preview"
+                      fill
+                      className="object-contain"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-600 mt-3">PDF selected. Preview not shown.</p>
+                )}
               </div>
-            </div>
-          ) : null}
+            ) : null}
 
-          <Textarea
-            label="Remarks (optional)"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
+            <Textarea
+              label="Remarks (optional)"
+              value={remarks}
+              onChange={(e) => setRemarks(e.target.value)}
+            />
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="px-6 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50"
-          >
-            {submitting ? "Submitting..." : "Upload Proof"}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-6 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              {submitting ? "Submitting..." : "Submit Receipt"}
+            </button>
+          </form>
+        )}
       </div>
 
-      {/* ✅ Slide-in Drawer */}
       <div
         className={`fixed inset-0 z-50 ${drawerOpen ? "pointer-events-auto" : "pointer-events-none"}`}
         aria-hidden={!drawerOpen}
       >
-        {/* Backdrop */}
         <div
           onClick={closeDrawer}
           className={`absolute inset-0 bg-black/30 transition-opacity ${drawerOpen ? "opacity-100" : "opacity-0"}`}
         />
 
-        {/* Panel */}
         <aside
           className={`absolute right-0 top-0 h-full w-full sm:w-[420px] bg-white shadow-2xl border-l border-gray-200 transform transition-transform duration-200 ${
             drawerOpen ? "translate-x-0" : "translate-x-full"
@@ -550,9 +701,9 @@ export default function StudentPaymentsPage() {
           <div className="h-full flex flex-col">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
               <div>
-                <p className="text-sm text-gray-500">Payment Details</p>
+                <p className="text-sm text-gray-500">Receipt Details</p>
                 <h3 className="text-base font-semibold text-gray-900">
-                  {activePayment ? paymentTypeLabel(activePayment.payment_type ?? null) : "—"}
+                  {activeReceipt ? money(activeReceipt.amount_submitted) : "—"}
                 </h3>
               </div>
 
@@ -566,77 +717,76 @@ export default function StudentPaymentsPage() {
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-              {!activePayment ? (
-                <div className="text-sm text-gray-600">No payment selected.</div>
+              {!activeReceipt ? (
+                <div className="text-sm text-gray-600">No receipt selected.</div>
               ) : (
                 <>
                   <div className="rounded-xl border border-gray-200 p-4">
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-gray-500">Status</span>
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusBadge(activePayment.status)}`}>
-                        {(activePayment.status ?? "unknown").toString().toUpperCase()}
+                      <span
+                        className={`px-2 py-1 text-xs font-semibold rounded-full ${statusBadge(
+                          activeReceipt.status
+                        )}`}
+                      >
+                        {String(activeReceipt.status).toUpperCase()}
                       </span>
                     </div>
 
                     <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                      <Detail label="Session ID" value={activePayment.session_id ?? "—"} />
-                      <Detail label="Semester" value={semesterLabel(activePayment.semester ?? null)} />
+                      <Detail label="Submitted" value={money(activeReceipt.amount_submitted)} />
+                      <Detail label="Approved" value={money(activeReceipt.approved_amount)} />
                       <Detail
-                        label="Amount Paid"
-                        value={money(activePayment.amount_paid ?? null)}
+                        label="Created"
+                        value={fmtDate(activeReceipt.created_at)}
                       />
                       <Detail
-                        label="Approved Amount"
-                        value={money(activePayment.approved_amount ?? null)}
+                        label="Verified At"
+                        value={fmtDate(activeReceipt.verified_at)}
                       />
                       <Detail
-                        label="Expected Amount"
-                        value={money(activePayment.amount_expected ?? null)}
+                        label="Rejected At"
+                        value={fmtDate(activeReceipt.rejected_at)}
                       />
                       <Detail
-                        label="Payment Date"
-                        value={fmtDate(activePayment.payment_date ?? activePayment.created_at ?? null)}
+                        label="Reference"
+                        value={activeReceipt.transaction_reference ?? "—"}
                       />
-                      <Detail label="Transaction Ref" value={activePayment.transaction_reference ?? "—"} />
-                      <Detail label="Late Payment" value={activePayment.is_late_payment ? "Yes" : "No"} />
                     </div>
 
-                    {activePayment.remarks ? (
+                    {activeReceipt.remarks ? (
                       <div className="mt-4">
                         <p className="text-xs text-gray-500">Remarks</p>
-                        <p className="text-sm text-gray-900 mt-1 whitespace-pre-wrap">{activePayment.remarks}</p>
+                        <p className="text-sm text-gray-900 mt-1 whitespace-pre-wrap">
+                          {activeReceipt.remarks}
+                        </p>
                       </div>
                     ) : null}
                   </div>
 
                   <div className="rounded-xl border border-gray-200 p-4">
-                    <p className="text-xs text-gray-500 mb-2">Receipt</p>
+                    <p className="text-xs text-gray-500 mb-2">Receipt File</p>
 
-                    {activePayment.receipt_url ? (
+                    {activeReceipt.receipt_file?.bucket && activeReceipt.receipt_file?.path ? (
                       <>
-                        {/* If it's an image, show preview */}
-                        {/\.(png|jpe?g|webp)$/i.test(activePayment.receipt_url) ? (
-                          <div className="relative w-full h-56 rounded-lg overflow-hidden border bg-gray-50">
-                            <Image
-                              src={activePayment.receipt_url}
-                              alt="Receipt"
-                              fill
-                              className="object-contain"
-                            />
-                          </div>
+                        {isImagePath(activeReceipt.receipt_file.path) ? (
+                          <ReceiptPreview
+                            supabase={supabase}
+                            fileRef={activeReceipt.receipt_file}
+                          />
                         ) : (
                           <p className="text-sm text-gray-700">PDF uploaded (preview not shown).</p>
                         )}
 
                         <button
-                          onClick={() => void handleView(activePayment)}
+                          onClick={() => void handleViewReceipt(activeReceipt)}
                           className="mt-3 w-full rounded-xl bg-blue-600 px-4 py-2 text-white text-sm font-medium hover:bg-blue-700"
                         >
                           View Receipt
                         </button>
                       </>
                     ) : (
-                      <p className="text-sm text-gray-600">No receipt URL found.</p>
+                      <p className="text-sm text-gray-600">No receipt file found.</p>
                     )}
                   </div>
                 </>
@@ -663,6 +813,25 @@ function Detail({ label, value }: { label: string; value: string }) {
     <div>
       <p className="text-xs text-gray-500">{label}</p>
       <p className="text-sm font-medium text-gray-900 truncate">{value}</p>
+    </div>
+  );
+}
+
+function ReceiptPreview({
+  supabase,
+  fileRef,
+}: {
+  supabase: ReturnType<typeof createClient>;
+  fileRef: FileRef;
+}) {
+  const publicUrl = useMemo(() => {
+    const { data } = supabase.storage.from(fileRef.bucket).getPublicUrl(fileRef.path);
+    return data.publicUrl;
+  }, [supabase, fileRef.bucket, fileRef.path]);
+
+  return (
+    <div className="relative w-full h-56 rounded-lg overflow-hidden border bg-gray-50">
+      <Image src={publicUrl} alt="Receipt" fill className="object-contain" />
     </div>
   );
 }
