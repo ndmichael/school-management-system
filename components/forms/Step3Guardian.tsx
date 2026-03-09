@@ -69,12 +69,18 @@ const Step3Guardian: FC<Step3Props> = ({ data, setData }) => {
           }))}
           required
         />
+
         <Input
           label="Guardian Phone"
-          placeholder="+2348012345678"
+          placeholder="08012345678 or +2348012345678"
           type="tel"
           value={data.guardianPhone}
-          onChange={(e) => setData({ guardianPhone: e.target.value })}
+          onChange={(e) =>
+            setData({
+              ...data,
+              phone: e.target.value.replace(/[^\d+]/g, "").slice(0, 14),
+            })
+          }
           required
         />
       </div>
