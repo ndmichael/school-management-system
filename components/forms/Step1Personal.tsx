@@ -63,9 +63,11 @@ const Step1Personal: FC<Step1Props> = ({ data, setData }) => {
         />
         <Input
           label="NIN"
-          placeholder="National Identification Number"
+          placeholder="11-digit National Identification Number"
           value={data.nin}
-          onChange={(e) => setData({ nin: e.target.value })}
+          onChange={(e) =>
+            setData({ ...data, nin: e.target.value.replace(/\D/g, "").slice(0, 11) })
+          }
           required
         />
       </div>
@@ -82,10 +84,15 @@ const Step1Personal: FC<Step1Props> = ({ data, setData }) => {
         />
         <Input
           label="Phone"
-          placeholder="+2348012345678"
+          placeholder="08012345678 or +2348012345678"
           type="tel"
           value={data.phone}
-          onChange={(e) => setData({ phone: e.target.value })}
+          onChange={(e) =>
+            setData({
+              ...data,
+              phone: e.target.value.replace(/[^\d+]/g, "").slice(0, 14),
+            })
+          }
           required
         />
       </div>
