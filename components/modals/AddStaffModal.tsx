@@ -6,6 +6,8 @@ import { Input, Select } from "@/components/shared";
 import { toast } from "react-toastify";
 import { createClient } from "@/lib/supabase/client";
 
+import { normalizeNigerianPhone, normalizeNin } from "@/lib/validation/nigeria";
+
 type MainRole = "academic_staff" | "non_academic_staff";
 type StaffUnit = "admissions" | "bursary" | "exams";
 type Religion = "islam" | "christianity" | "other";
@@ -327,6 +329,20 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
       return;
     }
 
+    let normalizedPhone = "";
+    let normalizedNin: string | null = null;
+
+    try {
+      normalizedPhone = normalizeNigerianPhone(form.phone);
+
+      if (form.nin.trim()) {
+        normalizedNin = normalizeNin(form.nin);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Invalid phone or NIN");
+      return;
+    }
+
     try {
       setUploading(true);
 
@@ -362,10 +378,10 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
         last_name: form.last_name.trim(),
         email: form.email.trim().toLowerCase(),
 
-        phone: form.phone.trim() ? form.phone.trim() : null,
+        phone: normalizedPhone,
         gender: form.gender || null,
         date_of_birth: form.date_of_birth || null,
-        nin: form.nin.trim() ? form.nin.trim() : null,
+        nin: normalizedNin,
         address: form.address.trim() ? form.address.trim() : null,
         state_of_origin: form.state_of_origin.trim() ? form.state_of_origin.trim() : null,
         lga_of_origin: form.lga_of_origin.trim() ? form.lga_of_origin.trim() : null,
@@ -452,9 +468,12 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
           <Input
             label="Phone Number"
             required
-            placeholder="+234 800 000 0000"
+            placeholder="08012345678 or +2348012345678"
+            type="tel"
             value={form.phone}
-            onChange={(e) => update("phone", e.target.value)}
+            onChange={(e) =>
+              update("phone", e.target.value.replace(/[^\d+]/g, "").slice(0, 14))
+            }
           />
         </div>
 
@@ -479,9 +498,9 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
 
         <Input
           label="National ID (NIN)"
-          placeholder="1234-5678-9012"
+          placeholder="11-digit NIN"
           value={form.nin}
-          onChange={(e) => update("nin", e.target.value)}
+          onChange={(e) => update("nin", e.target.value.replace(/\D/g, "").slice(0, 11))}
         />
 
         <Input
@@ -494,13 +513,13 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
         <div className="grid sm:grid-cols-3 gap-4">
           <Input
             label="State of Origin"
-            placeholder="Kaduna"
+            placeholder="Kano"
             value={form.state_of_origin}
             onChange={(e) => update("state_of_origin", e.target.value)}
           />
           <Input
             label="LGA of Origin"
-            placeholder="Zaria"
+            placeholder="Karaye"
             value={form.lga_of_origin}
             onChange={(e) => update("lga_of_origin", e.target.value)}
           />
