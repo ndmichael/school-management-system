@@ -3,7 +3,6 @@
 import { useEffect, useState, useMemo } from "react";
 import { toPublicImageSrc } from "@/lib/storage-images";
 import { createClient } from "@/lib/supabase/client";
-
 import { Modal } from "../Modal";
 import Image from "next/image";
 import { toast } from "react-toastify";
@@ -14,19 +13,39 @@ interface ViewStaffDetailsModalProps {
   onClose: () => void;
 }
 
+type FileRef = {
+  bucket: string;
+  path: string;
+};
+
+type StaffDocument = {
+  id?: string;
+  doc_type: string;
+  bucket: string;
+  path: string;
+  original_name?: string | null;
+  mime_type?: string | null;
+};
+
 type StaffDetails = {
   staff_id: string;
   status: string;
   designation: string | null;
   specialization: string | null;
+  bank_name: string | null;
+  account_number: string | null;
+  avatar_file: FileRef | null;
+  signature_file: FileRef | null;
   departments: { name: string | null } | null;
   profiles: {
     first_name: string | null;
     last_name: string | null;
     email: string;
     phone: string | null;
-    avatar_file: { bucket: string; path: string } | null;
-  } | null; // ✅ make nullable to match usage
+    avatar_file?: FileRef | null;
+  } | null;
+  staff_documents?: StaffDocument[];
+  qualification_documents?: StaffDocument[];
 };
 
 export function ViewStaffDetailsModal({
@@ -63,6 +82,11 @@ export function ViewStaffDetailsModal({
 
   if (!isOpen) return null;
 
+  const qualificationDocs =
+    staff?.qualification_documents ?? staff?.staff_documents ?? [];
+
+  const avatarRef = staff?.avatar_file ?? staff?.profiles?.avatar_file ?? null;
+
   return (
     <Modal title="Staff Details" isOpen={isOpen} onClose={onClose} size="lg">
       {loading || !staff ? (
@@ -71,15 +95,10 @@ export function ViewStaffDetailsModal({
         </div>
       ) : (
         <div className="space-y-8">
-          {/* Avatar & Name */}
           <div className="flex flex-col justify-center items-center text-center gap-4">
             <div className="relative w-28 h-28 rounded-full overflow-hidden shadow-md bg-gray-100">
               <Image
-                src={toPublicImageSrc(
-                  supabase,
-                  staff.profiles?.avatar_file,
-                  "/avatar.png"
-                )}
+                src={toPublicImageSrc(supabase, avatarRef, "/avatar.png")}
                 fill
                 alt="Staff Photo"
                 className="object-cover"
@@ -94,19 +113,72 @@ export function ViewStaffDetailsModal({
             </div>
           </div>
 
-          <div className="border-t pt-6"></div>
+          <div className="border-t pt-6" />
 
-          {/* Information Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 text-sm">
             <Info label="Email" value={staff.profiles?.email} />
             <Info label="Phone" value={staff.profiles?.phone} />
             <Info label="Department" value={staff.departments?.name} />
             <Info label="Designation" value={staff.designation} />
             <Info label="Specialization" value={staff.specialization} />
+            <Info label="Bank Name" value={staff.bank_name} />
+            <Info label="Account Number" value={staff.account_number} />
             <StatusBadge status={staff.status} />
           </div>
 
-          <div className="border-t pt-6"></div>
+          <div className="border-t pt-6" />
+
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-gray-900">Signature</h3>
+
+            {staff.signature_file ? (
+              <a
+                href={toPublicImageSrc(supabase, staff.signature_file, "")}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center rounded-lg border px-4 py-2 text-sm text-blue-600 hover:underline"
+              >
+                View Signature
+              </a>
+            ) : (
+              <p className="text-sm text-gray-500">No signature uploaded.</p>
+            )}
+          </div>
+
+          <div className="border-t pt-6" />
+
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-gray-900">
+              Qualification Documents
+            </h3>
+
+            {qualificationDocs.length === 0 ? (
+              <p className="text-sm text-gray-500">No qualification documents uploaded.</p>
+            ) : (
+              <div className="space-y-3">
+                {qualificationDocs.map((doc, index) => (
+                  <a
+                    key={doc.id ?? `${doc.path}-${index}`}
+                    href={toPublicImageSrc(
+                      supabase,
+                      { bucket: doc.bucket, path: doc.path },
+                      ""
+                    )}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block rounded-xl border p-4 hover:bg-gray-50 transition"
+                  >
+                    <p className="font-medium text-gray-900">
+                      {doc.original_name || `Qualification Document ${index + 1}`}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">{doc.path}</p>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="border-t pt-6" />
 
           <button
             onClick={onClose}
@@ -133,6 +205,8 @@ function StatusBadge({ status }: { status: string }) {
   const styles =
     status === "active"
       ? "bg-green-100 text-green-700"
+      : status === "suspended"
+      ? "bg-yellow-100 text-yellow-700"
       : "bg-gray-200 text-gray-700";
 
   return (
