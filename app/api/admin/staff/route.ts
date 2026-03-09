@@ -14,6 +14,18 @@ type MainRole = "admin" | "academic_staff" | "non_academic_staff" | "student";
 
 type DepartmentRow = { id: string; code: string | null };
 
+type FileRef = {
+  bucket: string;
+  path: string;
+};
+
+type QualificationDocumentInput = {
+  doc_type: string;
+  file: FileRef;
+  original_name?: string | null;
+  mime_type?: string | null;
+};
+
 function parseUnit(v: unknown): StaffUnit | null {
   if (v === "admissions" || v === "bursary" || v === "exams") return v;
   return null;
@@ -87,6 +99,40 @@ function isValidUuid(v: unknown): v is string {
       v
     )
   );
+}
+
+function isFileRef(v: unknown): v is FileRef {
+  return (
+    isRecord(v) &&
+    typeof v.bucket === "string" &&
+    v.bucket.trim().length > 0 &&
+    typeof v.path === "string" &&
+    v.path.trim().length > 0
+  );
+}
+
+function parseQualificationDocuments(v: unknown): QualificationDocumentInput[] {
+  if (!Array.isArray(v)) return [];
+
+  const out: QualificationDocumentInput[] = [];
+
+  for (const item of v) {
+    if (!isRecord(item)) continue;
+    if (typeof item.doc_type !== "string" || !item.doc_type.trim()) continue;
+    if (!isFileRef(item.file)) continue;
+
+    out.push({
+      doc_type: item.doc_type.trim(),
+      file: {
+        bucket: item.file.bucket.trim(),
+        path: item.file.path.trim(),
+      },
+      original_name: cleanText(item.original_name),
+      mime_type: cleanText(item.mime_type),
+    });
+  }
+
+  return out;
 }
 
 async function requireAdmin(): Promise<NextResponse | null> {
@@ -172,10 +218,7 @@ export async function GET(req: Request) {
 }
 
 // =====================================================
-// POST — create staff (Invite → PROFILE → STAFF)
-// Key fix:
-// ✅ redirectTo points to /api/auth/confirm (token_hash flow)
-// ✅ invite template must use RedirectTo + TokenHash (above)
+// POST — create staff
 // =====================================================
 export async function POST(req: Request) {
   const guard = await requireAdmin();
@@ -216,9 +259,15 @@ export async function POST(req: Request) {
     const hire_date = asIsoDate(body.hire_date);
     const unit = parseUnit(body.unit);
 
-    // --------------------
-    // Base required fields
-    // --------------------
+    const bank_name = cleanText(body.bank_name);
+    const account_number = cleanText(body.account_number);
+
+    const avatar_file = isFileRef(body.avatar_file) ? body.avatar_file : null;
+    const signature_file = isFileRef(body.signature_file) ? body.signature_file : null;
+    const qualification_documents = parseQualificationDocuments(
+      body.qualification_documents
+    );
+
     if (!first_name || !last_name || !email || !main_role) {
       return NextResponse.json(
         {
@@ -229,10 +278,14 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!phone)
+    if (!phone) {
       return NextResponse.json({ error: "phone is required" }, { status: 400 });
-    if (!gender)
+    }
+
+    if (!gender) {
       return NextResponse.json({ error: "gender is required" }, { status: 400 });
+    }
+
     if (!designation) {
       return NextResponse.json(
         { error: "designation is required" },
@@ -240,7 +293,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // Prevent creating wrong roles via this endpoint
     if (main_role !== "academic_staff" && main_role !== "non_academic_staff") {
       return NextResponse.json(
         { error: "main_role must be academic_staff or non_academic_staff" },
@@ -248,9 +300,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // --------------------
-    // Role-specific rules
-    // --------------------
     if (main_role === "non_academic_staff") {
       if (!unit) {
         return NextResponse.json(
@@ -278,12 +327,9 @@ export async function POST(req: Request) {
       }
     }
 
-    // ✅ IMPORTANT: redirectTo must be the confirm route (token_hash verification)
-    // Your invite template will append token_hash/type/next.
     const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req);
     const redirectTo = new URL("/api/auth/confirm", baseUrl).toString();
 
-    // 1) INVITE AUTH USER
     const { data: inviteRes, error: inviteErr } =
       await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
         data: { onboarding_status: "pending", main_role },
@@ -309,7 +355,6 @@ export async function POST(req: Request) {
 
     createdAuthUserId = invitedUser.id;
 
-    // 2) CREATE PROFILE (keep onboarding_status = pending)
     const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
       .insert({
@@ -341,7 +386,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3) STAFF ID GENERATION
     let deptCode = "GEN";
     const deptIdForCode = main_role === "academic_staff" ? department_id : null;
 
@@ -381,7 +425,6 @@ export async function POST(req: Request) {
     const seq = String((count ?? 0) + 1).padStart(4, "0");
     const staff_id = `STF/${deptCode}/${yy}/${seq}`;
 
-    // 4) CREATE STAFF (role-safe writes)
     const staffInsert = {
       profile_id: profile.id,
       staff_id,
@@ -391,13 +434,17 @@ export async function POST(req: Request) {
       hire_date: main_role === "academic_staff" ? hire_date : null,
       status: "active" as const,
       unit: main_role === "non_academic_staff" ? unit : null,
+      bank_name: bank_name ?? null,
+      account_number: account_number ?? null,
+      avatar_file: avatar_file ?? null,
+      signature_file: signature_file ?? null,
     };
 
     const { data: staff, error: staffErr } = await supabaseAdmin
       .from("staff")
       .insert(staffInsert)
       .select()
-      .single();
+      .single<{ id: string; staff_id?: string }>();
 
     if (staffErr || !staff) {
       await supabaseAdmin.from("profiles").delete().eq("id", profile.id);
@@ -409,11 +456,38 @@ export async function POST(req: Request) {
       );
     }
 
+    if (qualification_documents.length > 0) {
+      const docsPayload = qualification_documents.map((doc) => ({
+        staff_id: staff.id,
+        doc_type: doc.doc_type,
+        bucket: doc.file.bucket,
+        path: doc.file.path,
+        original_name: doc.original_name ?? null,
+        mime_type: doc.mime_type ?? null,
+      }));
+
+      const { error: docsErr } = await supabaseAdmin
+        .from("staff_documents")
+        .insert(docsPayload);
+
+      if (docsErr) {
+        await supabaseAdmin.from("staff").delete().eq("id", staff.id);
+        await supabaseAdmin.from("profiles").delete().eq("id", profile.id);
+        await supabaseAdmin.auth.admin.deleteUser(profile.id);
+        createdAuthUserId = null;
+
+        return NextResponse.json(
+          { error: docsErr.message },
+          { status: 400 }
+        );
+      }
+    }
+
     return NextResponse.json({
       success: true,
-      staffId: (staff as { staff_id?: string }).staff_id ?? null,
+      staffId: staff.staff_id ?? null,
       inviteQueued: true,
-      redirectTo, // /api/auth/confirm
+      redirectTo,
       staff,
     });
   } catch (err) {
