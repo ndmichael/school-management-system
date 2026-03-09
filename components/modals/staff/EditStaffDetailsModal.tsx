@@ -413,11 +413,16 @@ export function EditStaffModal({
             />
             <Input
               label="Phone"
+              type="tel"
+              placeholder="08012345678 or +2348012345678"
               value={data.profiles.phone ?? ""}
               onChange={(e) =>
                 setData({
                   ...data,
-                  profiles: { ...data.profiles, phone: e.target.value },
+                  profiles: {
+                    ...data.profiles,
+                    phone: e.target.value.replace(/[^\d+]/g, "").slice(0, 14),
+                  },
                 })
               }
             />
