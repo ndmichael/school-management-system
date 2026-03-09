@@ -9,6 +9,13 @@ type FileRef = {
   path: string;
 };
 
+type InitialPaymentInput = {
+  amount_submitted: number;
+  transaction_reference?: string | null;
+  remarks?: string | null;
+  receipt_file?: FileRef | null;
+};
+
 type Body = {
   first_name: string;
   last_name: string;
@@ -43,6 +50,8 @@ type Body = {
     original_name?: string | null;
     mime_type?: string | null;
   }[];
+
+  initial_payment?: InitialPaymentInput | null;
 };
 
 function isUuid(v: string) {
@@ -60,15 +69,86 @@ function cleanEmail(v: unknown): string {
   return v.trim().toLowerCase();
 }
 
-export async function POST(req: NextRequest) {
+function isFileRef(v: unknown): v is FileRef {
+  return (
+    !!v &&
+    typeof v === "object" &&
+    typeof (v as FileRef).bucket === "string" &&
+    typeof (v as FileRef).path === "string" &&
+    (v as FileRef).bucket.trim().length > 0 &&
+    (v as FileRef).path.trim().length > 0
+  );
+}
 
+function parsePositiveAmount(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+function getBaseUrl(req: Request) {
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  const proto = req.headers.get("x-forwarded-proto") ?? "http";
+
+  if (!host) return "http://localhost:3000";
+
+  const isLocal = host.includes("localhost") || host.startsWith("127.0.0.1");
+  const scheme = isLocal ? "http" : proto;
+
+  return `${scheme}://${host}`;
+}
+
+function isDuplicateAuthMessage(msg: string) {
+  const m = msg.toLowerCase();
+  return (
+    m.includes("already registered") ||
+    m.includes("already exists") ||
+    m.includes("user already registered") ||
+    m.includes("duplicate")
+  );
+}
+
+function serializeError(err: unknown) {
+  if (!err) return null;
+  if (typeof err === "string") return { message: err };
+
+  if (typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    return {
+      message: typeof e.message === "string" ? e.message : null,
+      code: typeof e.code === "string" ? e.code : null,
+      status: typeof e.status === "number" ? e.status : null,
+      details: typeof e.details === "string" ? e.details : null,
+      hint: typeof e.hint === "string" ? e.hint : null,
+      name: typeof e.name === "string" ? e.name : null,
+      raw: e,
+    };
+  }
+
+  return { message: String(err) };
+}
+
+function fail(step: string, error: unknown, status = 400) {
+  const payload = {
+    error: `Failed at step: ${step}`,
+    step,
+    debug: serializeError(error),
+  };
+
+  console.error("[CREATE_STUDENT_ERROR]", JSON.stringify(payload, null, 2));
+  return NextResponse.json(payload, { status });
+}
+
+export async function POST(req: NextRequest) {
   const guard = await requireAdmissionsAccess();
   if ("error" in guard) return guard.error;
 
   let createdAuthUserId: string | null = null;
 
   try {
-
     const raw = (await req.json()) as Body;
 
     const first_name = cleanText(raw.first_name) ?? "";
@@ -108,12 +188,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // check duplicate email
-    const { data: existing } = await supabaseAdmin
+    const initialPayment = raw.initial_payment ?? null;
+    const initialPaymentAmount = initialPayment
+      ? parsePositiveAmount(initialPayment.amount_submitted)
+      : null;
+
+    if (initialPayment) {
+      if (!initialPaymentAmount) {
+        return NextResponse.json(
+          { error: "initial_payment.amount_submitted must be greater than 0" },
+          { status: 400 }
+        );
+      }
+
+      if (!initialPayment.receipt_file || !isFileRef(initialPayment.receipt_file)) {
+        return NextResponse.json(
+          { error: "initial_payment.receipt_file is required" },
+          { status: 400 }
+        );
+      }
+    }
+
+    const { data: existing, error: existingErr } = await supabaseAdmin
       .from("profiles")
       .select("id")
       .eq("email", email)
       .maybeSingle();
+
+    if (existingErr) return fail("check_existing_profile", existingErr, 400);
 
     if (existing) {
       return NextResponse.json(
@@ -122,7 +224,27 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // get program
+    const { data: authUsersData, error: listUsersErr } =
+        await supabaseAdmin.auth.admin.listUsers();
+
+      if (listUsersErr) {
+        return fail("list_auth_users", listUsersErr, 500);
+      }
+
+      const authExists = authUsersData.users.some(
+        (u) => (u.email ?? "").toLowerCase() === email
+      );
+
+      if (authExists) {
+        return NextResponse.json(
+          {
+            error:
+              "User already exists in auth (delete them or use a different email).",
+          },
+          { status: 409 }
+        );
+      }
+
     const { data: program, error: programErr } = await supabaseAdmin
       .from("programs")
       .select("code, department_id")
@@ -130,17 +252,40 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (programErr || !program) {
+      return fail("load_program", programErr ?? { message: "Program not found" }, 400);
+    }
+
+    const { data: feePlan, error: feePlanErr } = await supabaseAdmin
+      .from("program_fee_plans")
+      .select("id, annual_fee")
+      .eq("program_id", program_id)
+      .eq("session_id", session_id)
+      .maybeSingle<{ id: string; annual_fee: number }>();
+
+    if (feePlanErr) return fail("load_fee_plan", feePlanErr, 400);
+
+    if (!feePlan) {
       return NextResponse.json(
-        { error: programErr?.message ?? "Program not found" },
+        { error: "No fee plan found for the selected program and session" },
         { status: 400 }
       );
     }
 
-    // generate matric number
-    const { data: matricNo } = await supabaseAdmin.rpc(
+    const annualFee = Number(feePlan.annual_fee ?? 0);
+
+    if (!Number.isFinite(annualFee) || annualFee < 0) {
+      return NextResponse.json(
+        { error: "Invalid annual fee configured for this program/session" },
+        { status: 400 }
+      );
+    }
+
+    const { data: matricNo, error: matricErr } = await supabaseAdmin.rpc(
       "generate_student_matric_no",
       { p_prefix: program.code }
     );
+
+    if (matricErr) return fail("generate_matric_no", matricErr, 400);
 
     if (!matricNo) {
       return NextResponse.json(
@@ -149,58 +294,45 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // create auth user
-    // const { data: authUser, error: authErr } =
-    //   await supabaseAdmin.auth.admin.createUser({
-    //     email,
-    //     email_confirm: false
-    //   });
+    const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)).replace(/\/$/, "");
+    const redirectTo = `${baseUrl}/api/auth/confirm`;
 
-    // if (authErr) {
-    //   return NextResponse.json(
-    //     { error: authErr.message },
-    //     { status: 400 }
-    //   );
-    // }
-
-    // const userId = authUser.user.id;
-    // createdAuthUserId = userId;
-
-    const baseUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ??
-      `${req.headers.get("x-forwarded-proto") ?? "http"}://${req.headers.get("host")}`;
-
-    const redirectTo = `${baseUrl}/auth/set-password`;
+    console.log("[CREATE_STUDENT] inviting auth user", { email, redirectTo });
 
     const { data: inviteRes, error: inviteErr } =
       await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
         redirectTo,
         data: {
           main_role: "student",
-          onboarding_status: "pending"
-        }
+          onboarding_status: "pending",
+        },
       });
 
     if (inviteErr) {
-      return NextResponse.json(
-        { error: inviteErr.message },
-        { status: 400 }
+      const msg = inviteErr.message ?? "Invite failed";
+      const isDup = isDuplicateAuthMessage(msg);
+
+      return fail(
+        "invite_auth_user",
+        {
+          ...serializeError(inviteErr),
+          duplicate_detected: isDup,
+          email,
+          redirectTo,
+        },
+        isDup ? 409 : 400
       );
     }
 
-    const userId = inviteRes.user?.id;
+    const userId = inviteRes?.user?.id ?? null;
 
     if (!userId) {
-      return NextResponse.json(
-        { error: "User creation failed" },
-        { status: 400 }
-      );
+      return fail("invite_auth_user_no_id", { message: "Auth invite returned no user id" }, 400);
     }
 
     createdAuthUserId = userId;
 
-    // create profile
-    const { data: profile } = await supabaseAdmin
+    const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
       .insert({
         id: userId,
@@ -211,69 +343,124 @@ export async function POST(req: NextRequest) {
         phone: cleanText(raw.phone),
         gender: cleanText(raw.gender),
         date_of_birth: cleanText(raw.date_of_birth),
-
         state_of_origin: cleanText(raw.state_of_origin),
         lga_of_origin: cleanText(raw.lga_of_origin),
         nin: cleanText(raw.nin),
         religion: cleanText(raw.religion),
         address: cleanText(raw.address),
-
         main_role: "student",
-        onboarding_status: "pending"
+        onboarding_status: "pending",
       })
       .select("id")
       .single();
 
-    if (!profile) throw new Error("Profile creation failed");
+    if (profileErr || !profile) {
+      return fail("create_profile", profileErr ?? { message: "Profile creation failed" }, 400);
+    }
 
-    // create student
-    const { data: student } = await supabaseAdmin
+    const { data: student, error: studentErr } = await supabaseAdmin
       .from("students")
       .insert({
         profile_id: profile.id,
         matric_no: matricNo,
         program_id,
         department_id: program.department_id,
-
         guardian_first_name: cleanText(raw.guardian_first_name),
         guardian_last_name: cleanText(raw.guardian_last_name),
         guardian_phone: cleanText(raw.guardian_phone),
         guardian_status: cleanText(raw.guardian_status),
-
         status: "active",
-        enrollment_date: new Date().toISOString().slice(0, 10)
+        enrollment_date: new Date().toISOString().slice(0, 10),
       })
       .select("id, matric_no")
       .single();
 
-    if (!student) throw new Error("Student creation failed");
+    if (studentErr || !student) {
+      return fail("create_student", studentErr ?? { message: "Student creation failed" }, 400);
+    }
 
-    // registration
-    await supabaseAdmin.from("student_registrations").insert({
+    const { data: registration, error: regErr } = await supabaseAdmin
+      .from("student_registrations")
+      .insert({
+        student_id: student.id,
+        session_id,
+        level: cleanText(raw.level),
+        status: "registered",
+      })
+      .select("id")
+      .single<{ id: string }>();
+
+    if (regErr || !registration) {
+      return fail(
+        "create_student_registration",
+        regErr ?? { message: "Student registration creation failed" },
+        400
+      );
+    }
+
+    const { data: feeAccount, error: feeAccountErr } = await supabaseAdmin
+      .from("student_fee_accounts")
+      .insert({
+        student_registration_id: registration.id,
+        program_id,
+        annual_fee: annualFee,
+        total_paid_approved: 0,
+        balance_due: annualFee,
+        payment_status: "unpaid",
+      })
+      .select("id")
+      .single<{ id: string }>();
+
+    if (feeAccountErr || !feeAccount) {
+      return fail(
+        "create_student_fee_account",
+        feeAccountErr ?? { message: "Student fee account creation failed" },
+        400
+      );
+    }
+
+    if (initialPayment && initialPaymentAmount && initialPayment.receipt_file) {
+      const { error: paymentErr } = await supabaseAdmin
+        .from("payment_receipts")
+        .insert({
+          student_fee_account_id: feeAccount.id,
+          amount_submitted: initialPaymentAmount,
+          approved_amount: null,
+          transaction_reference: cleanText(initialPayment.transaction_reference),
+          remarks: cleanText(initialPayment.remarks),
+          status: "pending",
+          receipt_file: initialPayment.receipt_file,
+          uploaded_by: null,
+          verified_by: null,
+          rejected_by: null,
+          verified_at: null,
+          rejected_at: null,
+        });
+
+      if (paymentErr) {
+        return fail("create_initial_payment_receipt", paymentErr, 400);
+      }
+    }
+
+    const docs: Array<{
+      student_id: string;
+      doc_type: string;
+      file: FileRef;
+      original_name?: string | null;
+      mime_type?: string | null;
+    }> = [];
+
+    docs.push({
       student_id: student.id,
-      session_id,
-      level: cleanText(raw.level),
-      status: "registered"
+      doc_type: "passport",
+      file: raw.passport_file,
     });
 
-    // documents
-    const docs = [];
-
-    if (raw.passport_file) {
-      docs.push({
-        student_id: student.id,
-        doc_type: "passport",
-        file: raw.passport_file
-      });
-    }
-
-    if (raw.signature_file) {
-      docs.push({
-        student_id: student.id,
-        doc_type: "signature",
-        file: raw.signature_file
-      });
-    }
+    docs.push({
+      student_id: student.id,
+      doc_type: "signature",
+      file: raw.signature_file,
+    });
 
     if (Array.isArray(raw.documents)) {
       for (const d of raw.documents) {
@@ -282,7 +469,7 @@ export async function POST(req: NextRequest) {
           doc_type: d.doc_type,
           file: d.file,
           original_name: d.original_name ?? null,
-          mime_type: d.mime_type ?? null
+          mime_type: d.mime_type ?? null,
         });
       }
     }
@@ -292,24 +479,32 @@ export async function POST(req: NextRequest) {
         .from("student_documents")
         .insert(docs);
 
-      if (docErr) throw docErr;
+      if (docErr) {
+        return fail("insert_student_documents", docErr, 400);
+      }
     }
 
     return NextResponse.json({
       success: true,
       studentId: student.id,
       matricNo: student.matric_no,
-      email
+      annualFee,
+      hasInitialPayment: !!initialPayment,
+      email,
     });
-
   } catch (err) {
+    console.error("[CREATE_STUDENT_FATAL]", err);
 
     if (createdAuthUserId) {
       await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
     }
 
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Server error" },
+      {
+        error: "Server error",
+        step: "unhandled_catch",
+        debug: serializeError(err),
+      },
       { status: 500 }
     );
   }
