@@ -78,7 +78,7 @@ const Step3Guardian: FC<Step3Props> = ({ data, setData }) => {
           onChange={(e) =>
             setData({
               ...data,
-              phone: e.target.value.replace(/[^\d+]/g, "").slice(0, 14),
+              guardianPhone: e.target.value.replace(/[^\d+]/g, "").slice(0, 14),
             })
           }
           required
