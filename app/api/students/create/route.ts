@@ -365,6 +365,7 @@ export async function POST(req: NextRequest) {
         matric_no: matricNo,
         program_id,
         department_id: program.department_id,
+        admission_session_id: session_id,
         guardian_first_name: cleanText(raw.guardian_first_name),
         guardian_last_name: cleanText(raw.guardian_last_name),
         guardian_phone: cleanText(raw.guardian_phone),
