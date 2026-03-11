@@ -137,10 +137,15 @@ export async function POST(
     }
 
     const { data: application, error: appErr } = await supabaseAdmin
-      .from("applications")
-      .select("email, program_id, session_id, level")
-      .eq("id", applicationId)
-      .single();
+    .from("applications")
+    .select("email, program_id, session_id, class_applied_for")
+    .eq("id", applicationId)
+    .single<{
+      email: string | null;
+      program_id: string | null;
+      session_id: string | null;
+      class_applied_for: string | null;
+    }>();
 
     if (appErr || !application) {
       return fail("load_application", appErr ?? { message: "Application not found" }, 404);
@@ -263,7 +268,7 @@ export async function POST(
 
     const sessionId = application.session_id;
     const programId = application.program_id;
-    const level = application.level ?? null;
+    const level = application.class_applied_for ?? null;
 
     if (!sessionId || !isUuid(sessionId) || !programId || !isUuid(programId)) {
       if (createdAuthUserId) {
