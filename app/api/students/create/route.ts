@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requireAdmissionsAccess } from "@/lib/guards/requireAdmissionsAccess";
+import {
+  normalizeNigerianPhone,
+  normalizeNin,
+} from "@/lib/validation/nigeria";
 
 export const runtime = "nodejs";
 
@@ -182,6 +186,36 @@ export async function POST(req: NextRequest) {
 
     const program_id = cleanText(raw.program_id) ?? "";
     const session_id = cleanText(raw.session_id) ?? "";
+
+    let normalizedPhone: string | null = null;
+    let normalizedGuardianPhone: string | null = null;
+    let normalizedNin: string | null = null;
+
+    try {
+      const rawPhone = cleanText(raw.phone);
+      const rawGuardianPhone = cleanText(raw.guardian_phone);
+      const rawNin = cleanText(raw.nin);
+
+      if (rawPhone) {
+        normalizedPhone = normalizeNigerianPhone(rawPhone);
+      }
+
+      if (rawGuardianPhone) {
+        normalizedGuardianPhone = normalizeNigerianPhone(rawGuardianPhone);
+      }
+
+      if (rawNin) {
+        normalizedNin = normalizeNin(rawNin);
+      }
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : "Invalid phone or NIN format",
+        },
+        { status: 400 }
+      );
+    }
 
     if (!first_name || !last_name || !email) {
       return NextResponse.json(
@@ -386,12 +420,12 @@ export async function POST(req: NextRequest) {
         middle_name: cleanText(raw.middle_name),
         last_name,
         email,
-        phone: cleanText(raw.phone),
+        phone: normalizedPhone,
         gender: cleanText(raw.gender),
         date_of_birth: cleanText(raw.date_of_birth),
         state_of_origin: cleanText(raw.state_of_origin),
         lga_of_origin: cleanText(raw.lga_of_origin),
-        nin: cleanText(raw.nin),
+        nin: normalizedNin,
         religion: cleanText(raw.religion),
         address: cleanText(raw.address),
         main_role: "student",
@@ -420,7 +454,7 @@ export async function POST(req: NextRequest) {
         admission_session_id: session_id,
         guardian_first_name: cleanText(raw.guardian_first_name),
         guardian_last_name: cleanText(raw.guardian_last_name),
-        guardian_phone: cleanText(raw.guardian_phone),
+        guardian_phone: normalizedGuardianPhone,
         guardian_status: cleanText(raw.guardian_status),
         status: "active",
         enrollment_date: new Date().toISOString().slice(0, 10),
