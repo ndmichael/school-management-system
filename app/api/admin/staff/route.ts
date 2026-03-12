@@ -216,10 +216,11 @@ export async function GET(req: Request) {
     .from("staff")
     .select(
       `
-      *,
-      profiles:profile_id!inner(*),
-      departments(*)
-    `
+        *,
+        profiles:profile_id!inner(*),
+        departments(*),
+        staff_documents(*)
+      `
     )
     .order("created_at", { ascending: false });
 
