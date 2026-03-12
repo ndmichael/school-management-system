@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
-const BUCKET = "applications";
+const PASSPORT_BUCKET = "avatars";
+const DOCUMENTS_BUCKET = "applications";
 
 type JsonObject = Record<string, unknown>;
 
@@ -98,7 +99,6 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
     }
 
-    // Required fields
     const email = getString(raw.email).trim().toLowerCase();
     const firstName = getString(raw.firstName).trim();
     const lastName = getString(raw.lastName).trim();
@@ -109,44 +109,41 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
     }
 
-    // Required uploads (passport + signature)
     const passportFile = getFileRef(raw.passportFile);
     const signatureFile = getFileRef(raw.signatureFile);
 
-    if (!passportFile || passportFile.bucket !== BUCKET) {
+    console.log("RAW PASSPORT FILE", raw.passportFile);
+    console.log("RAW SIGNATURE FILE", raw.signatureFile);
+
+    if (!passportFile || passportFile.bucket !== PASSPORT_BUCKET) {
       return NextResponse.json({ error: "Passport is required." }, { status: 400 });
     }
 
-    if (!signatureFile || signatureFile.bucket !== BUCKET) {
+    if (!signatureFile || signatureFile.bucket !== DOCUMENTS_BUCKET) {
       return NextResponse.json({ error: "Signature is required." }, { status: 400 });
     }
 
-    // NEW: required supporting docs come as dedicated fields on the payload
     const academicResultFile = getFileRef(raw.academicResultFile);
     const birthCertificateFile = getFileRef(raw.birthCertificateFile);
     const sponsorshipLetterFile = getFileRef(raw.sponsorshipLetterFile);
 
-    if (!academicResultFile || academicResultFile.bucket !== BUCKET) {
+    if (!academicResultFile || academicResultFile.bucket !== DOCUMENTS_BUCKET) {
       return NextResponse.json(
         { error: "Academic result document is required." },
         { status: 400 }
       );
     }
 
-    if (!birthCertificateFile || birthCertificateFile.bucket !== BUCKET) {
+    if (!birthCertificateFile || birthCertificateFile.bucket !== DOCUMENTS_BUCKET) {
       return NextResponse.json(
         { error: "Birth certificate / age declaration is required." },
         { status: 400 }
       );
     }
 
-    // Optional typed supporting docs array (if you still send it)
     const supportingDocs = parseSupportingDocs(raw.supportingDocs);
-
-    // Legacy fallback: supportingFiles[] (untyped extra docs)
     const legacySupportingFiles = getFileRefArray(raw.supportingFiles);
 
-    // Direct entry checks
     const admissionType = getString(raw.admissionType).trim();
     if (admissionType === "direct_entry") {
       const prevSchool = getString(raw.previousSchool).trim();
@@ -161,7 +158,6 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const supabase = supabaseAdmin;
 
-    // 1) active session
     const { data: activeSession, error: sessionError } = await supabase
       .from("sessions")
       .select("id")
@@ -174,7 +170,6 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "No active session configured." }, { status: 400 });
     }
 
-    // 2) derive department_id from program
     const { data: programRow, error: programErr } = await supabase
       .from("programs")
       .select("department_id")
@@ -188,7 +183,6 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    // 3) Insert application
     const applicationPayload = {
       application_no: crypto.randomUUID(),
       session_id: activeSession.id,
@@ -248,7 +242,6 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    // 4) Insert supporting documents into application_documents (SOURCE OF TRUTH)
     const docsToInsert: {
       application_id: string;
       doc_type: string;
@@ -272,7 +265,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       },
     ];
 
-    if (sponsorshipLetterFile && sponsorshipLetterFile.bucket === BUCKET) {
+    if (sponsorshipLetterFile && sponsorshipLetterFile.bucket === DOCUMENTS_BUCKET) {
       docsToInsert.push({
         application_id: app.id,
         doc_type: "sponsorship_letter",
@@ -282,7 +275,6 @@ export async function POST(req: Request): Promise<NextResponse> {
       });
     }
 
-    // Optional: also accept supportingDocs array (if sent)
     for (const d of supportingDocs) {
       docsToInsert.push({
         application_id: app.id,
@@ -293,7 +285,6 @@ export async function POST(req: Request): Promise<NextResponse> {
       });
     }
 
-    // Optional: legacy extra docs
     for (const f of legacySupportingFiles) {
       docsToInsert.push({
         application_id: app.id,

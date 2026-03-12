@@ -5,9 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-// --------------------
-// Types
-// --------------------
 type StaffUnit = "admissions" | "bursary" | "exams";
 type StaffStatus = "active" | "inactive" | "suspended";
 type MainRole = "admin" | "academic_staff" | "non_academic_staff" | "student";
@@ -189,9 +186,6 @@ async function requireAdmin(): Promise<NextResponse | null> {
   return null;
 }
 
-// =====================================================
-// GET — list staff (filters + joins)
-// =====================================================
 export async function GET(req: Request) {
   const guard = await requireAdmin();
   if (guard) return guard;
@@ -212,10 +206,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Invalid role filter" }, { status: 400 });
   }
   if (statusParam && statusParam !== "all" && !status) {
-    return NextResponse.json(
-      { error: "Invalid status filter" },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Invalid status filter" }, { status: 400 });
   }
   if (unitParam && unitParam !== "all" && !unit) {
     return NextResponse.json({ error: "Invalid unit filter" }, { status: 400 });
@@ -248,9 +239,6 @@ export async function GET(req: Request) {
   return NextResponse.json({ staff: data ?? [] });
 }
 
-// =====================================================
-// POST — create staff
-// =====================================================
 export async function POST(req: Request) {
   const guard = await requireAdmin();
   if (guard) return guard;
@@ -318,10 +306,7 @@ export async function POST(req: Request) {
     }
 
     if (!designation) {
-      return NextResponse.json(
-        { error: "designation is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "designation is required" }, { status: 400 });
     }
 
     if (main_role !== "academic_staff" && main_role !== "non_academic_staff") {
@@ -331,16 +316,28 @@ export async function POST(req: Request) {
       );
     }
 
-    if (main_role === "non_academic_staff") {
-      if (!unit) {
-        return NextResponse.json(
-          {
-            error:
-              "unit is required for non_academic_staff (admissions | bursary | exams)",
-          },
-          { status: 400 }
-        );
-      }
+    if (avatar_file && avatar_file.bucket !== "avatars") {
+      return NextResponse.json(
+        { error: "avatar_file must use the avatars bucket" },
+        { status: 400 }
+      );
+    }
+
+    if (signature_file && signature_file.bucket !== "applications") {
+      return NextResponse.json(
+        { error: "signature_file must use the applications bucket" },
+        { status: 400 }
+      );
+    }
+
+    if (main_role === "non_academic_staff" && !unit) {
+      return NextResponse.json(
+        {
+          error:
+            "unit is required for non_academic_staff (admissions | bursary | exams)",
+        },
+        { status: 400 }
+      );
     }
 
     if (main_role === "academic_staff") {
@@ -399,8 +396,6 @@ export async function POST(req: Request) {
     const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)).replace(/\/$/, "");
     const redirectTo = `${baseUrl}/api/auth/confirm`;
 
-    console.log("[CREATE_STAFF] inviting auth user", { email, redirectTo });
-
     const { data: inviteRes, error: inviteErr } =
       await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
         data: { onboarding_status: "pending", main_role },
@@ -452,6 +447,7 @@ export async function POST(req: Request) {
         religion,
         main_role,
         onboarding_status: "pending",
+        avatar_file: avatar_file ?? null,
       })
       .select("id")
       .single<{ id: string }>();
@@ -523,7 +519,6 @@ export async function POST(req: Request) {
       unit: main_role === "non_academic_staff" ? unit : null,
       bank_name: bank_name ?? null,
       account_number: account_number ?? null,
-      avatar_file: avatar_file ?? null,
       signature_file: signature_file ?? null,
     };
 
