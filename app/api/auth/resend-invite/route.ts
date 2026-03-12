@@ -85,7 +85,13 @@ export async function POST(req: NextRequest) {
         m.includes("duplicate") ||
         m.includes("email_exists");
 
+        console.error("inviteErr.message:", inviteErr.message);
+        console.error("inviteErr full:", inviteErr);
+        console.error("isDup:", isDup);
+
       if (isDup) {
+         console.error("FALLBACK: calling resetPasswordForEmail for", email);
+         
         const { error: resetErr } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
           redirectTo,
         });
