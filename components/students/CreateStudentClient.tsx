@@ -36,7 +36,8 @@ const REQUIRED_DOC_TYPES: UploadDocType[] = [
 const MAX_FILE_SIZE_MB = 1;
 const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
 
-const BUCKET = "applications";
+const PASSPORT_BUCKET = "avatars";
+const DOCUMENTS_BUCKET = "applications";
 
 const IMAGE_ONLY_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const DOC_ALLOWED_TYPES = [
@@ -156,13 +157,9 @@ function validateUploadFile(
   return null;
 }
 
-// FUNCTION TO REMOVE IMAGE PREVIEW
-
-
 export default function CreateStudentClient({ onCreated }: Props) {
   const supabase = useMemo(() => createClient(), []);
 
-  // useRef for documents
   const passportInputRef = useRef<HTMLInputElement | null>(null);
   const signatureInputRef = useRef<HTMLInputElement | null>(null);
   const documentInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
@@ -353,11 +350,15 @@ export default function CreateStudentClient({ onCreated }: Props) {
     requiredSupportingDocsPresent,
   ]);
 
-  async function uploadFile(file: File, folder: string): Promise<FileRef> {
+  async function uploadFile(
+    file: File,
+    bucket: string,
+    folder: string
+  ): Promise<FileRef> {
     const ext = file.name.split(".").pop()?.trim().toLowerCase() || "bin";
     const path = `${folder}/${crypto.randomUUID()}.${ext}`;
 
-    const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+    const { error } = await supabase.storage.from(bucket).upload(path, file, {
       upsert: false,
       contentType: file.type || undefined,
     });
@@ -367,7 +368,7 @@ export default function CreateStudentClient({ onCreated }: Props) {
     }
 
     return {
-      bucket: BUCKET,
+      bucket,
       path,
     };
   }
@@ -462,15 +463,20 @@ export default function CreateStudentClient({ onCreated }: Props) {
     try {
       setUploading(true);
 
-      const passportRef = await uploadFile(passportFile, "students/drafts/passport");
-      const signatureRef = await uploadFile(signatureFile, "students/drafts/signature");
+      const passportRef = await uploadFile(passportFile, PASSPORT_BUCKET, "passports");
+      const signatureRef = await uploadFile(signatureFile, DOCUMENTS_BUCKET, "signatures");
 
       const uploadedDocuments: CreateStudentBody["documents"] = [];
 
       for (const doc of documents) {
         if (!doc.file) continue;
 
-        const docRef = await uploadFile(doc.file, `students/drafts/${doc.doc_type}`);
+        let folder = "supporting";
+        if (doc.doc_type === "academic_result") folder = "results";
+        if (doc.doc_type === "birth_or_age") folder = "birth-certificates";
+        if (doc.doc_type === "sponsorship_letter") folder = "sponsorships";
+
+        const docRef = await uploadFile(doc.file, DOCUMENTS_BUCKET, folder);
 
         uploadedDocuments.push({
           doc_type: doc.doc_type,
@@ -605,11 +611,8 @@ export default function CreateStudentClient({ onCreated }: Props) {
     (doc) => doc.doc_type === "sponsorship_letter" || doc.doc_type === "supporting_optional"
   );
 
-  
-
-  /**== function helpers to remove image thumbnail ==**/
   function removePassport() {
-  if (passportPreview) URL.revokeObjectURL(passportPreview);
+    if (passportPreview) URL.revokeObjectURL(passportPreview);
     setPassportFile(null);
     setPassportPreview(null);
 
@@ -669,7 +672,6 @@ export default function CreateStudentClient({ onCreated }: Props) {
             onChange={(v) => setGender(v)}
             disabled={formLocked}
             options={[
-              { label: "Select gender", value: "" },
               { label: "Male", value: "male" },
               { label: "Female", value: "female" },
             ]}
@@ -774,7 +776,7 @@ export default function CreateStudentClient({ onCreated }: Props) {
       </div>
 
       <div className="bg-white border rounded-xl p-5 space-y-4">
-        <h2 className="text-sm font-semibold">Guardian (optional)</h2>
+        <h2 className="text-sm font-semibold">Guardian</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <Input
