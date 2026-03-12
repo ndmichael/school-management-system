@@ -77,11 +77,13 @@ export async function POST(req: NextRequest) {
 
     if (inviteErr) {
       const m = inviteErr.message.toLowerCase();
+
       const isDup =
         m.includes("already registered") ||
         m.includes("already exists") ||
         m.includes("user already registered") ||
-        m.includes("duplicate");
+        m.includes("duplicate") ||
+        m.includes("email_exists");
 
       if (isDup) {
         const { error: resetErr } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
