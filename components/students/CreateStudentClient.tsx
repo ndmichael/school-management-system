@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { X } from "lucide-react";
 
+import { normalizeNigerianPhone, normalizeNin } from "@/lib/validation/nigeria";
+
 type FileRef = {
   bucket: string;
   path: string;
@@ -156,6 +158,30 @@ function validateUploadFile(
 
   return null;
 }
+
+
+// NIN PHONE VALIDATION HANDLER
+const handlePhoneBlur = (
+  value: string,
+  setter: (value: string) => void,
+  label = "Phone number"
+) => {
+  try {
+    if (!value.trim()) return;
+    setter(normalizeNigerianPhone(value));
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : `Invalid ${label}`);
+  }
+};
+
+const handleNinBlur = (value: string, setter: (value: string) => void) => {
+  try {
+    if (!value.trim()) return;
+    setter(normalizeNin(value));
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Invalid NIN");
+  }
+};
 
 export default function CreateStudentClient({ onCreated }: Props) {
   const supabase = useMemo(() => createClient(), []);
@@ -438,6 +464,19 @@ export default function CreateStudentClient({ onCreated }: Props) {
   async function submit() {
     if (!canSubmit) return;
 
+    let normalizedPhone: string;
+    let normalizedGuardianPhone: string;
+    let normalizedNin: string;
+
+    try {
+      normalizedPhone = normalizeNigerianPhone(phone);
+      normalizedGuardianPhone = normalizeNigerianPhone(gPhone);
+      normalizedNin = normalizeNin(nin);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Validation failed");
+      return;
+    }
+
     if (!passportFile) {
       toast.error("Passport photograph is required");
       return;
@@ -495,13 +534,13 @@ export default function CreateStudentClient({ onCreated }: Props) {
         last_name: clean(lastName) ?? "",
         email: (clean(email) ?? "").toLowerCase(),
 
-        phone: clean(phone),
+        phone: clean(normalizedPhone),
         gender: clean(gender),
         date_of_birth: clean(dob),
 
         state_of_origin: clean(stateOfOrigin),
         lga_of_origin: clean(lga),
-        nin: clean(nin),
+        nin: clean(normalizedNin),
         religion: clean(religion),
         address: clean(address),
 
@@ -516,7 +555,7 @@ export default function CreateStudentClient({ onCreated }: Props) {
 
         guardian_first_name: clean(gFirst),
         guardian_last_name: clean(gLast),
-        guardian_phone: clean(gPhone),
+        guardian_phone: clean(normalizedGuardianPhone),
         guardian_status: clean(gStatus),
 
         passport_file: passportRef,
@@ -665,7 +704,14 @@ export default function CreateStudentClient({ onCreated }: Props) {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <Input label="Email *" value={email} onChange={(e) => setEmail(toStr(e.target.value))} disabled={formLocked} />
-          <Input label="Phone *" value={phone} onChange={(e) => setPhone(toStr(e.target.value))} disabled={formLocked} />
+          <Input
+            label="Phone *"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            onBlur={() => handlePhoneBlur(phone, setPhone)}
+            disabled={formLocked}
+          />
+          
           <Select
             label="Gender *"
             value={gender}
@@ -680,7 +726,13 @@ export default function CreateStudentClient({ onCreated }: Props) {
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <Input label="Date of birth *" type="date" value={dob} onChange={(e) => setDob(toStr(e.target.value))} disabled={formLocked} />
-          <Input label="NIN *" value={nin} onChange={(e) => setNin(toStr(e.target.value))} disabled={formLocked} />
+          <Input
+            label="NIN *"
+            value={nin}
+            onChange={(e) => setNin(e.target.value.replace(/\D/g, "").slice(0, 11))}
+            onBlur={() => handleNinBlur(nin, setNin)}
+            disabled={formLocked}
+          />
           <Select
             label="Religion *"
             value={religion}
@@ -804,6 +856,7 @@ export default function CreateStudentClient({ onCreated }: Props) {
             label="Guardian phone *"
             value={gPhone}
             onChange={(e) => setGPhone(toStr(e.target.value))}
+             onBlur={() => handlePhoneBlur(gPhone, setGPhone, "guardian phone number")}
             disabled={formLocked}
           />
         </div>
