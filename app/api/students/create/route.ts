@@ -1,512 +1,321 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { requireAdmissionsAccess } from "@/lib/guards/requireAdmissionsAccess";
 
-export const runtime = "nodejs";
+const PASSPORT_BUCKET = "avatars";
+const DOCUMENTS_BUCKET = "applications";
 
-type FileRef = {
-  bucket: string;
-  path: string;
-};
+type JsonObject = Record<string, unknown>;
 
-type InitialPaymentInput = {
-  amount_submitted: number;
-  transaction_reference?: string | null;
-  remarks?: string | null;
-  receipt_file?: FileRef | null;
-};
-
-type Body = {
-  first_name: string;
-  last_name: string;
-  email: string;
-
-  middle_name?: string | null;
-  phone?: string | null;
-  gender?: string | null;
-  date_of_birth?: string | null;
-
-  state_of_origin?: string | null;
-  lga_of_origin?: string | null;
-  nin?: string | null;
-  religion?: string | null;
-  address?: string | null;
-
-  program_id: string;
-  session_id: string;
-  level?: string | null;
-
-  guardian_first_name?: string | null;
-  guardian_last_name?: string | null;
-  guardian_phone?: string | null;
-  guardian_status?: string | null;
-
-  passport_file?: FileRef | null;
-  signature_file?: FileRef | null;
-
-  documents?: {
-    doc_type: string;
-    file: FileRef;
-    original_name?: string | null;
-    mime_type?: string | null;
-  }[];
-
-  initial_payment?: InitialPaymentInput | null;
-};
-
-function isUuid(v: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+function isObject(v: unknown): v is JsonObject {
+  return typeof v === "object" && v !== null;
 }
 
-function cleanText(v: unknown): string | null {
-  if (typeof v !== "string") return null;
-  const t = v.trim();
-  return t.length ? t : null;
+function getString(v: unknown): string {
+  return typeof v === "string" ? v : "";
 }
 
-function cleanEmail(v: unknown): string {
-  if (typeof v !== "string") return "";
-  return v.trim().toLowerCase();
+function getOptionalString(v: unknown): string | null {
+  const s = getString(v).trim();
+  return s ? s : null;
 }
+
+type FileRef = { bucket: string; path: string };
 
 function isFileRef(v: unknown): v is FileRef {
   return (
-    !!v &&
-    typeof v === "object" &&
-    typeof (v as FileRef).bucket === "string" &&
-    typeof (v as FileRef).path === "string" &&
-    (v as FileRef).bucket.trim().length > 0 &&
-    (v as FileRef).path.trim().length > 0
+    isObject(v) &&
+    typeof v.bucket === "string" &&
+    typeof v.path === "string" &&
+    v.bucket.length > 0 &&
+    v.path.length > 0
   );
 }
 
-function parsePositiveAmount(v: unknown): number | null {
-  if (typeof v === "number" && Number.isFinite(v) && v > 0) return v;
-  if (typeof v === "string") {
-    const n = Number(v);
-    if (Number.isFinite(n) && n > 0) return n;
+function getFileRef(v: unknown): FileRef | null {
+  return isFileRef(v) ? v : null;
+}
+
+function getFileRefArray(v: unknown): FileRef[] {
+  if (!Array.isArray(v)) return [];
+  const out: FileRef[] = [];
+  for (const item of v) {
+    const ref = getFileRef(item);
+    if (ref) out.push(ref);
   }
-  return null;
+  return out;
 }
 
-function getBaseUrl(req: Request) {
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
-  const proto = req.headers.get("x-forwarded-proto") ?? "http";
+type SupportingDocType =
+  | "academic_result"
+  | "birth_or_age"
+  | "sponsorship_letter"
+  | "supporting_optional";
 
-  if (!host) return "http://localhost:3000";
+type SupportingDocInput = {
+  doc_type: SupportingDocType;
+  file: FileRef;
+  original_name?: string | null;
+  mime_type?: string | null;
+};
 
-  const isLocal = host.includes("localhost") || host.startsWith("127.0.0.1");
-  const scheme = isLocal ? "http" : proto;
-
-  return `${scheme}://${host}`;
-}
-
-function isDuplicateAuthMessage(msg: string) {
-  const m = msg.toLowerCase();
+function isSupportingDocType(v: unknown): v is SupportingDocType {
   return (
-    m.includes("already registered") ||
-    m.includes("already exists") ||
-    m.includes("user already registered") ||
-    m.includes("duplicate")
+    v === "academic_result" ||
+    v === "birth_or_age" ||
+    v === "sponsorship_letter" ||
+    v === "supporting_optional"
   );
 }
 
-function serializeError(err: unknown) {
-  if (!err) return null;
-  if (typeof err === "string") return { message: err };
+function parseSupportingDocs(v: unknown): SupportingDocInput[] {
+  if (!Array.isArray(v)) return [];
+  const out: SupportingDocInput[] = [];
 
-  if (typeof err === "object") {
-    const e = err as Record<string, unknown>;
-    return {
-      message: typeof e.message === "string" ? e.message : null,
-      code: typeof e.code === "string" ? e.code : null,
-      status: typeof e.status === "number" ? e.status : null,
-      details: typeof e.details === "string" ? e.details : null,
-      hint: typeof e.hint === "string" ? e.hint : null,
-      name: typeof e.name === "string" ? e.name : null,
-      raw: e,
-    };
+  for (const item of v) {
+    if (!isObject(item)) continue;
+
+    const docType = item.doc_type;
+    const file = item.file;
+
+    if (!isSupportingDocType(docType)) continue;
+    const ref = getFileRef(file);
+    if (!ref) continue;
+
+    out.push({
+      doc_type: docType,
+      file: ref,
+      original_name: typeof item.original_name === "string" ? item.original_name : null,
+      mime_type: typeof item.mime_type === "string" ? item.mime_type : null,
+    });
   }
 
-  return { message: String(err) };
+  return out;
 }
 
-function fail(step: string, error: unknown, status = 400) {
-  const payload = {
-    error: `Failed at step: ${step}`,
-    step,
-    debug: serializeError(error),
-  };
-
-  console.error("[CREATE_STUDENT_ERROR]", JSON.stringify(payload, null, 2));
-  return NextResponse.json(payload, { status });
-}
-
-export async function POST(req: NextRequest) {
-  const guard = await requireAdmissionsAccess();
-  if ("error" in guard) return guard.error;
-
-  let createdAuthUserId: string | null = null;
-
+export async function POST(req: Request): Promise<NextResponse> {
   try {
-    const raw = (await req.json()) as Body;
+    const raw: unknown = await req.json();
+    if (!isObject(raw)) {
+      return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
+    }
 
-    const first_name = cleanText(raw.first_name) ?? "";
-    const last_name = cleanText(raw.last_name) ?? "";
-    const email = cleanEmail(raw.email);
+    const email = getString(raw.email).trim().toLowerCase();
+    const firstName = getString(raw.firstName).trim();
+    const lastName = getString(raw.lastName).trim();
+    const programId = getString(raw.programId).trim();
+    const nin = getString(raw.nin).trim();
 
-    const program_id = cleanText(raw.program_id) ?? "";
-    const session_id = cleanText(raw.session_id) ?? "";
+    if (!email || !firstName || !lastName || !programId || !nin) {
+      return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
+    }
 
-    if (!first_name || !last_name || !email) {
+    const passportFile = getFileRef(raw.passportFile);
+    const signatureFile = getFileRef(raw.signatureFile);
+
+    if (!passportFile || passportFile.bucket !== PASSPORT_BUCKET) {
       return NextResponse.json(
-        { error: "first_name, last_name and email are required" },
+        { error: "Passport is required and must be uploaded to avatars bucket." },
         { status: 400 }
       );
     }
 
-    if (!isUuid(program_id) || !isUuid(session_id)) {
+    if (!signatureFile || signatureFile.bucket !== DOCUMENTS_BUCKET) {
       return NextResponse.json(
-        { error: "Invalid program_id or session_id" },
+        { error: "Signature is required and must be uploaded to applications bucket." },
         { status: 400 }
       );
     }
 
-    const docTypes = (raw.documents ?? []).map((d) => d.doc_type);
+    const academicResultFile = getFileRef(raw.academicResultFile);
+    const birthCertificateFile = getFileRef(raw.birthCertificateFile);
+    const sponsorshipLetterFile = getFileRef(raw.sponsorshipLetterFile);
 
-    if (!raw.passport_file || !raw.signature_file) {
+    if (!academicResultFile || academicResultFile.bucket !== DOCUMENTS_BUCKET) {
       return NextResponse.json(
-        { error: "Passport and signature are required" },
+        { error: "Academic result document is required." },
         { status: 400 }
       );
     }
 
-    if (!docTypes.includes("academic_result") || !docTypes.includes("birth_or_age")) {
+    if (!birthCertificateFile || birthCertificateFile.bucket !== DOCUMENTS_BUCKET) {
       return NextResponse.json(
-        { error: "Academic result and birth certificate are required" },
+        { error: "Birth certificate / age declaration is required." },
         { status: 400 }
       );
     }
 
-    const initialPayment = raw.initial_payment ?? null;
-    const initialPaymentAmount = initialPayment
-      ? parsePositiveAmount(initialPayment.amount_submitted)
-      : null;
+    const supportingDocs = parseSupportingDocs(raw.supportingDocs);
+    const legacySupportingFiles = getFileRefArray(raw.supportingFiles);
 
-    if (initialPayment) {
-      if (!initialPaymentAmount) {
+    const admissionType = getString(raw.admissionType).trim();
+    if (admissionType === "direct_entry") {
+      const prevSchool = getString(raw.previousSchool).trim();
+      const prevQual = getString(raw.previousQualification).trim();
+      if (!prevSchool || !prevQual) {
         return NextResponse.json(
-          { error: "initial_payment.amount_submitted must be greater than 0" },
+          { error: "Previous school and qualification are required for Direct Entry." },
           { status: 400 }
         );
       }
-
-      if (!initialPayment.receipt_file || !isFileRef(initialPayment.receipt_file)) {
-        return NextResponse.json(
-          { error: "initial_payment.receipt_file is required" },
-          { status: 400 }
-        );
-      }
     }
 
-    const { data: existing, error: existingErr } = await supabaseAdmin
-      .from("profiles")
+    const supabase = supabaseAdmin;
+
+    const { data: activeSession, error: sessionError } = await supabase
+      .from("sessions")
       .select("id")
-      .eq("email", email)
-      .maybeSingle();
+      .eq("is_active", true)
+      .order("start_date", { ascending: false })
+      .limit(1)
+      .single();
 
-    if (existingErr) return fail("check_existing_profile", existingErr, 400);
-
-    if (existing) {
-      return NextResponse.json(
-        { error: "User with this email already exists" },
-        { status: 409 }
-      );
+    if (sessionError || !activeSession) {
+      return NextResponse.json({ error: "No active session configured." }, { status: 400 });
     }
 
-    const { data: authUsersData, error: listUsersErr } =
-        await supabaseAdmin.auth.admin.listUsers();
-
-      if (listUsersErr) {
-        return fail("list_auth_users", listUsersErr, 500);
-      }
-
-      const authExists = authUsersData.users.some(
-        (u) => (u.email ?? "").toLowerCase() === email
-      );
-
-      if (authExists) {
-        return NextResponse.json(
-          {
-            error:
-              "User already exists in auth (delete them or use a different email).",
-          },
-          { status: 409 }
-        );
-      }
-
-    const { data: program, error: programErr } = await supabaseAdmin
+    const { data: programRow, error: programErr } = await supabase
       .from("programs")
-      .select("code, department_id")
-      .eq("id", program_id)
+      .select("department_id")
+      .eq("id", programId)
       .single();
 
-    if (programErr || !program) {
-      return fail("load_program", programErr ?? { message: "Program not found" }, 400);
-    }
-
-    const { data: feePlan, error: feePlanErr } = await supabaseAdmin
-      .from("program_fee_plans")
-      .select("id, annual_fee")
-      .eq("program_id", program_id)
-      .eq("session_id", session_id)
-      .maybeSingle<{ id: string; annual_fee: number }>();
-
-    if (feePlanErr) return fail("load_fee_plan", feePlanErr, 400);
-
-    if (!feePlan) {
+    if (programErr || !programRow?.department_id) {
       return NextResponse.json(
-        { error: "No fee plan found for the selected program and session" },
+        { error: "Selected program is missing department mapping." },
         { status: 400 }
       );
     }
 
-    const annualFee = Number(feePlan.annual_fee ?? 0);
+    const applicationPayload = {
+      application_no: crypto.randomUUID(),
+      session_id: activeSession.id,
+      program_id: programId,
+      department_id: programRow.department_id,
 
-    if (!Number.isFinite(annualFee) || annualFee < 0) {
+      first_name: firstName,
+      middle_name: getOptionalString(raw.middleName),
+      last_name: lastName,
+
+      gender: getString(raw.gender),
+      date_of_birth: getString(raw.dateOfBirth),
+
+      email,
+      phone: getOptionalString(raw.phone),
+      nin,
+      special_needs: getOptionalString(raw.specialNeeds),
+
+      state_of_origin: getString(raw.stateOfOrigin),
+      lga_of_origin: getString(raw.lgaOfOrigin),
+      religion: getString(raw.religion),
+      address: getString(raw.address),
+
+      class_applied_for: getString(raw.classAppliedFor),
+      application_type: getString(raw.admissionType),
+      previous_school: getOptionalString(raw.previousSchool),
+      previous_qualification: getOptionalString(raw.previousQualification),
+
+      guardian_first_name: getString(raw.guardianFirstName),
+      guardian_middle_name: getOptionalString(raw.guardianMiddleName),
+      guardian_last_name: getString(raw.guardianLastName),
+      guardian_gender: getString(raw.guardianGender),
+      guardian_status: getString(raw.guardianStatus),
+      guardian_phone: getString(raw.guardianPhone),
+      guardian_email: getOptionalString(raw.guardianEmail),
+
+      attestation_date: getString(raw.attestationDate)
+        ? new Date(getString(raw.attestationDate)).toISOString()
+        : null,
+
+      passport_file: passportFile,
+      signature_file: signatureFile,
+
+      status: "pending",
+    };
+
+    const { data: app, error: appErr } = await supabase
+      .from("applications")
+      .insert(applicationPayload)
+      .select("id, application_no, status, created_at")
+      .single();
+
+    if (appErr || !app) {
       return NextResponse.json(
-        { error: "Invalid annual fee configured for this program/session" },
+        { error: appErr?.message ?? "Failed to create application." },
         { status: 400 }
       );
     }
 
-    const { data: matricNo, error: matricErr } = await supabaseAdmin.rpc(
-      "generate_student_matric_no",
-      { p_prefix: program.code }
-    );
-
-    if (matricErr) return fail("generate_matric_no", matricErr, 400);
-
-    if (!matricNo) {
-      return NextResponse.json(
-        { error: "Failed to generate matric number" },
-        { status: 400 }
-      );
-    }
-
-    const baseUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)).replace(/\/$/, "");
-    const redirectTo = `${baseUrl}/api/auth/confirm`;
-
-    console.log("[CREATE_STUDENT] inviting auth user", { email, redirectTo });
-
-    const { data: inviteRes, error: inviteErr } =
-      await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        redirectTo,
-        data: {
-          main_role: "student",
-          onboarding_status: "pending",
-        },
-      });
-
-    if (inviteErr) {
-      const msg = inviteErr.message ?? "Invite failed";
-      const isDup = isDuplicateAuthMessage(msg);
-
-      return fail(
-        "invite_auth_user",
-        {
-          ...serializeError(inviteErr),
-          duplicate_detected: isDup,
-          email,
-          redirectTo,
-        },
-        isDup ? 409 : 400
-      );
-    }
-
-    const userId = inviteRes?.user?.id ?? null;
-
-    if (!userId) {
-      return fail("invite_auth_user_no_id", { message: "Auth invite returned no user id" }, 400);
-    }
-
-    createdAuthUserId = userId;
-
-    const { data: profile, error: profileErr } = await supabaseAdmin
-      .from("profiles")
-      .insert({
-        id: userId,
-        first_name,
-        middle_name: cleanText(raw.middle_name),
-        last_name,
-        email,
-        phone: cleanText(raw.phone),
-        gender: cleanText(raw.gender),
-        date_of_birth: cleanText(raw.date_of_birth),
-        state_of_origin: cleanText(raw.state_of_origin),
-        lga_of_origin: cleanText(raw.lga_of_origin),
-        nin: cleanText(raw.nin),
-        religion: cleanText(raw.religion),
-        address: cleanText(raw.address),
-        main_role: "student",
-        onboarding_status: "pending",
-      })
-      .select("id")
-      .single();
-
-    if (profileErr || !profile) {
-      return fail("create_profile", profileErr ?? { message: "Profile creation failed" }, 400);
-    }
-
-    const { data: student, error: studentErr } = await supabaseAdmin
-      .from("students")
-      .insert({
-        profile_id: profile.id,
-        matric_no: matricNo,
-        program_id,
-        department_id: program.department_id,
-        admission_session_id: session_id,
-        guardian_first_name: cleanText(raw.guardian_first_name),
-        guardian_last_name: cleanText(raw.guardian_last_name),
-        guardian_phone: cleanText(raw.guardian_phone),
-        guardian_status: cleanText(raw.guardian_status),
-        status: "active",
-        enrollment_date: new Date().toISOString().slice(0, 10),
-      })
-      .select("id, matric_no")
-      .single();
-
-    if (studentErr || !student) {
-      return fail("create_student", studentErr ?? { message: "Student creation failed" }, 400);
-    }
-
-    const { data: registration, error: regErr } = await supabaseAdmin
-      .from("student_registrations")
-      .insert({
-        student_id: student.id,
-        session_id,
-        level: cleanText(raw.level),
-        status: "registered",
-      })
-      .select("id")
-      .single<{ id: string }>();
-
-    if (regErr || !registration) {
-      return fail(
-        "create_student_registration",
-        regErr ?? { message: "Student registration creation failed" },
-        400
-      );
-    }
-
-    const { data: feeAccount, error: feeAccountErr } = await supabaseAdmin
-      .from("student_fee_accounts")
-      .insert({
-        student_registration_id: registration.id,
-        program_id,
-        annual_fee: annualFee,
-        total_paid_approved: 0,
-        balance_due: annualFee,
-        payment_status: "unpaid",
-      })
-      .select("id")
-      .single<{ id: string }>();
-
-    if (feeAccountErr || !feeAccount) {
-      return fail(
-        "create_student_fee_account",
-        feeAccountErr ?? { message: "Student fee account creation failed" },
-        400
-      );
-    }
-
-    if (initialPayment && initialPaymentAmount && initialPayment.receipt_file) {
-      const { error: paymentErr } = await supabaseAdmin
-        .from("payment_receipts")
-        .insert({
-          student_fee_account_id: feeAccount.id,
-          amount_submitted: initialPaymentAmount,
-          approved_amount: null,
-          transaction_reference: cleanText(initialPayment.transaction_reference),
-          remarks: cleanText(initialPayment.remarks),
-          status: "pending",
-          receipt_file: initialPayment.receipt_file,
-          uploaded_by: null,
-          verified_by: null,
-          rejected_by: null,
-          verified_at: null,
-          rejected_at: null,
-        });
-
-      if (paymentErr) {
-        return fail("create_initial_payment_receipt", paymentErr, 400);
-      }
-    }
-
-    const docs: Array<{
-      student_id: string;
+    const docsToInsert: {
+      application_id: string;
       doc_type: string;
       file: FileRef;
-      original_name?: string | null;
-      mime_type?: string | null;
-    }> = [];
-
-    docs.push({
-      student_id: student.id,
-      doc_type: "passport",
-      file: raw.passport_file,
-    });
-
-    docs.push({
-      student_id: student.id,
-      doc_type: "signature",
-      file: raw.signature_file,
-    });
-
-    if (Array.isArray(raw.documents)) {
-      for (const d of raw.documents) {
-        docs.push({
-          student_id: student.id,
-          doc_type: d.doc_type,
-          file: d.file,
-          original_name: d.original_name ?? null,
-          mime_type: d.mime_type ?? null,
-        });
-      }
-    }
-
-    if (docs.length) {
-      const { error: docErr } = await supabaseAdmin
-        .from("student_documents")
-        .insert(docs);
-
-      if (docErr) {
-        return fail("insert_student_documents", docErr, 400);
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      studentId: student.id,
-      matricNo: student.matric_no,
-      annualFee,
-      hasInitialPayment: !!initialPayment,
-      email,
-    });
-  } catch (err) {
-    console.error("[CREATE_STUDENT_FATAL]", err);
-
-    if (createdAuthUserId) {
-      await supabaseAdmin.auth.admin.deleteUser(createdAuthUserId);
-    }
-
-    return NextResponse.json(
+      original_name: string | null;
+      mime_type: string | null;
+    }[] = [
       {
-        error: "Server error",
-        step: "unhandled_catch",
-        debug: serializeError(err),
+        application_id: app.id,
+        doc_type: "academic_result",
+        file: academicResultFile,
+        original_name: null,
+        mime_type: null,
       },
-      { status: 500 }
-    );
+      {
+        application_id: app.id,
+        doc_type: "birth_or_age",
+        file: birthCertificateFile,
+        original_name: null,
+        mime_type: null,
+      },
+    ];
+
+    if (sponsorshipLetterFile && sponsorshipLetterFile.bucket === DOCUMENTS_BUCKET) {
+      docsToInsert.push({
+        application_id: app.id,
+        doc_type: "sponsorship_letter",
+        file: sponsorshipLetterFile,
+        original_name: null,
+        mime_type: null,
+      });
+    }
+
+    for (const d of supportingDocs) {
+      docsToInsert.push({
+        application_id: app.id,
+        doc_type: d.doc_type,
+        file: d.file,
+        original_name: d.original_name ?? null,
+        mime_type: d.mime_type ?? null,
+      });
+    }
+
+    for (const f of legacySupportingFiles) {
+      docsToInsert.push({
+        application_id: app.id,
+        doc_type: "supporting_optional",
+        file: f,
+        original_name: null,
+        mime_type: null,
+      });
+    }
+
+    const { error: docsErr } = await supabase
+      .from("application_documents")
+      .insert(docsToInsert);
+
+    if (docsErr) {
+      return NextResponse.json(
+        {
+          success: true,
+          application: app,
+          warning: `Application saved but documents failed: ${docsErr.message}`,
+        },
+        { status: 200 }
+      );
+    }
+
+    return NextResponse.json({ success: true, application: app });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Invalid request";
+    return NextResponse.json({ error: msg }, { status: 400 });
   }
 }
