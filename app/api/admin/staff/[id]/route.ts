@@ -44,7 +44,8 @@ export async function GET(
       `
         *,
         profiles:profile_id(*),
-        departments(*)
+        departments(*),
+        staff_documents(*)
       `
     )
     .eq("id", id)
@@ -83,21 +84,28 @@ export async function PATCH(
 
   const profileId = staffRow.profile_id as string;
 
+  const profileBody = isRecord(body.profiles) ? body.profiles : body;
   const profileUpdate: Record<string, unknown> = {};
 
-  const first_name = strTrim(body.first_name ?? body.firstName);
-  const middle_name = strTrim(body.middle_name ?? body.middleName);
-  const last_name = strTrim(body.last_name ?? body.lastName);
-  const email = strTrim(body.email)?.toLowerCase();
-  const phone = strTrim(body.phone);
-  const gender = strTrim(body.gender);
-  const date_of_birth = strTrim(body.date_of_birth ?? body.dateOfBirth);
-  const nin = strTrim(body.nin);
-  const address = strTrim(body.address);
-  const state_of_origin = strTrim(body.state_of_origin ?? body.stateOfOrigin);
-  const lga_of_origin = strTrim(body.lga_of_origin ?? body.lgaOfOrigin);
-  const religion = strTrim(body.religion);
-  const main_role = strTrim(body.main_role ?? body.mainRole);
+  const first_name = strTrim(profileBody.first_name ?? profileBody.firstName);
+  const middle_name = strTrim(profileBody.middle_name ?? profileBody.middleName);
+  const last_name = strTrim(profileBody.last_name ?? profileBody.lastName);
+  const email = strTrim(profileBody.email)?.toLowerCase();
+  const phone = strTrim(profileBody.phone);
+  const gender = strTrim(profileBody.gender);
+  const date_of_birth = strTrim(
+    profileBody.date_of_birth ?? profileBody.dateOfBirth
+  );
+  const nin = strTrim(profileBody.nin);
+  const address = strTrim(profileBody.address);
+  const state_of_origin = strTrim(
+    profileBody.state_of_origin ?? profileBody.stateOfOrigin
+  );
+  const lga_of_origin = strTrim(
+    profileBody.lga_of_origin ?? profileBody.lgaOfOrigin
+  );
+  const religion = strTrim(profileBody.religion);
+  const main_role = strTrim(profileBody.main_role ?? profileBody.mainRole);
 
   if (first_name !== null) profileUpdate.first_name = first_name;
   if (middle_name !== null) profileUpdate.middle_name = middle_name;
@@ -113,8 +121,11 @@ export async function PATCH(
   if (religion !== null) profileUpdate.religion = religion;
   if (main_role !== null) profileUpdate.main_role = main_role;
 
-  if (body.avatar_file !== undefined || body.avatarFile !== undefined) {
-    const avatar = body.avatar_file ?? body.avatarFile;
+  if (
+    profileBody.avatar_file !== undefined ||
+    profileBody.avatarFile !== undefined
+  ) {
+    const avatar = profileBody.avatar_file ?? profileBody.avatarFile;
 
     if (avatar === null) {
       profileUpdate.avatar_file = null;
@@ -150,6 +161,7 @@ export async function PATCH(
   const status = strTrim(body.status);
   const bank_name = strTrim(body.bank_name ?? body.bankName);
   const account_number = strTrim(body.account_number ?? body.accountNumber);
+  const unit = strTrim(body.unit);
 
   if (designation !== null) staffUpdate.designation = designation;
   if (specialization !== null) staffUpdate.specialization = specialization;
@@ -158,6 +170,7 @@ export async function PATCH(
   if (status !== null) staffUpdate.status = status;
   if (bank_name !== null) staffUpdate.bank_name = bank_name;
   if (account_number !== null) staffUpdate.account_number = account_number;
+  if (unit !== null) staffUpdate.unit = unit;
 
   if (body.signature_file !== undefined || body.signatureFile !== undefined) {
     const signature = body.signature_file ?? body.signatureFile;
@@ -187,13 +200,42 @@ export async function PATCH(
     }
   }
 
+  if (Array.isArray(body.qualification_documents) && body.qualification_documents.length > 0) {
+    const docsPayload = body.qualification_documents
+      .filter((item): item is Record<string, unknown> => isRecord(item))
+      .map((item) => {
+        const file = isRecord(item.file) ? item.file : null;
+
+        return {
+          staff_id: staffId,
+          doc_type: strTrim(item.doc_type) ?? "qualification",
+          bucket: file && typeof file.bucket === "string" ? file.bucket.trim() : "",
+          path: file && typeof file.path === "string" ? file.path.trim() : "",
+          original_name: strTrim(item.original_name),
+          mime_type: strTrim(item.mime_type),
+        };
+      })
+      .filter((doc) => doc.bucket && doc.path);
+
+    if (docsPayload.length > 0) {
+      const { error: docsErr } = await supabaseAdmin
+        .from("staff_documents")
+        .insert(docsPayload);
+
+      if (docsErr) {
+        return NextResponse.json({ error: docsErr.message }, { status: 400 });
+      }
+    }
+  }
+
   const { data: updated, error: reloadErr } = await supabaseAdmin
     .from("staff")
     .select(
       `
         *,
         profiles:profile_id(*),
-        departments(*)
+        departments(*),
+        staff_documents(*)
       `
     )
     .eq("id", staffId)
