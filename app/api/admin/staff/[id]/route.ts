@@ -18,6 +18,20 @@ function isoNow(): string {
   return new Date().toISOString();
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+function isFileRef(v: unknown): v is { bucket: string; path: string } {
+  return (
+    isRecord(v) &&
+    typeof v.bucket === "string" &&
+    v.bucket.trim().length > 0 &&
+    typeof v.path === "string" &&
+    v.path.trim().length > 0
+  );
+}
+
 export async function GET(
   _req: Request,
   context: { params: Promise<{ id: string }> }
@@ -99,6 +113,21 @@ export async function PATCH(
   if (religion !== null) profileUpdate.religion = religion;
   if (main_role !== null) profileUpdate.main_role = main_role;
 
+  if (body.avatar_file !== undefined || body.avatarFile !== undefined) {
+    const avatar = body.avatar_file ?? body.avatarFile;
+
+    if (avatar === null) {
+      profileUpdate.avatar_file = null;
+    } else if (isFileRef(avatar)) {
+      profileUpdate.avatar_file = avatar;
+    } else {
+      return NextResponse.json(
+        { error: "avatar_file must be a valid file ref with bucket and path" },
+        { status: 400 }
+      );
+    }
+  }
+
   if (Object.keys(profileUpdate).length > 0) {
     profileUpdate.updated_at = isoNow();
 
@@ -130,12 +159,19 @@ export async function PATCH(
   if (bank_name !== null) staffUpdate.bank_name = bank_name;
   if (account_number !== null) staffUpdate.account_number = account_number;
 
-  if (body.avatar_file !== undefined || body.avatarFile !== undefined) {
-    staffUpdate.avatar_file = body.avatar_file ?? body.avatarFile;
-  }
-
   if (body.signature_file !== undefined || body.signatureFile !== undefined) {
-    staffUpdate.signature_file = body.signature_file ?? body.signatureFile;
+    const signature = body.signature_file ?? body.signatureFile;
+
+    if (signature === null) {
+      staffUpdate.signature_file = null;
+    } else if (isFileRef(signature)) {
+      staffUpdate.signature_file = signature;
+    } else {
+      return NextResponse.json(
+        { error: "signature_file must be a valid file ref with bucket and path" },
+        { status: 400 }
+      );
+    }
   }
 
   if (Object.keys(staffUpdate).length > 0) {
