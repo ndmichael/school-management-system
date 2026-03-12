@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
 
     if (profErr) {
       console.error("resend-invite profile lookup error:", profErr.message);
-      return NextResponse.json({ ok: true }, { status: 200 });
+      return NextResponse.json({ error: profErr.message }, { status: 400 });
     }
 
     // Avoid account enumeration
@@ -90,15 +90,17 @@ export async function POST(req: NextRequest) {
 
         if (resetErr) {
           console.error("resend reset fallback error:", resetErr.message);
+          return NextResponse.json({ error: resetErr.message }, { status: 400 });
         }
       } else {
         console.error("resend invite error:", inviteErr.message);
+        return NextResponse.json({ error: inviteErr.message }, { status: 400 });
       }
     }
 
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (err) {
     console.error("resend-invite fatal:", err);
-    return NextResponse.json({ ok: true }, { status: 200 });
+    return NextResponse.json({ error: "Failed to resend invite" }, { status: 500 });
   }
 }
