@@ -1,4 +1,3 @@
-// app/api/auth/confirm/route.ts
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
@@ -32,9 +31,9 @@ export async function GET(request: NextRequest) {
   const nextPath = safeNext(nextParam, "/set-password");
 
   if (!tokenHash || !isEmailOtpType(type)) {
-    return NextResponse.redirect(
-      new URL("/login?error=invalid_link", url.origin)
-    );
+    const loginUrl = new URL("/login", url.origin);
+    loginUrl.searchParams.set("error", "invalid_link");
+    return NextResponse.redirect(loginUrl);
   }
 
   const supabase = await createClient();
@@ -45,16 +44,12 @@ export async function GET(request: NextRequest) {
   });
 
   if (error) {
-    return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(error.message)}`, url.origin)
-    );
+    const loginUrl = new URL("/login", url.origin);
+    loginUrl.searchParams.set("error", "invite_invalid_or_expired");
+    loginUrl.searchParams.set("next", nextPath);
+    return NextResponse.redirect(loginUrl);
   }
 
-  /**
-   * 🔑 CRITICAL FIX
-   * This forces Supabase to WRITE the session cookie
-   * before Next.js performs the redirect.
-   */
   await supabase.auth.getSession();
 
   return NextResponse.redirect(new URL(nextPath, url.origin));

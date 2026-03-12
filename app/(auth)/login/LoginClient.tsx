@@ -23,6 +23,7 @@ export default function LoginClient() {
 
   const sp = useSearchParams();
   const urlError = (sp.get("error") ?? "").trim();
+  const nextParam = (sp.get("next") ?? "").trim();
 
   const [hashErrorCode, setHashErrorCode] = React.useState<string>("");
 
@@ -36,18 +37,26 @@ export default function LoginClient() {
   const isExpired =
     urlError === "invalid_link" ||
     urlError === "otp_expired" ||
+    urlError === "invite_invalid_or_expired" ||
     hashErrorCode === "otp_expired";
 
   const [resendEmail, setResendEmail] = useState("");
   const [resendLoading, setResendLoading] = useState(false);
-  const [resendDone, setResendDone] = useState(false);
+  const [resendSubmitted, setResendSubmitted] = useState(false);
+
+  React.useEffect(() => {
+    const emailFromQuery = (sp.get("email") ?? "").trim();
+    if (emailFromQuery) {
+      setResendEmail(emailFromQuery);
+    }
+  }, [sp]);
 
   async function resendInvite() {
     const email = resendEmail.trim().toLowerCase();
     if (!email) return;
 
     setResendLoading(true);
-    setResendDone(false);
+    setResendSubmitted(false);
 
     try {
       const r = await fetch("/api/auth/resend-invite", {
@@ -56,12 +65,11 @@ export default function LoginClient() {
         body: JSON.stringify({ email }),
       });
 
+      await r.json().catch(() => null);
+      setResendSubmitted(true);
+
       if (r.ok) {
-        await r.json().catch(() => null);
-        setResendDone(true);
         setResendEmail("");
-      } else {
-        setResendDone(true);
       }
     } finally {
       setResendLoading(false);
@@ -82,12 +90,12 @@ export default function LoginClient() {
           {isExpired && (
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
               <p className="text-sm font-semibold text-amber-900">
-                This link is invalid or has expired.
+                Your setup link is invalid or has expired.
               </p>
 
               <p className="mt-0.5 text-xs text-amber-900/80">
-                If you’ve already set a password, simply sign in below.
-                Otherwise, enter your email to receive a new setup link.
+                If you have already set your password, sign in below.
+                Otherwise, enter your email to receive a fresh setup link.
               </p>
 
               <div className="mt-3 space-y-2">
@@ -124,9 +132,10 @@ export default function LoginClient() {
                   )}
                 </Button>
 
-                {resendDone && (
+                {resendSubmitted && (
                   <p className="text-xs text-amber-900/80">
-                    If an account exists for that email, a new link has been sent.
+                    If an account exists for that email and onboarding is still pending,
+                    a fresh setup link has been sent.
                   </p>
                 )}
               </div>

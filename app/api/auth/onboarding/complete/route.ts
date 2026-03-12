@@ -6,17 +6,28 @@ export const runtime = "nodejs";
 
 export async function POST(_req: NextRequest) {
   const supabase = await createClient();
+
   const { data: userData, error: userErr } = await supabase.auth.getUser();
 
-  if (userErr) return NextResponse.json({ error: userErr.message }, { status: 400 });
-  if (!userData.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (userErr) {
+    return NextResponse.json({ error: userErr.message }, { status: 400 });
+  }
+
+  if (!userData.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const { error } = await supabase
     .from("profiles")
-    .update({ onboarding_status: "active" })
+    .update({
+      onboarding_status: "completed",
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", userData.user.id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }

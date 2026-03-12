@@ -69,12 +69,16 @@ export async function loginAction(
   // ✅ Fetch role
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('main_role')
+    .select('main_role, onboarding_status')
     .eq('id', user.id)
     .single()
 
   if (profileError || !profile?.main_role) {
     return { success: false, error: 'User role not found.' }
+  }
+
+  if ((profile.onboarding_status ?? '').toLowerCase() !== 'completed') {
+    redirect('/set-password')
   }
 
   // ✅ Guard against unknown roles
