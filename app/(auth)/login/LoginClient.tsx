@@ -43,6 +43,7 @@ export default function LoginClient() {
   const [resendEmail, setResendEmail] = useState("");
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSubmitted, setResendSubmitted] = useState(false);
+  const [resendError, setResendError] = useState("");
 
   React.useEffect(() => {
     const emailFromQuery = (sp.get("email") ?? "").trim();
@@ -57,6 +58,7 @@ export default function LoginClient() {
 
     setResendLoading(true);
     setResendSubmitted(false);
+    setResendError("");
 
     try {
       const r = await fetch("/api/auth/resend-invite", {
@@ -65,12 +67,18 @@ export default function LoginClient() {
         body: JSON.stringify({ email }),
       });
 
-      await r.json().catch(() => null);
-      setResendSubmitted(true);
+      const json = await r.json().catch(() => null);
 
-      if (r.ok) {
-        setResendEmail("");
+      if (!r.ok) {
+        setResendError(
+          (json && typeof json.error === "string" && json.error) ||
+            "Failed to resend setup link."
+        );
+        return;
       }
+
+      setResendSubmitted(true);
+      setResendEmail("");
     } finally {
       setResendLoading(false);
     }
