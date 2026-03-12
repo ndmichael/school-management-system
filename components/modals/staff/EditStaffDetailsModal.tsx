@@ -39,6 +39,7 @@ interface StaffProfile {
   state_of_origin: string | null;
   lga_of_origin: string | null;
   religion: string | null;
+  avatar_file?: FileRef | null;
 }
 
 interface ExistingQualificationDocument {
@@ -54,14 +55,13 @@ interface StaffData {
   main_role: MainRole;
   unit: StaffUnit | null;
   hire_date: string | null;
-
   designation: string | null;
   specialization: string | null;
   department_id: string | null;
   status: string;
   bank_name: string | null;
   account_number: string | null;
-  avatar_file: FileRef | null;
+  avatar_file?: FileRef | null;
   signature_file: FileRef | null;
   profiles: StaffProfile;
   qualification_documents?: ExistingQualificationDocument[];
@@ -116,6 +116,26 @@ function validateUploadFile(
   return null;
 }
 
+function isImageFile(nameOrMime?: string | null) {
+  if (!nameOrMime) return false;
+  const value = nameOrMime.toLowerCase();
+
+  return (
+    value.includes("image/") ||
+    value.endsWith(".jpg") ||
+    value.endsWith(".jpeg") ||
+    value.endsWith(".png") ||
+    value.endsWith(".webp")
+  );
+}
+
+function isPdfFile(nameOrMime?: string | null) {
+  if (!nameOrMime) return false;
+  const value = nameOrMime.toLowerCase();
+
+  return value.includes("application/pdf") || value.endsWith(".pdf");
+}
+
 export function EditStaffModal({
   isOpen,
   staffId,
@@ -136,8 +156,16 @@ export function EditStaffModal({
     StaffDocumentItem[]
   >([makeQualificationRow()]);
 
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
+  const [documentUrls, setDocumentUrls] = useState<Record<string, string>>({});
+
   const isAcademic = data?.main_role === "academic_staff";
   const isNonAcademic = data?.main_role === "non_academic_staff";
+
+  const existingDocs: ExistingQualificationDocument[] = data
+  ? data.qualification_documents ?? data.staff_documents ?? []
+  : [];
 
   useEffect(() => {
     if (!isOpen) return;
@@ -171,17 +199,86 @@ export function EditStaffModal({
     load();
   }, [isOpen, staffId]);
 
+
   useEffect(() => {
     if (!data) return;
 
     if (data.main_role === "non_academic_staff" && data.department_id) {
-      setData((prev) => (prev ? { ...prev, department_id: null } : prev));
+      setData((prev) => {
+        if (!prev || prev.main_role !== "non_academic_staff" || !prev.department_id) {
+          return prev;
+        }
+        return { ...prev, department_id: null };
+      });
+      return;
     }
 
     if (data.main_role === "academic_staff" && data.unit) {
-      setData((prev) => (prev ? { ...prev, unit: null } : prev));
+      setData((prev) => {
+        if (!prev || prev.main_role !== "academic_staff" || !prev.unit) {
+          return prev;
+        }
+        return { ...prev, unit: null };
+      });
     }
-  }, [data?.main_role]);
+  }, [data]);
+
+  useEffect(() => {
+  if (!isOpen || !data) return;
+
+  const currentData = data;
+  const currentDocs = currentData.qualification_documents ?? currentData.staff_documents ?? [];
+
+  async function loadFileUrls() {
+    try {
+      const nextUrls: Record<string, string> = {};
+
+      const currentAvatar =
+        currentData.profiles.avatar_file && currentData.profiles.avatar_file.path
+          ? currentData.profiles.avatar_file
+          : currentData.avatar_file && currentData.avatar_file.path
+          ? currentData.avatar_file
+          : null;
+
+      if (currentAvatar?.bucket && currentAvatar?.path) {
+        const { data: signed } = await supabase.storage
+          .from(currentAvatar.bucket)
+          .createSignedUrl(currentAvatar.path, 3600);
+
+        setAvatarUrl(signed?.signedUrl ?? null);
+      } else {
+        setAvatarUrl(null);
+      }
+
+      if (currentData.signature_file?.bucket && currentData.signature_file?.path) {
+        const { data: signed } = await supabase.storage
+          .from(currentData.signature_file.bucket)
+          .createSignedUrl(currentData.signature_file.path, 3600);
+
+        setSignatureUrl(signed?.signedUrl ?? null);
+      } else {
+        setSignatureUrl(null);
+      }
+
+      for (const doc of currentDocs) {
+        const key = doc.id ?? `${doc.bucket}/${doc.path}`;
+        const { data: signed } = await supabase.storage
+          .from(doc.bucket)
+          .createSignedUrl(doc.path, 3600);
+
+        if (signed?.signedUrl) {
+          nextUrls[key] = signed.signedUrl;
+        }
+      }
+
+      setDocumentUrls(nextUrls);
+    } catch {
+      toast.error("Failed to prepare file previews");
+    }
+  }
+
+  loadFileUrls();
+}, [isOpen, data, supabase]);
 
   function handleAvatarChange(file: File | null) {
     if (file) {
@@ -259,8 +356,8 @@ export function EditStaffModal({
       return;
     }
 
-    if (!data.hire_date) {
-      toast.error("Hire date is required.");
+    if (data.main_role === "academic_staff" && !data.hire_date) {
+      toast.error("Hire date is required for Academic Staff.");
       return;
     }
 
@@ -311,7 +408,6 @@ export function EditStaffModal({
         main_role: data.main_role,
         unit: data.main_role === "non_academic_staff" ? data.unit : null,
         hire_date: data.hire_date || null,
-
         designation: data.designation?.trim() || null,
         specialization: data.specialization?.trim() || null,
         department_id:
@@ -319,7 +415,6 @@ export function EditStaffModal({
         status: data.status,
         bank_name: data.bank_name?.trim() || null,
         account_number: data.account_number?.trim() || null,
-
         profiles: {
           first_name: data.profiles.first_name.trim(),
           middle_name: data.profiles.middle_name?.trim() || null,
@@ -331,9 +426,8 @@ export function EditStaffModal({
           state_of_origin: data.profiles.state_of_origin?.trim() || null,
           lga_of_origin: data.profiles.lga_of_origin?.trim() || null,
           religion: data.profiles.religion?.trim() || null,
+          avatar_file: avatarRef,
         },
-
-        avatar_file: avatarRef,
         signature_file: signatureRef,
         qualification_documents: uploadedQualificationDocuments,
       };
@@ -344,7 +438,19 @@ export function EditStaffModal({
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) throw new Error("Failed to update staff");
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        step?: string;
+        debug?: { message?: string | null };
+      };
+
+      if (!res.ok) {
+        throw new Error(
+          [json.error, json.step, json.debug?.message]
+            .filter(Boolean)
+            .join(" | ") || "Failed to update staff"
+        );
+      }
 
       toast.success("Staff updated");
       onUpdated();
@@ -358,8 +464,6 @@ export function EditStaffModal({
   }
 
   if (!isOpen) return null;
-
-  const existingDocs = data?.qualification_documents ?? data?.staff_documents ?? [];
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="xl" title="Edit Staff">
@@ -430,15 +534,13 @@ export function EditStaffModal({
 
           <Select
             label="Staff Type"
-            value={data.main_role}
-            onChange={(value) =>
-              setData({ ...data, main_role: value as MainRole })
-            }
+            value={data.main_role ?? "academic_staff"}
+            onChange={() => {}}
             options={[
               { value: "academic_staff", label: "Academic Staff" },
               { value: "non_academic_staff", label: "Non-Academic Staff" },
             ]}
-            required
+            
           />
 
           {isNonAcademic && (
@@ -474,7 +576,6 @@ export function EditStaffModal({
               type="date"
               value={data.hire_date ?? ""}
               onChange={(e) => setData({ ...data, hire_date: e.target.value })}
-              required
             />
 
             {isAcademic ? (
@@ -534,11 +635,18 @@ export function EditStaffModal({
                 onChange={(e) => handleAvatarChange(e.target.files?.[0] ?? null)}
                 className="block w-full rounded-xl border px-3 py-3 text-sm"
               />
-              {data.avatar_file?.path ? (
-                <p className="text-xs text-gray-500">
-                  Current: {data.avatar_file.path}
-                </p>
+
+              {avatarUrl ? (
+                <div className="mt-2 rounded-xl border p-3">
+                  <p className="mb-2 text-xs text-gray-500">Current Avatar</p>
+                  <img
+                    src={avatarUrl}
+                    alt="Current avatar"
+                    className="h-24 w-24 rounded-lg border object-cover"
+                  />
+                </div>
               ) : null}
+
               {avatarFile ? (
                 <p className="text-xs text-gray-500">New: {avatarFile.name}</p>
               ) : null}
@@ -557,15 +665,20 @@ export function EditStaffModal({
                 }
                 className="block w-full rounded-xl border px-3 py-3 text-sm"
               />
-              {data.signature_file?.path ? (
-                <p className="text-xs text-gray-500">
-                  Current: {data.signature_file.path}
-                </p>
+
+              {signatureUrl ? (
+                <div className="mt-2 rounded-xl border p-3">
+                  <p className="mb-2 text-xs text-gray-500">Current Signature</p>
+                  <img
+                    src={signatureUrl}
+                    alt="Current signature"
+                    className="h-24 w-full max-w-[200px] rounded-lg border bg-white object-contain"
+                  />
+                </div>
               ) : null}
+
               {signatureFile ? (
-                <p className="text-xs text-gray-500">
-                  New: {signatureFile.name}
-                </p>
+                <p className="text-xs text-gray-500">New: {signatureFile.name}</p>
               ) : null}
             </div>
           </div>
@@ -575,20 +688,65 @@ export function EditStaffModal({
               <h3 className="text-sm font-semibold text-gray-900">
                 Existing Qualification Documents
               </h3>
+
               {existingDocs.length === 0 ? (
-                <p className="text-sm text-gray-500 mt-2">
+                <p className="mt-2 text-sm text-gray-500">
                   No qualification documents yet.
                 </p>
               ) : (
-                <div className="space-y-2 mt-2">
-                  {existingDocs.map((doc, idx) => (
-                    <div
-                      key={doc.id ?? `${doc.path}-${idx}`}
-                      className="rounded-lg border p-3 text-sm text-gray-700"
-                    >
-                      {doc.original_name || doc.path}
-                    </div>
-                  ))}
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {existingDocs.map((doc, idx) => {
+                    const key = doc.id ?? `${doc.bucket}/${doc.path}`;
+                    const fileUrl = documentUrls[key];
+                    const fileName =
+                      doc.original_name ||
+                      doc.path.split("/").pop() ||
+                      `Document ${idx + 1}`;
+
+                    const imageLike = isImageFile(
+                      doc.mime_type || doc.original_name || doc.path
+                    );
+                    const pdfLike = isPdfFile(
+                      doc.mime_type || doc.original_name || doc.path
+                    );
+
+                    return (
+                      <div
+                        key={`${key}-${idx}`}
+                        className="space-y-3 rounded-xl border bg-white p-3"
+                      >
+                        {imageLike && fileUrl ? (
+                          <img
+                            src={fileUrl}
+                            alt={fileName}
+                            className="h-32 w-full rounded-lg border object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-32 w-full items-center justify-center rounded-lg border bg-gray-50 text-sm text-gray-500">
+                            {pdfLike ? "PDF Document" : "Document File"}
+                          </div>
+                        )}
+
+                        <div className="space-y-1">
+                          <p className="flex-wrap-reversebreak-words text-sm font-medium text-gray-800">
+                            {fileName}
+                          </p>
+                          <p className="text-xs text-gray-500">{doc.doc_type}</p>
+                        </div>
+
+                        {fileUrl ? (
+                          <a
+                            href={fileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center justify-center rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+                          >
+                            Open
+                          </a>
+                        ) : null}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -600,7 +758,7 @@ export function EditStaffModal({
               <button
                 type="button"
                 onClick={addQualificationRow}
-                className="px-3 py-2 rounded-lg bg-gray-100 text-sm font-medium hover:bg-gray-200"
+                className="rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium hover:bg-gray-200"
               >
                 Add Another
               </button>
@@ -608,11 +766,12 @@ export function EditStaffModal({
 
             <div className="space-y-3">
               {qualificationUploads.map((doc, index) => (
-                <div key={doc.id} className="border rounded-xl p-4 space-y-2">
+                <div key={doc.id} className="space-y-2 rounded-xl border p-4">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-medium text-gray-700">
                       Qualification Document {index + 1}
                     </p>
+
                     {qualificationUploads.length > 1 ? (
                       <button
                         type="button"
@@ -642,13 +801,25 @@ export function EditStaffModal({
             </div>
           </div>
 
-          <button
-            onClick={save}
-            disabled={loading || uploading}
-            className="w-full bg-red-600 hover:bg-red-700 text-white py-3 rounded-xl font-semibold transition disabled:opacity-60"
-          >
-            {uploading ? "Uploading..." : loading ? "Saving..." : "Save Changes"}
-          </button>
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={loading || uploading}
+              className="flex-1 rounded-xl bg-gray-100 px-6 py-3 font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-60"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              onClick={save}
+              disabled={loading || uploading}
+              className="flex-1 rounded-xl bg-red-600 px-6 py-3 font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
+            >
+              {uploading ? "Uploading..." : loading ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
         </div>
       )}
     </Modal>
