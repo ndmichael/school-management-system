@@ -76,25 +76,29 @@ export async function POST(req: NextRequest) {
     });
 
     if (inviteErr) {
-      const m = inviteErr.message.toLowerCase();
+      const m = (inviteErr.message ?? "").toLowerCase();
+      const code =
+        typeof inviteErr.code === "string" ? inviteErr.code.toLowerCase() : "";
 
       const isDup =
+        code === "email_exists" ||
         m.includes("already registered") ||
         m.includes("already exists") ||
         m.includes("user already registered") ||
-        m.includes("duplicate") ||
-        m.includes("email_exists");
+        m.includes("duplicate");
 
-        console.error("inviteErr.message:", inviteErr.message);
-        console.error("inviteErr full:", inviteErr);
-        console.error("isDup:", isDup);
+      console.error("inviteErr.message:", inviteErr.message);
+      console.error("inviteErr full:", inviteErr);
+      console.error("inviteErr.code:", code);
+      console.error("isDup:", isDup);
 
       if (isDup) {
-         console.error("FALLBACK: calling resetPasswordForEmail for", email);
-         
-        const { error: resetErr } = await supabaseAdmin.auth.resetPasswordForEmail(email, {
-          redirectTo,
-        });
+        console.error("FALLBACK: calling resetPasswordForEmail for", email);
+
+        const { error: resetErr } = await supabaseAdmin.auth.resetPasswordForEmail(
+          email,
+          { redirectTo }
+        );
 
         if (resetErr) {
           console.error("resend reset fallback error:", resetErr.message);
