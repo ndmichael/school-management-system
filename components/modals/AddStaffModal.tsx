@@ -69,7 +69,8 @@ const UNIT_OPTIONS: Array<{ value: StaffUnit; label: string }> = [
   { value: "exams", label: "Exams" },
 ];
 
-const BUCKET = "applications";
+const AVATAR_BUCKET = "avatars";
+const DOCUMENTS_BUCKET = "applications";
 const MAX_FILE_SIZE_MB = 2;
 const MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024;
 
@@ -241,11 +242,11 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
     setQualificationDocuments((prev) => prev.filter((doc) => doc.id !== docId));
   };
 
-  async function uploadFile(file: File, folder: string): Promise<FileRef> {
+  async function uploadFile(file: File, bucket: string, folder: string): Promise<FileRef> {
     const ext = file.name.split(".").pop()?.trim().toLowerCase() || "bin";
     const path = `${folder}/${crypto.randomUUID()}.${ext}`;
 
-    const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+    const { error } = await supabase.storage.from(bucket).upload(path, file, {
       upsert: false,
       contentType: file.type || undefined,
     });
@@ -253,7 +254,7 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
     if (error) throw new Error(error.message);
 
     return {
-      bucket: BUCKET,
+      bucket,
       path,
     };
   }
@@ -347,11 +348,11 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
       setUploading(true);
 
       const avatarRef = avatarFile
-        ? await uploadFile(avatarFile, "staff/avatars")
+        ? await uploadFile(avatarFile, AVATAR_BUCKET, "staff/avatars")
         : null;
 
       const signatureRef = signatureFile
-        ? await uploadFile(signatureFile, "staff/signatures")
+        ? await uploadFile(signatureFile, DOCUMENTS_BUCKET, "staff/signatures")
         : null;
 
       const uploadedQualificationDocuments = [];
@@ -359,7 +360,11 @@ export function AddStaffModal({ isOpen, onClose, onCreated }: AddStaffModalProps
       for (const doc of qualificationDocuments) {
         if (!doc.file) continue;
 
-        const docRef = await uploadFile(doc.file, "staff/qualifications");
+        const docRef = await uploadFile(
+          doc.file,
+          DOCUMENTS_BUCKET,
+          "staff/qualifications"
+        );
 
         uploadedQualificationDocuments.push({
           doc_type: doc.doc_type,
