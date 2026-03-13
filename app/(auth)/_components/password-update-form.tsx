@@ -65,7 +65,7 @@ export default function PasswordUpdateForm({ mode }: Props) {
         return;
       }
 
-      const res = await fetch("/api/auth/onboarding-complete", { method: "POST" });
+      const res = await fetch("/api/auth/onboarding/complete", { method: "POST" });
 
       if (!res.ok) {
         const json: unknown = await res.json().catch(() => null);
