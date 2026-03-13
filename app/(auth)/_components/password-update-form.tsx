@@ -1,8 +1,8 @@
-// app/(auth)/_components/password-update-form.tsx
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/shared/Input";
 import { PrimaryButton } from "@/components/shared/PrimaryButton";
@@ -41,6 +41,9 @@ export default function PasswordUpdateForm({ mode }: Props) {
   const [confirmError, setConfirmError] = useState<string | undefined>(undefined);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
   async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setFormError(null);
@@ -62,8 +65,7 @@ export default function PasswordUpdateForm({ mode }: Props) {
         return;
       }
 
-      // ✅ Mark onboarding complete (only after password is set)
-      const res = await fetch("/api/auth/onboarding/complete", { method: "POST" });
+      const res = await fetch("/api/auth/onboarding-complete", { method: "POST" });
 
       if (!res.ok) {
         const json: unknown = await res.json().catch(() => null);
@@ -71,16 +73,15 @@ export default function PasswordUpdateForm({ mode }: Props) {
         return;
       }
 
-      const _json: OnboardingCompleteResponse | null = (await res.json().catch(() => null)) as
+      const json: OnboardingCompleteResponse | null = (await res.json().catch(() => null)) as
         | OnboardingCompleteResponse
         | null;
 
-      if (_json && "error" in _json) {
-        setFormError(_json.error);
+      if (json && "error" in json) {
+        setFormError(json.error);
         return;
       }
 
-      // Your desired behavior: set password -> go to login -> login routes them to dashboard
       await supabase.auth.signOut();
       const qs = mode === "set" ? "set=success" : "reset=success";
       router.replace(`/login?${qs}`);
@@ -93,22 +94,42 @@ export default function PasswordUpdateForm({ mode }: Props) {
     <form onSubmit={onSubmit} className="rounded-xl border p-5 space-y-4">
       <Input
         label={mode === "set" ? "Create password" : "New password"}
-        type="password"
+        type={showPassword ? "text" : "password"}
         autoComplete="new-password"
         value={password}
         onChange={(ev) => setPassword(ev.currentTarget.value)}
         required
         error={passwordError}
+        trailingIcon={
+          <button
+            type="button"
+            onClick={() => setShowPassword((v) => !v)}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+            aria-label={showPassword ? "Hide password" : "Show password"}
+          >
+            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        }
       />
 
       <Input
         label="Confirm password"
-        type="password"
+        type={showConfirm ? "text" : "password"}
         autoComplete="new-password"
         value={confirm}
         onChange={(ev) => setConfirm(ev.currentTarget.value)}
         required
         error={confirmError}
+        trailingIcon={
+          <button
+            type="button"
+            onClick={() => setShowConfirm((v) => !v)}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100"
+            aria-label={showConfirm ? "Hide password" : "Show password"}
+          >
+            {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        }
       />
 
       {formError ? <p className="text-sm text-destructive">{formError}</p> : null}
