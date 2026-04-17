@@ -3,7 +3,6 @@
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 
 type StoredFile = { bucket: string; path: string };
 type FileWithUrl = { file: StoredFile; url: string | null };
@@ -55,27 +54,6 @@ type DetailsResponse = {
   documents: DocumentWithUrl[];
 };
 
-type UpdatePayload = Partial<Pick<
-  ApplicationRow,
-  | "first_name"
-  | "middle_name"
-  | "last_name"
-  | "email"
-  | "phone"
-  | "application_type"
-  | "class_applied_for"
-  | "program_id"
-  | "session_id"
-  | "passport_file"
-  | "signature_file"
->> & {
-  edit_reason: string;
-};
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
-}
-
 function isUuid(v: string): boolean {
   return /^[0-9a-f-]{36}$/i.test(v);
 }
@@ -84,19 +62,6 @@ function safeString(v: unknown, max = 300): string {
   if (typeof v !== "string") return "";
   const s = v.trim();
   return s.length > max ? s.slice(0, max) : s;
-}
-
-function buildObjectPath({
-  applicationId,
-  kind,
-  ext,
-}: {
-  applicationId: string;
-  kind: string;
-  ext: string;
-}) {
-  const ts = Date.now();
-  return `applications/${applicationId}/${kind}-${ts}.${ext}`;
 }
 
 function InlineError({ message }: { message: string }) {
@@ -181,23 +146,25 @@ function FileCard({
   selected,
   onSelect,
 }: {
-  label: string
-  current: FileWithUrl | null
-  selected: File | null
-  onSelect: (f: File | null) => void
+  label: string;
+  current: FileWithUrl | null;
+  selected: File | null;
+  onSelect: (f: File | null) => void;
 }) {
-
   const previewUrl = useMemo(() => {
-    if (selected) return URL.createObjectURL(selected)
-    return current?.url ?? null
-  }, [selected, current])
+    if (selected) return URL.createObjectURL(selected);
+    return current?.url ?? null;
+  }, [selected, current]);
+
+  useEffect(() => {
+    return () => {
+      if (selected && previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [selected, previewUrl]);
 
   return (
     <div className="border rounded-xl p-4 bg-white space-y-4">
-
       <div className="text-sm font-semibold">{label}</div>
-
-      {/* PREVIEW */}
 
       {previewUrl && (
         <div className="relative w-32 h-32 border rounded-md overflow-hidden">
@@ -211,15 +178,9 @@ function FileCard({
         </div>
       )}
 
-      {/* CURRENT FILE ACTION */}
-
       {current?.url && !selected && (
         <div className="space-y-1 text-sm">
-
-          <div className="text-gray-500">
-            Current file
-          </div>
-
+          <div className="text-gray-500">Current file</div>
           <a
             href={current.url}
             target="_blank"
@@ -228,11 +189,8 @@ function FileCard({
           >
             Open file
           </a>
-
         </div>
       )}
-
-      {/* SELECTED FILE */}
 
       {selected && (
         <div className="text-xs text-blue-700">
@@ -240,34 +198,32 @@ function FileCard({
         </div>
       )}
 
-      {/* DIVIDER */}
-
       <div className="border-t pt-3 space-y-2">
-
-        <div className="text-xs text-gray-500">
-          Replace file
-        </div>
-
+        <div className="text-xs text-gray-500">Replace file</div>
         <input
           type="file"
           onChange={(e) => onSelect(e.target.files?.[0] ?? null)}
           className="block text-sm"
         />
-
       </div>
-
     </div>
-  )
+  );
+}
+
+async function readError(res: Response, fallback: string) {
+  const json = await res.json().catch(() => null);
+  if (json && typeof json.error === "string" && json.error.trim()) {
+    return json.error.trim();
+  }
+  return fallback;
 }
 
 export default function EditApplicationPage() {
-
   const router = useRouter();
   const params = useParams<{ id?: string | string[] }>();
   const idRaw = params?.id;
   const id = Array.isArray(idRaw) ? idRaw[0] : idRaw;
 
-  const supabase = useMemo(() => createClient(), []);
   const abortRef = useRef<AbortController | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -296,15 +252,17 @@ export default function EditApplicationPage() {
 
   const [passportNew, setPassportNew] = useState<File | null>(null);
   const [signatureNew, setSignatureNew] = useState<File | null>(null);
-
   const [academicResultNew, setAcademicResultNew] = useState<File | null>(null);
   const [birthCertNew, setBirthCertNew] = useState<File | null>(null);
 
-  const academicResult = details?.documents.find(d => d.doc_type === "academic_result");
-  const birthCertificate = details?.documents.find(d => d.doc_type === "birth_certificate");
+  const academicResult = details?.documents.find(
+    (d) => d.doc_type === "academic_result"
+  );
+  const birthCertificate = details?.documents.find(
+    (d) => d.doc_type === "birth_certificate"
+  );
 
   useEffect(() => {
-
     if (!id || !isUuid(id)) {
       setError("Invalid application id.");
       setLoading(false);
@@ -316,13 +274,11 @@ export default function EditApplicationPage() {
     abortRef.current = controller;
 
     (async () => {
-
       try {
-
         const [detailsRes, progRes, sessRes] = await Promise.all([
           fetch(`/api/applications/${id}`),
           fetch(`/api/programs`),
-          fetch(`/api/admin/sessions`)
+          fetch(`/api/admin/sessions`),
         ]);
 
         const detailsJson = await detailsRes.json();
@@ -332,12 +288,10 @@ export default function EditApplicationPage() {
         const d = detailsJson as DetailsResponse;
 
         setDetails(d);
-
         setPrograms(progJson.programs ?? progJson);
         setSessions(sessJson.sessions ?? sessJson);
 
         const a = d.application;
-
         setFirstName(a.first_name);
         setMiddleName(a.middle_name ?? "");
         setLastName(a.last_name);
@@ -347,21 +301,17 @@ export default function EditApplicationPage() {
         setClassAppliedFor(a.class_applied_for);
         setProgramId(a.program_id);
         setSessionId(a.session_id);
-
       } catch {
         setError("Failed to load application");
       }
 
       setLoading(false);
-
     })();
 
     return () => controller.abort();
-
   }, [id]);
 
   const hasChanges = useMemo(() => {
-
     if (!details) return false;
 
     const a = details.application;
@@ -381,7 +331,6 @@ export default function EditApplicationPage() {
       academicResultNew !== null ||
       birthCertNew !== null
     );
-
   }, [
     details,
     firstName,
@@ -396,291 +345,244 @@ export default function EditApplicationPage() {
     passportNew,
     signatureNew,
     academicResultNew,
-    birthCertNew
+    birthCertNew,
   ]);
 
   const canSave = hasChanges && editReason.trim().length >= 5;
 
-  async function uploadFile(file: File, kind: string) {
-
-    const ext = file.name.split(".").pop() ?? "bin";
-    const path = buildObjectPath({ applicationId: id!, kind, ext });
-
-    const { error } = await supabase.storage
-      .from("applications")
-      .upload(path, file, { upsert: true });
-
-    if (error) throw new Error(error.message);
-
-    return { bucket: "applications", path };
-
-  }
-
   async function handleSave() {
-
     if (!details || !id) return;
 
     setSaving(true);
     setError(null);
 
     try {
+      const formData = new FormData();
 
-      let passport_file;
-      let signature_file;
+      formData.append("first_name", safeString(firstName, 80));
+      formData.append("middle_name", safeString(middleName, 80));
+      formData.append("last_name", safeString(lastName, 80));
+      formData.append("email", safeString(email, 120));
+      formData.append("phone", safeString(phone, 40));
+      formData.append("application_type", safeString(applicationType, 80));
+      formData.append("class_applied_for", safeString(classAppliedFor, 80));
+      formData.append("program_id", programId);
+      formData.append("session_id", sessionId);
+      formData.append("edit_reason", safeString(editReason, 500));
 
-      if (passportNew)
-        passport_file = await uploadFile(passportNew, "passport");
+      if (passportNew) {
+        formData.append("passport_file", passportNew);
+      }
 
-      if (signatureNew)
-        signature_file = await uploadFile(signatureNew, "signature");
-
-      const payload: UpdatePayload = {
-
-        first_name: safeString(firstName, 80),
-        middle_name: safeString(middleName, 80) || null,
-        last_name: safeString(lastName, 80),
-
-        email: safeString(email, 120),
-        phone: safeString(phone, 40) || null,
-
-        application_type: safeString(applicationType, 80) || null,
-        class_applied_for: safeString(classAppliedFor, 80),
-
-        program_id: programId,
-        session_id: sessionId,
-
-        edit_reason: safeString(editReason, 500)
-
-      };
-
-      if (passport_file) payload.passport_file = passport_file;
-      if (signature_file) payload.signature_file = signature_file;
+      if (signatureNew) {
+        formData.append("signature_file", signatureNew);
+      }
 
       const res = await fetch(`/api/applications/${id}`, {
-
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-
+        body: formData,
       });
 
-      if (!res.ok) throw new Error("Update failed");
+      if (!res.ok) {
+        throw new Error(await readError(res, "Failed to update application"));
+      }
 
       if (academicResultNew) {
+        const docsForm = new FormData();
+        docsForm.append("doc_type", "academic_result");
+        docsForm.append("file", academicResultNew);
 
-        const ref = await uploadFile(academicResultNew, "academic_result");
-
-        await fetch(`/api/applications/${id}/documents`, {
-
+        const docsRes = await fetch(`/api/applications/${id}/documents`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            doc_type: "academic_result",
-            file: ref
-          })
-
+          body: docsForm,
         });
 
+        if (!docsRes.ok) {
+          throw new Error(
+            await readError(docsRes, "Failed to save academic result")
+          );
+        }
       }
 
       if (birthCertNew) {
+        const docsForm = new FormData();
+        docsForm.append("doc_type", "birth_certificate");
+        docsForm.append("file", birthCertNew);
 
-        const ref = await uploadFile(birthCertNew, "birth_certificate");
-
-        await fetch(`/api/applications/${id}/documents`, {
-
+        const docsRes = await fetch(`/api/applications/${id}/documents`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            doc_type: "birth_certificate",
-            file: ref
-          })
-
+          body: docsForm,
         });
 
+        if (!docsRes.ok) {
+          throw new Error(
+            await readError(docsRes, "Failed to save birth certificate")
+          );
+        }
       }
 
       router.push(`/dashboard/admin/applications/${id}`);
-
     } catch (e) {
-
-      setError("Save failed");
-
+      setError(e instanceof Error ? e.message : "Save failed");
     } finally {
-
       setSaving(false);
-
     }
-
   }
 
-  if (loading)
+  if (loading) {
     return <main className="p-6">Update Loading...</main>;
+  }
 
-  if (!details)
-    return <main className="p-6"><InlineError message={error ?? "Application not found"} /></main>;
+  if (!details) {
+    return (
+      <main className="p-6">
+        <InlineError message={error ?? "Application not found"} />
+      </main>
+    );
+  }
 
   const programOptions = programs.map((p) => ({
     value: p.id,
     label: p.code ? `${p.name} (${p.code})` : p.name,
   }));
 
-  const sessionOptions = sessions.map(s => ({
+  const sessionOptions = sessions.map((s) => ({
     value: s.id,
-    label: s.name
+    label: s.name,
   }));
 
   return (
+    <main className="p-6 max-w-5xl space-y-8">
+      <h1 className="text-2xl font-bold">Edit Application</h1>
 
-<main className="p-6 max-w-5xl space-y-8">
+      {error && <InlineError message={error} />}
 
-<h1 className="text-2xl font-bold">Edit Application</h1>
+      <div className="bg-white border rounded-xl p-6 space-y-4">
+        <h2 className="text-lg font-semibold">Application Information</h2>
 
-{error && <InlineError message={error} />}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <TextInput
+            label="First Name"
+            value={firstName}
+            onChange={setFirstName}
+            required
+          />
+          <TextInput
+            label="Middle Name"
+            value={middleName}
+            onChange={setMiddleName}
+          />
+          <TextInput
+            label="Last Name"
+            value={lastName}
+            onChange={setLastName}
+            required
+          />
+          <TextInput
+            label="Email"
+            type="email"
+            value={email}
+            onChange={setEmail}
+            required
+          />
+          <TextInput label="Phone" value={phone} onChange={setPhone} />
+        </div>
+      </div>
 
-{/* APPLICATION INFORMATION */}
+      <div className="bg-white border rounded-xl p-6 space-y-4">
+        <h2 className="text-lg font-semibold">Application Details</h2>
 
-<div className="bg-white border rounded-xl p-6 space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <TextInput
+            label="Application Type"
+            value={applicationType}
+            onChange={setApplicationType}
+          />
 
-<h2 className="text-lg font-semibold">Application Information</h2>
+          <TextInput
+            label="Class Applied For"
+            value={classAppliedFor}
+            onChange={setClassAppliedFor}
+            required
+          />
 
-<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SelectInput
+            label="Program"
+            value={programId}
+            onChange={setProgramId}
+            options={programOptions}
+            required
+          />
 
-<TextInput label="First Name" value={firstName} onChange={setFirstName} required />
+          <SelectInput
+            label="Session"
+            value={sessionId}
+            onChange={setSessionId}
+            options={sessionOptions}
+            required
+          />
+        </div>
+      </div>
 
-<TextInput label="Middle Name" value={middleName} onChange={setMiddleName} />
+      <div className="bg-white border rounded-xl p-6 space-y-4">
+        <h2 className="text-lg font-semibold">Documents</h2>
 
-<TextInput label="Last Name" value={lastName} onChange={setLastName} required />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <FileCard
+            label="Passport"
+            current={details.passport}
+            selected={passportNew}
+            onSelect={setPassportNew}
+          />
 
-<TextInput label="Email" type="email" value={email} onChange={setEmail} required />
+          <FileCard
+            label="Signature"
+            current={details.signature}
+            selected={signatureNew}
+            onSelect={setSignatureNew}
+          />
 
-<TextInput label="Phone" value={phone} onChange={setPhone} />
+          <FileCard
+            label="Academic Result"
+            current={academicResult?.file ?? null}
+            selected={academicResultNew}
+            onSelect={setAcademicResultNew}
+          />
 
-</div>
+          <FileCard
+            label="Birth / Age Certificate"
+            current={birthCertificate?.file ?? null}
+            selected={birthCertNew}
+            onSelect={setBirthCertNew}
+          />
+        </div>
+      </div>
 
-</div>
+      <div className="bg-white border rounded-xl p-6 space-y-2">
+        <label className="text-sm font-medium">Edit Reason *</label>
+        <textarea
+          value={editReason}
+          onChange={(e) => setEditReason(e.target.value)}
+          className="w-full border rounded p-2"
+        />
+      </div>
 
+      <div className="flex gap-3">
+        <button
+          onClick={handleSave}
+          disabled={!canSave || saving}
+          className="px-5 py-2 bg-slate-900 text-white rounded-md disabled:opacity-50"
+        >
+          {saving ? "Saving..." : "Save Changes"}
+        </button>
 
-{/* APPLICATION DETAILS */}
-
-<div className="bg-white border rounded-xl p-6 space-y-4">
-
-<h2 className="text-lg font-semibold">Application Details</h2>
-
-<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-<TextInput
-label="Application Type"
-value={applicationType}
-onChange={setApplicationType}
-/>
-
-<TextInput
-label="Class Applied For"
-value={classAppliedFor}
-onChange={setClassAppliedFor}
-required
-/>
-
-<SelectInput
-label="Program"
-value={programId}
-onChange={setProgramId}
-options={programOptions}
-required
-/>
-
-<SelectInput
-label="Session"
-value={sessionId}
-onChange={setSessionId}
-options={sessionOptions}
-required
-/>
-
-</div>
-
-</div>
-
-
-{/* DOCUMENTS */}
-
-<div className="bg-white border rounded-xl p-6 space-y-4">
-
-<h2 className="text-lg font-semibold">Documents</h2>
-
-<div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-<FileCard
-label="Passport"
-current={details.passport}
-selected={passportNew}
-onSelect={setPassportNew}
-/>
-
-<FileCard
-label="Signature"
-current={details.signature}
-selected={signatureNew}
-onSelect={setSignatureNew}
-/>
-
-<FileCard
-label="Academic Result"
-current={academicResult?.file ?? null}
-selected={academicResultNew}
-onSelect={setAcademicResultNew}
-/>
-
-<FileCard
-label="Birth / Age Certificate"
-current={birthCertificate?.file ?? null}
-selected={birthCertNew}
-onSelect={setBirthCertNew}
-/>
-
-</div>
-
-</div>
-
-
-{/* EDIT REASON */}
-
-<div className="bg-white border rounded-xl p-6 space-y-2">
-
-<label className="text-sm font-medium">Edit Reason *</label>
-
-<textarea
-value={editReason}
-onChange={(e) => setEditReason(e.target.value)}
-className="w-full border rounded p-2"
-/>
-
-</div>
-
-
-{/* ACTION BUTTONS */}
-
-<div className="flex gap-3">
-
-<button
-onClick={handleSave}
-disabled={!canSave || saving}
-className="px-5 py-2 bg-slate-900 text-white rounded-md disabled:opacity-50"
->
-{saving ? "Saving..." : "Save Changes"}
-</button>
-
-<button
-onClick={() => router.back()}
-className="px-5 py-2 border rounded-md"
->
-Cancel
-</button>
-
-</div>
-
-</main>
-
-);
+        <button
+          onClick={() => router.back()}
+          className="px-5 py-2 border rounded-md"
+        >
+          Cancel
+        </button>
+      </div>
+    </main>
+  );
 }
