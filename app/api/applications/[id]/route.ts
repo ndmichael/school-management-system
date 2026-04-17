@@ -42,7 +42,8 @@ type ApplicationDocumentRow = {
   original_name: string | null;
   mime_type: string | null;
   created_at: string;
-  file: unknown | null; // jsonb
+  file: unknown | null;
+  version?: number;
 };
 
 type DocumentWithUrl = {
@@ -64,25 +65,6 @@ type DetailsResponse = {
   documents: DocumentWithUrl[];
 };
 
-type UpdatePayload = Partial<
-  Pick<
-    ApplicationRow,
-    | "first_name"
-    | "middle_name"
-    | "last_name"
-    | "email"
-    | "phone"
-    | "application_type"
-    | "class_applied_for"
-    | "program_id"
-    | "session_id"
-    | "passport_file"
-    | "signature_file"
-  >
-> & {
-  edit_reason: string;
-};
-
 function isObject(v: unknown): v is Json {
   return typeof v === "object" && v !== null;
 }
@@ -97,10 +79,30 @@ function toStoredFile(v: unknown): StoredFile | null {
   return { bucket, path };
 }
 
+function safeString(v: unknown, max = 300): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  if (!s) return null;
+  return s.length > max ? s.slice(0, max) : s;
+}
+
+function buildObjectPath({
+  applicationId,
+  kind,
+  ext,
+}: {
+  applicationId: string;
+  kind: string;
+  ext: string;
+}) {
+  const ts = Date.now();
+  return `applications/${applicationId}/${kind}-${ts}.${ext}`;
+}
+
 async function signedUrlFor(file: StoredFile): Promise<string | null> {
   const { data, error } = await supabaseAdmin.storage
     .from(file.bucket)
-    .createSignedUrl(file.path, 60 * 30); // 30 mins
+    .createSignedUrl(file.path, 60 * 30);
 
   if (error) return null;
   return data?.signedUrl ?? null;
@@ -110,6 +112,94 @@ async function fileWithUrl(v: unknown): Promise<FileWithUrl | null> {
   const stored = toStoredFile(v);
   if (!stored) return null;
   return { file: stored, url: await signedUrlFor(stored) };
+}
+
+async function uploadServerFile({
+  file,
+  applicationId,
+  kind,
+  bucket,
+}: {
+  file: File;
+  applicationId: string;
+  kind: string;
+  bucket: "applications" | "avatars";
+}): Promise<StoredFile> {
+  const ext = file.name.split(".").pop() ?? "bin";
+  const path = buildObjectPath({ applicationId, kind, ext });
+
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  const { error } = await supabaseAdmin.storage.from(bucket).upload(path, buffer, {
+    upsert: true,
+    contentType: file.type || undefined,
+  });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return { bucket, path };
+}
+
+async function upsertApplicationDocument({
+  applicationId,
+  docType,
+  file,
+  originalName,
+  mimeType,
+}: {
+  applicationId: string;
+  docType: string;
+  file: StoredFile;
+  originalName: string | null;
+  mimeType: string | null;
+}): Promise<void> {
+  const { data: existing, error: existingErr } = await supabaseAdmin
+    .from("application_documents")
+    .select("id")
+    .eq("application_id", applicationId)
+    .eq("doc_type", docType)
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ id: string }>();
+
+  if (existingErr) {
+    throw new Error(existingErr.message);
+  }
+
+  if (existing?.id) {
+    const { error: updateErr } = await supabaseAdmin
+      .from("application_documents")
+      .update({
+        file,
+        original_name: originalName,
+        mime_type: mimeType,
+      })
+      .eq("id", existing.id);
+
+    if (updateErr) {
+      throw new Error(updateErr.message);
+    }
+
+    return;
+  }
+
+  const { error: insertErr } = await supabaseAdmin
+    .from("application_documents")
+    .insert({
+      application_id: applicationId,
+      doc_type: docType,
+      file,
+      original_name: originalName,
+      mime_type: mimeType,
+      version: 1,
+    });
+
+  if (insertErr) {
+    throw new Error(insertErr.message);
+  }
 }
 
 type RouteParams = { id: string };
@@ -127,7 +217,6 @@ export async function GET(
       return NextResponse.json({ error: "Missing application id." }, { status: 400 });
     }
 
-    // 1) application
     const { data: application, error: appErr } = await supabaseAdmin
       .from("applications")
       .select(
@@ -160,7 +249,6 @@ export async function GET(
       );
     }
 
-    // 2) lookups (optional)
     const [programRes, sessionRes, departmentRes] = await Promise.all([
       supabaseAdmin
         .from("programs")
@@ -179,13 +267,11 @@ export async function GET(
         .maybeSingle<DepartmentRow>(),
     ]);
 
-    // 3) passport/signature
     const [passport, signature] = await Promise.all([
       fileWithUrl(application.passport_file),
       fileWithUrl(application.signature_file),
     ]);
 
-    // 4) supporting docs (application_documents)
     const { data: docs, error: docsErr } = await supabaseAdmin
       .from("application_documents")
       .select("id, doc_type, original_name, mime_type, created_at, file, version")
@@ -235,42 +321,160 @@ export async function GET(
   }
 }
 
-
 export async function PATCH(
   req: Request,
   ctx: { params: Promise<RouteParams> | RouteParams }
 ): Promise<NextResponse> {
   try {
-    const params =
-      ctx.params instanceof Promise ? await ctx.params : ctx.params;
+    const params = ctx.params instanceof Promise ? await ctx.params : ctx.params;
 
     const id = params.id?.trim();
     if (!id) {
       return NextResponse.json({ error: "Missing application id." }, { status: 400 });
     }
 
-    const body = await req.json();
+    const contentType = req.headers.get("content-type") ?? "";
+
+    let first_name: string | null = null;
+    let middle_name: string | null = null;
+    let last_name: string | null = null;
+    let email: string | null = null;
+    let phone: string | null = null;
+    let application_type: string | null = null;
+    let class_applied_for: string | null = null;
+    let program_id: string | null = null;
+    let session_id: string | null = null;
+
+    let passport_file: StoredFile | null = null;
+    let signature_file: StoredFile | null = null;
+
+    let academic_result_file: StoredFile | null = null;
+    let academic_result_name: string | null = null;
+    let academic_result_type: string | null = null;
+
+    let birth_certificate_file: StoredFile | null = null;
+    let birth_certificate_name: string | null = null;
+    let birth_certificate_type: string | null = null;
+
+    if (contentType.includes("multipart/form-data")) {
+      const form = await req.formData();
+
+      first_name = safeString(form.get("first_name"), 80);
+      middle_name = safeString(form.get("middle_name"), 80);
+      last_name = safeString(form.get("last_name"), 80);
+
+      email = safeString(form.get("email"), 120);
+      phone = safeString(form.get("phone"), 40);
+
+      application_type = safeString(form.get("application_type"), 80);
+      class_applied_for = safeString(form.get("class_applied_for"), 80);
+
+      program_id = safeString(form.get("program_id"), 80);
+      session_id = safeString(form.get("session_id"), 80);
+
+      const passport = form.get("passport_file");
+      if (passport instanceof File && passport.size > 0) {
+        passport_file = await uploadServerFile({
+          file: passport,
+          applicationId: id,
+          kind: "passport",
+          bucket: "avatars",
+        });
+      }
+
+      const signature = form.get("signature_file");
+      if (signature instanceof File && signature.size > 0) {
+        signature_file = await uploadServerFile({
+          file: signature,
+          applicationId: id,
+          kind: "signature",
+          bucket: "applications",
+        });
+      }
+
+      const academicResult = form.get("academic_result");
+      if (academicResult instanceof File && academicResult.size > 0) {
+        academic_result_file = await uploadServerFile({
+          file: academicResult,
+          applicationId: id,
+          kind: "academic_result",
+          bucket: "applications",
+        });
+        academic_result_name = academicResult.name ?? null;
+        academic_result_type = academicResult.type ?? null;
+      }
+
+      const birthCertificate = form.get("birth_certificate");
+      if (birthCertificate instanceof File && birthCertificate.size > 0) {
+        birth_certificate_file = await uploadServerFile({
+          file: birthCertificate,
+          applicationId: id,
+          kind: "birth_certificate",
+          bucket: "applications",
+        });
+        birth_certificate_name = birthCertificate.name ?? null;
+        birth_certificate_type = birthCertificate.type ?? null;
+      }
+    } else {
+      const body = await req.json();
+
+      first_name = safeString(body.first_name, 80);
+      middle_name = safeString(body.middle_name, 80);
+      last_name = safeString(body.last_name, 80);
+
+      email = safeString(body.email, 120);
+      phone = safeString(body.phone, 40);
+
+      application_type = safeString(body.application_type, 80);
+      class_applied_for = safeString(body.class_applied_for, 80);
+
+      program_id = safeString(body.program_id, 80);
+      session_id = safeString(body.session_id, 80);
+
+      passport_file = toStoredFile(body.passport_file);
+      signature_file = toStoredFile(body.signature_file);
+    }
 
     const { error } = await supabaseAdmin.rpc("update_application_full", {
       p_application_id: id,
-      p_first_name: body.first_name,
-      p_middle_name: body.middle_name,
-      p_last_name: body.last_name,
-      p_email: body.email,
-      p_phone: body.phone,
-      p_application_type: body.application_type,
-      p_class_applied_for: body.class_applied_for,
-      p_program_id: body.program_id,
-      p_session_id: body.session_id,
-      p_passport_file: body.passport_file ?? null,
-      p_signature_file: body.signature_file ?? null,
-      p_academic_result: body.academic_result ?? null,
-      p_birth_certificate: body.birth_certificate ?? null,
+      p_first_name: first_name,
+      p_middle_name: middle_name,
+      p_last_name: last_name,
+      p_email: email,
+      p_phone: phone,
+      p_application_type: application_type,
+      p_class_applied_for: class_applied_for,
+      p_program_id: program_id,
+      p_session_id: session_id,
+      p_passport_file: passport_file,
+      p_signature_file: signature_file,
+      p_academic_result: null,
+      p_birth_certificate: null,
     });
 
     if (error) {
       console.error("PATCH applications error:", error);
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    if (academic_result_file) {
+      await upsertApplicationDocument({
+        applicationId: id,
+        docType: "academic_result",
+        file: academic_result_file,
+        originalName: academic_result_name,
+        mimeType: academic_result_type,
+      });
+    }
+
+    if (birth_certificate_file) {
+      await upsertApplicationDocument({
+        applicationId: id,
+        docType: "birth_certificate",
+        file: birth_certificate_file,
+        originalName: birth_certificate_name,
+        mimeType: birth_certificate_type,
+      });
     }
 
     return NextResponse.json({ success: true });
