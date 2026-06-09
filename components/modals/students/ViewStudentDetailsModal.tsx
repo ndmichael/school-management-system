@@ -49,16 +49,30 @@ export function ViewStudentDetailsModal({ isOpen, onClose, studentId }: Props) {
         setLoading(true);
 
         const res = await fetch(`/api/admin/students/${studentId}`);
-        if (!res.ok) throw new Error("Failed to load student details");
+        if (!res.ok) {
+          const body = (await res.json().catch(() => null)) as
+            | { error?: string; message?: string }
+            | null;
+
+          throw new Error(
+            body?.error ||
+              body?.message ||
+              `Failed to load student details (${res.status})`,
+          );
+        }
 
         const json = await res.json();
         if (active) setStudent(json.student);
-      } catch (err: any) {
-        toast.error(err.message);
+      }  catch (err) {
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : "Failed to load student details",
+        );
       } finally {
-        if (active) setLoading(false);
-      }
-    }
+              if (active) setLoading(false);
+            }
+          }
 
     load();
     return () => {
