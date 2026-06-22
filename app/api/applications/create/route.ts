@@ -13,14 +13,20 @@ function isObject(v: unknown): v is JsonObject {
 function getString(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
-
+/* this is for optional field type 
+ ==== better to store null in db than an empty string
+*/
 function getOptionalString(v: unknown): string | null {
   const s = getString(v).trim();
   return s ? s : null;
 }
 
+// file type from the frontend
 type FileRef = { bucket: string; path: string };
 
+/* check file type as object
+==== check the value types of the object and that its not empty
+*/
 function isFileRef(v: unknown): v is FileRef {
   return (
     isObject(v) &&
@@ -67,6 +73,7 @@ function isSupportingDocType(v: unknown): v is SupportingDocType {
   );
 }
 
+// This function cleans a messy incoming array into a safe array of valid supporting documents.
 function parseSupportingDocs(v: unknown): SupportingDocInput[] {
   if (!Array.isArray(v)) return [];
   const out: SupportingDocInput[] = [];
@@ -112,8 +119,6 @@ export async function POST(req: Request): Promise<NextResponse> {
     const passportFile = getFileRef(raw.passportFile);
     const signatureFile = getFileRef(raw.signatureFile);
 
-    console.log("RAW PASSPORT FILE", raw.passportFile);
-    console.log("RAW SIGNATURE FILE", raw.signatureFile);
 
     if (!passportFile || passportFile.bucket !== PASSPORT_BUCKET) {
       return NextResponse.json({ error: "Passport is required." }, { status: 400 });
