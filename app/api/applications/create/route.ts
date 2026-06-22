@@ -23,6 +23,29 @@ function getOptionalString(v: unknown): string | null {
   return s ? s : null;
 }
 
+// Helper function to validate attestation date
+function getRequiredIsoDate(v: unknown, label: string): string | NextResponse {
+  const raw = getString(v).trim();
+
+  if (!raw) {
+    return NextResponse.json(
+      { error: `${label} is required.` },
+      { status: 400 }
+    );
+  }
+
+  const date = new Date(raw);
+
+  if (Number.isNaN(date.getTime())) {
+    return NextResponse.json(
+      { error: `${label} is invalid.` },
+      { status: 400 }
+    );
+  }
+
+  return date.toISOString();
+}
+
 // file type from the frontend
 type FileRef = { bucket: string; path: string };
 
@@ -142,6 +165,16 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
+    // attestation date validation
+    const attestationDate = getRequiredIsoDate(
+      raw.attestationDate,
+      "Attestation date"
+    );
+
+    if (attestationDate instanceof NextResponse) {
+      return attestationDate;
+    }
+
     const passportFile = getFileRef(raw.passportFile);
     const signatureFile = getFileRef(raw.signatureFile);
 
@@ -250,9 +283,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       guardian_phone: getString(raw.guardianPhone),
       guardian_email: getOptionalString(raw.guardianEmail),
 
-      attestation_date: getString(raw.attestationDate)
-        ? new Date(getString(raw.attestationDate)).toISOString()
-        : null,
+      attestation_date: attestationDate,
 
       passport_file: passportFile,
       signature_file: signatureFile,
