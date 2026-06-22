@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
+import { normalizeNigerianPhone } from "@/lib/validation/nigeria";
+
 const PASSPORT_BUCKET = "avatars";
 const DOCUMENTS_BUCKET = "applications";
 
@@ -116,6 +118,30 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
     }
 
+    // validate phone number properly
+    const phoneRaw = getString(raw.phone).trim();
+
+    if (!phoneRaw) {
+      return NextResponse.json(
+        { error: "Phone number is required." },
+        { status: 400 }
+      );
+    }
+
+    let phone: string;
+
+    try {
+      phone = normalizeNigerianPhone(phoneRaw);
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : "Invalid phone number.",
+        },
+        { status: 400 }
+      );
+    }
+
     const passportFile = getFileRef(raw.passportFile);
     const signatureFile = getFileRef(raw.signatureFile);
 
@@ -202,7 +228,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       date_of_birth: getString(raw.dateOfBirth),
 
       email,
-      phone: getOptionalString(raw.phone),
+      phone: phone,
       nin,
       special_needs: getOptionalString(raw.specialNeeds),
 
