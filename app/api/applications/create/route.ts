@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-
 import { normalizeNigerianPhone } from "@/lib/validation/nigeria";
 
 const PASSPORT_BUCKET = "avatars";
@@ -9,14 +8,16 @@ const DOCUMENTS_BUCKET = "applications";
 type JsonObject = Record<string, unknown>;
 
 function isObject(v: unknown): v is JsonObject {
-  return typeof v === "object" && v !== null;
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function getString(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
-/* this is for optional field type 
- ==== better to store null in db than an empty string
+
+/*
+  Optional field helper:
+  Better to store null in DB than an empty string.
 */
 function getOptionalString(v: unknown): string | null {
   const s = getString(v).trim();
@@ -46,11 +47,14 @@ function getRequiredIsoDate(v: unknown, label: string): string | NextResponse {
   return date.toISOString();
 }
 
-// file type from the frontend
+// File reference type from the frontend
 type FileRef = { bucket: string; path: string };
 
-/* check file type as object
-==== check the value types of the object and that its not empty
+/*
+  Checks file reference shape:
+  - must be an object
+  - bucket must be a non-empty string
+  - path must be a non-empty string
 */
 function isFileRef(v: unknown): v is FileRef {
   return (
@@ -68,11 +72,14 @@ function getFileRef(v: unknown): FileRef | null {
 
 function getFileRefArray(v: unknown): FileRef[] {
   if (!Array.isArray(v)) return [];
+
   const out: FileRef[] = [];
+
   for (const item of v) {
     const ref = getFileRef(item);
     if (ref) out.push(ref);
   }
+
   return out;
 }
 
@@ -98,9 +105,10 @@ function isSupportingDocType(v: unknown): v is SupportingDocType {
   );
 }
 
-// This function cleans a messy incoming array into a safe array of valid supporting documents.
+// Cleans a messy incoming array into a safe array of valid supporting documents.
 function parseSupportingDocs(v: unknown): SupportingDocInput[] {
   if (!Array.isArray(v)) return [];
+
   const out: SupportingDocInput[] = [];
 
   for (const item of v) {
@@ -110,13 +118,15 @@ function parseSupportingDocs(v: unknown): SupportingDocInput[] {
     const file = item.file;
 
     if (!isSupportingDocType(docType)) continue;
+
     const ref = getFileRef(file);
     if (!ref) continue;
 
     out.push({
       doc_type: docType,
       file: ref,
-      original_name: typeof item.original_name === "string" ? item.original_name : null,
+      original_name:
+        typeof item.original_name === "string" ? item.original_name : null,
       mime_type: typeof item.mime_type === "string" ? item.mime_type : null,
     });
   }
@@ -124,9 +134,30 @@ function parseSupportingDocs(v: unknown): SupportingDocInput[] {
   return out;
 }
 
+// Validates bucket and folder/path
+function validateFileRef(
+  ref: FileRef | null,
+  expectedBucket: string,
+  expectedFolder: string,
+  label: string
+): string | null {
+  if (!ref) return `${label} is required.`;
+
+  if (ref.bucket !== expectedBucket) {
+    return `${label} was uploaded to an invalid bucket.`;
+  }
+
+  if (!ref.path.startsWith(`${expectedFolder}/`)) {
+    return `${label} has an invalid file path.`;
+  }
+
+  return null;
+}
+
 export async function POST(req: Request): Promise<NextResponse> {
   try {
     const raw: unknown = await req.json();
+
     if (!isObject(raw)) {
       return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
     }
@@ -138,10 +169,13 @@ export async function POST(req: Request): Promise<NextResponse> {
     const nin = getString(raw.nin).trim();
 
     if (!email || !firstName || !lastName || !programId || !nin) {
-      return NextResponse.json({ error: "Missing required fields." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields." },
+        { status: 400 }
+      );
     }
 
-    // validate phone number properly
+    // Validate phone number properly
     const phoneRaw = getString(raw.phone).trim();
 
     if (!phoneRaw) {
@@ -165,7 +199,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    // attestation date validation
+    // Validate attestation date
     const attestationDate = getRequiredIsoDate(
       raw.attestationDate,
       "Attestation date"
@@ -177,30 +211,84 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const passportFile = getFileRef(raw.passportFile);
     const signatureFile = getFileRef(raw.signatureFile);
-
-
-    if (!passportFile || passportFile.bucket !== PASSPORT_BUCKET) {
-      return NextResponse.json({ error: "Passport is required." }, { status: 400 });
-    }
-
-    if (!signatureFile || signatureFile.bucket !== DOCUMENTS_BUCKET) {
-      return NextResponse.json({ error: "Signature is required." }, { status: 400 });
-    }
-
     const academicResultFile = getFileRef(raw.academicResultFile);
     const birthCertificateFile = getFileRef(raw.birthCertificateFile);
     const sponsorshipLetterFile = getFileRef(raw.sponsorshipLetterFile);
 
-    if (!academicResultFile || academicResultFile.bucket !== DOCUMENTS_BUCKET) {
+    const passportError = validateFileRef(
+      passportFile,
+      PASSPORT_BUCKET,
+      "passports",
+      "Passport"
+    );
+
+    if (passportError) {
+      return NextResponse.json({ error: passportError }, { status: 400 });
+    }
+
+    const signatureError = validateFileRef(
+      signatureFile,
+      DOCUMENTS_BUCKET,
+      "signatures",
+      "Signature"
+    );
+
+    if (signatureError) {
+      return NextResponse.json({ error: signatureError }, { status: 400 });
+    }
+
+    const academicResultError = validateFileRef(
+      academicResultFile,
+      DOCUMENTS_BUCKET,
+      "results",
+      "Academic result document"
+    );
+
+    if (academicResultError) {
       return NextResponse.json(
-        { error: "Academic result document is required." },
+        { error: academicResultError },
         { status: 400 }
       );
     }
 
-    if (!birthCertificateFile || birthCertificateFile.bucket !== DOCUMENTS_BUCKET) {
+    const birthCertificateError = validateFileRef(
+      birthCertificateFile,
+      DOCUMENTS_BUCKET,
+      "birth-certificates",
+      "Birth certificate / age declaration"
+    );
+
+    if (birthCertificateError) {
       return NextResponse.json(
-        { error: "Birth certificate / age declaration is required." },
+        { error: birthCertificateError },
+        { status: 400 }
+      );
+    }
+
+    if (sponsorshipLetterFile) {
+      const sponsorshipError = validateFileRef(
+        sponsorshipLetterFile,
+        DOCUMENTS_BUCKET,
+        "sponsorships",
+        "Sponsorship letter"
+      );
+
+      if (sponsorshipError) {
+        return NextResponse.json(
+          { error: sponsorshipError },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (
+      !passportFile ||
+      !signatureFile ||
+      !academicResultFile ||
+      !birthCertificateFile
+    ) {
+      return NextResponse.json(
+        { error: "Required files are missing." },
         { status: 400 }
       );
     }
@@ -209,12 +297,17 @@ export async function POST(req: Request): Promise<NextResponse> {
     const legacySupportingFiles = getFileRefArray(raw.supportingFiles);
 
     const admissionType = getString(raw.admissionType).trim();
+
     if (admissionType === "direct_entry") {
       const prevSchool = getString(raw.previousSchool).trim();
       const prevQual = getString(raw.previousQualification).trim();
+
       if (!prevSchool || !prevQual) {
         return NextResponse.json(
-          { error: "Previous school and qualification are required for Direct Entry." },
+          {
+            error:
+              "Previous school and qualification are required for Direct Entry.",
+          },
           { status: 400 }
         );
       }
@@ -231,7 +324,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       .single();
 
     if (sessionError || !activeSession) {
-      return NextResponse.json({ error: "No active session configured." }, { status: 400 });
+      return NextResponse.json(
+        { error: "No active session configured." },
+        { status: 400 }
+      );
     }
 
     const { data: programRow, error: programErr } = await supabase
@@ -261,7 +357,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       date_of_birth: getString(raw.dateOfBirth),
 
       email,
-      phone: phone,
+      phone,
       nin,
       special_needs: getOptionalString(raw.specialNeeds),
 
@@ -327,7 +423,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       },
     ];
 
-    if (sponsorshipLetterFile && sponsorshipLetterFile.bucket === DOCUMENTS_BUCKET) {
+    if (sponsorshipLetterFile) {
       docsToInsert.push({
         application_id: app.id,
         doc_type: "sponsorship_letter",
@@ -357,7 +453,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       });
     }
 
-    const { error: docsErr } = await supabase.from("application_documents").insert(docsToInsert);
+    const { error: docsErr } = await supabase
+      .from("application_documents")
+      .insert(docsToInsert);
+
     if (docsErr) {
       return NextResponse.json(
         {
