@@ -75,6 +75,7 @@ const stepValidations: Record<number, (d: ApplicationFormData) => boolean> = {
     d.firstName.trim() !== "" &&
     d.lastName.trim() !== "" &&
     d.email.trim() !== "" &&
+    d.nin.trim() !== "" &&
     d.phone.trim() !== "" &&
     d.dateOfBirth.trim() !== "",
 
