@@ -50,7 +50,7 @@ export async function GET(req: Request) {
     }
 
     if (!apps || apps.length === 0) {
-      return NextResponse.json({ applications: [] });
+      return NextResponse.json({ applications: [], total: 0  });
     }
 
     // 2️⃣ Collect unique program_ids & session_ids
@@ -112,11 +112,9 @@ export async function GET(req: Request) {
     }));
 
     return NextResponse.json({ applications: appsWithNames });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("/api/applications GET error:", err);
-    return NextResponse.json(
-      { error: err.message || "Invalid request" },
-      { status: 400 }
-    );
+    const message = err instanceof Error ? err.message : "Invalid request";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
