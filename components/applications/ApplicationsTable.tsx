@@ -42,9 +42,10 @@ export default function AdminApplicationsPage({
   const [search, setSearch] = useState("");
   const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
 
   // Load applications from backend
-  const loadApplications = async () => {
+  const loadApplications = async (pageNumber = page) => {
     try {
       setLoading(true);
 
@@ -52,18 +53,26 @@ export default function AdminApplicationsPage({
       if (filterStatus !== "all") params.set("status", filterStatus);
       if (search.trim()) params.set("search", search.trim());
 
+      params.set("page", String(pageNumber));
+      params.set("pageSize", String(PAGE_SIZE));
+
       const res = await fetch(`/api/applications?${params.toString()}`, {
         cache: "no-store",
       });
 
-      const json = (await res.json().catch(() => ({}))) as { applications?: ApplicationRow[]; error?: string };
+      const json = (
+          await res.json().catch(() => ({}))) as {
+             applications?: ApplicationRow[]; 
+             total?: number;
+             error?: string 
+          };
 
       if (!res.ok) {
         throw new Error(json.error || "Failed to load applications.");
       }
 
       setApplications(json.applications || []);
-      setPage(1); // reset pagination
+      setTotal(json.total || 0);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Error loading applications.";
       console.error(err);
@@ -74,13 +83,18 @@ export default function AdminApplicationsPage({
   };
 
   useEffect(() => {
-    loadApplications();
+    loadApplications(page);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterStatus]);
+  }, [filterStatus, page]);
 
   const handleSearch = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    loadApplications();
+    if (page !== 1) {
+      setPage(1);
+    } else {
+      loadApplications(1);
+    }
+    // loadApplications();
   };
 
   // Review application (accept or reject)
@@ -166,11 +180,12 @@ export default function AdminApplicationsPage({
   };
 
   // Pagination
-  const total = applications.length;
+  // const total = applications.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const startIndex = (currentPage - 1) * PAGE_SIZE;
-  const pageItems = applications.slice(startIndex, startIndex + PAGE_SIZE);
+  // const pageItems = applications.slice(startIndex, startIndex + PAGE_SIZE);
+  const pageItems = applications;
 
   return (
     <div className="p-6 space-y-6">
@@ -313,7 +328,7 @@ export default function AdminApplicationsPage({
                       )}
 
                       {/* Accepted but not converted -> Convert */}
-                      { allowConvert && app.status === "accepted" && !app.converted_to_student && (
+                      {allowConvert && app.status === "accepted" && !app.converted_to_student && (
                         <button
                           type="button"
                           onClick={() => convertApplication(app.id)}
