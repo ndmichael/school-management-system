@@ -91,7 +91,7 @@ export default function ContactPage() {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="text-lg text-primary-100 leading-relaxed max-w-2xl mx-auto"
           >
-            Have questions? We're here to help. Send us a message and we will respond as soon as possible.
+            Have questions? We are here to help. Send us a message and we will respond as soon as possible.
           </motion.p>
         </div>
 
