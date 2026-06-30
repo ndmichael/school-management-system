@@ -104,8 +104,13 @@ export default function AdminApplicationsPage({
 
       if (action === "reject") {
         const input = prompt("Reason for rejection:");
-        if (!input) return;
-        rejectionReason = input;
+
+        if (!input?.trim()) {
+          toast.error("Rejection reason is required.");
+          return;
+        }
+
+        rejectionReason = input.trim();
       }
 
       setReviewingId(id);
