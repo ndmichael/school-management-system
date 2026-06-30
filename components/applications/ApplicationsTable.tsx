@@ -220,8 +220,8 @@ export default function AdminApplicationsPage({
       </div>
 
       {/* Table */}
-      <div className="border rounded-lg overflow-hidden bg-white">
-        <table className="w-full text-sm">
+      <div className="border rounded-lg overflow-x-auto bg-white">
+        <table className="w-full min-w-[1000px] text-sm">
           <thead className="bg-gray-50">
             <tr className="text-left">
               <th className="px-3 py-2">App No</th>
@@ -255,7 +255,9 @@ export default function AdminApplicationsPage({
             {!loading &&
               pageItems.map((app) => (
                 <tr key={app.id} className="border-t">
-                  <td className="px-3 py-2 font-mono text-xs">{app.application_no}</td>
+                  <td className="px-3 py-2 font-mono text-xs  max-w-[130px] truncate">
+                    {app.application_no}
+                  </td>
 
                   <td className="px-3 py-2">
                     <div className="font-medium">
