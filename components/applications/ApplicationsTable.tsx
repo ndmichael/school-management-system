@@ -27,7 +27,7 @@ interface ApplicationRow {
   converted_to_student: boolean;
 }
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 20;
 
 export default function AdminApplicationsPage({
   detailsBasePath = "/dashboard/admin/applications",
