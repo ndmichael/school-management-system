@@ -131,6 +131,14 @@ export async function PATCH(
     );
   }
 
+  // rejection musnt be empty
+  if (action === "reject" && !rejectionReason?.trim()) {
+    return NextResponse.json(
+      { error: "Rejection reason is required." },
+      { status: 400 }
+    );
+  }
+
   // ------------------------------------------------------------
   // PREVENT DOUBLE REVIEW
   // ------------------------------------------------------------
@@ -168,7 +176,7 @@ export async function PATCH(
     action === "reject"
       ? {
           status: "rejected",
-          rejection_reason: rejectionReason ?? null,
+          rejection_reason: rejectionReason!.trim(),
         }
       : {
           status: "accepted",
@@ -182,7 +190,8 @@ export async function PATCH(
       reviewed_by: user.id,
       reviewed_date: new Date().toISOString(),
     })
-    .eq("id", applicationId);
+    .eq("id", applicationId)
+    .eq("status", "pending"); // prevents race conditions
 
   if (updateErr) {
     return NextResponse.json(
