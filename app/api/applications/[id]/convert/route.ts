@@ -138,18 +138,35 @@ export async function POST(
 
     const { data: application, error: appErr } = await supabaseAdmin
     .from("applications")
-    .select("email, program_id, session_id, class_applied_for")
+    .select("email, program_id, session_id, class_applied_for, status, converted_to_student, student_id")
     .eq("id", applicationId)
     .single<{
       email: string | null;
       program_id: string | null;
       session_id: string | null;
       class_applied_for: string | null;
+      status: string | null;
+      converted_to_student: boolean | null;
+      student_id: string | null;
     }>();
 
     if (appErr || !application) {
       return fail("load_application", appErr ?? { message: "Application not found" }, 404);
     }
+
+    if (application.status !== "accepted") {
+    return NextResponse.json(
+      { error: "Only accepted applications can be converted." },
+      { status: 400 }
+    );
+  }
+
+  if (application.converted_to_student || application.student_id) {
+    return NextResponse.json(
+      { error: "Application has already been converted." },
+      { status: 409 }
+    );
+  }
 
     const email = String(application.email ?? "").trim().toLowerCase();
 
