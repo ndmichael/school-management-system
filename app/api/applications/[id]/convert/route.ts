@@ -231,27 +231,6 @@ export async function POST(
       );
     }
 
-    const { data: authUsersData, error: listUsersErr } =
-      await supabaseAdmin.auth.admin.listUsers();
-
-    if (listUsersErr) {
-      return fail("list_auth_users", listUsersErr, 500);
-    }
-
-    const authExists = authUsersData.users.some(
-      (u) => (u.email ?? "").toLowerCase() === email
-    );
-
-    if (authExists) {
-      return NextResponse.json(
-        {
-          error:
-            "User already exists in auth (delete them or use a different email).",
-        },
-        { status: 409 }
-      );
-    }
-
     const baseUrl = (
       process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)
     ).replace(/\/$/, "");
