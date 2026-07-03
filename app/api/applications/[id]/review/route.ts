@@ -88,7 +88,7 @@ export async function PATCH(
     const { data: staff, error: staffErr } = await supabaseAdmin
       .from("staff")
       .select("unit")
-      .eq("id", user.id)
+      .eq("profile_id", user.id)
       .single();
 
     if (staffErr) {
