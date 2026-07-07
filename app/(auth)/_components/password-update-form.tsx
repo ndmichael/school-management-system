@@ -21,7 +21,7 @@ function validatePassword(pw: string): string | null {
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null;
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function readErrorMessage(v: unknown, fallback: string): string {
