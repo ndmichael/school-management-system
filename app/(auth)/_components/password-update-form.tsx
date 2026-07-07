@@ -65,21 +65,23 @@ export default function PasswordUpdateForm({ mode }: Props) {
         return;
       }
 
-      const res = await fetch("/api/auth/onboarding/complete", { method: "POST" });
+      if(mode === "set"){
+        const res = await fetch("/api/auth/onboarding/complete", { method: "POST" });
 
-      if (!res.ok) {
-        const json: unknown = await res.json().catch(() => null);
-        setFormError(readErrorMessage(json, "Failed to finalize onboarding. Please try again."));
-        return;
-      }
+        if (!res.ok) {
+          const json: unknown = await res.json().catch(() => null);
+          setFormError(readErrorMessage(json, "Failed to finalize onboarding. Please try again."));
+          return;
+        }
 
-      const json: OnboardingCompleteResponse | null = (await res.json().catch(() => null)) as
-        | OnboardingCompleteResponse
-        | null;
+        const json: OnboardingCompleteResponse | null = (await res.json().catch(() => null)) as
+          | OnboardingCompleteResponse
+          | null;
 
-      if (json && "error" in json) {
-        setFormError(json.error);
-        return;
+        if (json && "error" in json) {
+          setFormError(json.error);
+          return;
+        }
       }
 
       await supabase.auth.signOut();
