@@ -99,7 +99,12 @@ export default function PasswordUpdateForm({ mode }: Props) {
         type={showPassword ? "text" : "password"}
         autoComplete="new-password"
         value={password}
-        onChange={(ev) => setPassword(ev.currentTarget.value)}
+        onChange={(ev) => {
+          setPassword(ev.currentTarget.value)
+          setPasswordError(undefined);
+          setFormError(null);
+
+        }}
         required
         error={passwordError}
         trailingIcon={
@@ -119,7 +124,11 @@ export default function PasswordUpdateForm({ mode }: Props) {
         type={showConfirm ? "text" : "password"}
         autoComplete="new-password"
         value={confirm}
-        onChange={(ev) => setConfirm(ev.currentTarget.value)}
+        onChange={(ev) => {
+          setConfirm(ev.currentTarget.value);
+          setConfirmError(undefined);
+          setFormError(null);
+        }}
         required
         error={confirmError}
         trailingIcon={
