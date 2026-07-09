@@ -236,11 +236,8 @@ export async function POST(
       process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)
     ).replace(/\/$/, "");
 
-    const redirectTo = `${baseUrl}/api/auth/confirm`;
-
     console.log("[CONVERT_APPLICATION] creating auth user", {
       email,
-      redirectTo,
     });
 
     // Create a temporary password and create a user.
@@ -254,7 +251,7 @@ export async function POST(
       });
 
     if (authErr) {
-      const msg = authErr.message ?? "Invite failed";
+      const msg = authErr.message ?? "Auth user creation failed.";
       const isDup = isDuplicateAuthMessage(msg);
 
       return fail(
@@ -263,7 +260,6 @@ export async function POST(
           auth_error: serializeError(authErr),
           duplicate_detected: isDup,
           email,
-          redirectTo,
         },
         isDup ? 409 : 400
       );
