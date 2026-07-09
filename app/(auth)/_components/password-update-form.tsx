@@ -13,8 +13,6 @@ type Props = {
   mode: Mode;
 };
 
-type OnboardingCompleteResponse = { ok: true } | { error: string };
-
 function validatePassword(pw: string): string | null {
   if (pw.length < 8) return "Password must be at least 8 characters.";
   return null;
@@ -58,30 +56,21 @@ export default function PasswordUpdateForm({ mode }: Props) {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.updateUser({ password });
+      
+      /*
+        === if mode = 'set' update password and setup onboarding_status to complete
+        === else just update password without affecting onboarding_status
+      */
+      const res = await fetch("/api/auth/password/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password, mode }),
+      });
 
-      if (error) {
-        setFormError(error.message);
+      if (!res.ok) {
+        const json: unknown = await res.json().catch(() => null);
+        setFormError(readErrorMessage(json, "Failed to update password. Please try again."));
         return;
-      }
-
-      if(mode === "set"){
-        const res = await fetch("/api/auth/onboarding/complete", { method: "POST" });
-
-        if (!res.ok) {
-          const json: unknown = await res.json().catch(() => null);
-          setFormError(readErrorMessage(json, "Failed to finalize onboarding. Please try again."));
-          return;
-        }
-
-        const json: OnboardingCompleteResponse | null = (await res.json().catch(() => null)) as
-          | OnboardingCompleteResponse
-          | null;
-
-        if (json && "error" in json) {
-          setFormError(json.error);
-          return;
-        }
       }
 
       await supabase.auth.signOut();
