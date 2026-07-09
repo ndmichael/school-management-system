@@ -13,6 +13,7 @@ type ProfileRow = {
   last_name: string | null;
   email: string;
   main_role: UserRole | null;
+  onboarding_status: string | null;
 };
 
 type StaffRow = { unit: StaffUnit | null };
@@ -33,11 +34,18 @@ export default async function DashboardLayout({ children }: Props) {
 
   const { data: profile, error } = await supabase
     .from("profiles")
-    .select("first_name, middle_name, last_name, email, main_role")
+    .select("first_name, middle_name, last_name, email, main_role, onboarding_status")
     .eq("id", user.id)
     .single<ProfileRow>();
 
   if (error || !profile?.main_role) redirect("/login");
+
+  // 💂 Check that onboarding is set to completed before login
+  const onboardingStatus = (profile.onboarding_status ?? "").toLowerCase();
+
+  if (onboardingStatus && onboardingStatus !== "completed") {
+    redirect("/set-password");
+  }
 
   const role = profile.main_role;
 
