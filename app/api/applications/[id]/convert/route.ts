@@ -308,6 +308,21 @@ export async function POST(
       );
     }
 
+    const setupRedirectTo = `${baseUrl}/api/auth/confirm?next=/set-password`;
+
+    const { error: setupEmailErr } = await supabaseAdmin.auth.resetPasswordForEmail(
+      email,
+      {
+        redirectTo: setupRedirectTo,
+      }
+    );
+
+    if (setupEmailErr) {
+      console.error("[CONVERT_APPLICATION_SETUP_EMAIL_ERROR]", setupEmailErr);
+    }
+
+
+
     createdAuthUserId = null;
 
     return NextResponse.json({
@@ -318,6 +333,8 @@ export async function POST(
       registration_created: conversion?.registration_created ?? true,
       fee_account_created: conversion?.fee_account_created ?? true,
       annual_fee: conversion?.annual_fee ?? null,
+      setup_email_sent: !setupEmailErr,
+      setup_email_error: setupEmailErr?.message ?? null,
     });
   } catch (err) {
     console.error("[CONVERT_APPLICATION_FATAL]", err);
