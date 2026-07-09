@@ -236,9 +236,7 @@ export async function POST(
       process.env.NEXT_PUBLIC_SITE_URL ?? getBaseUrl(req)
     ).replace(/\/$/, "");
 
-    console.log("[CONVERT_APPLICATION] creating auth user", {
-      email,
-    });
+    console.log("[CONVERT_APPLICATION] creating auth user");
 
     // Create a temporary password and create a user.
     const tempPassword = randomUUID() + randomUUID();
