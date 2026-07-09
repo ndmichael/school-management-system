@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { randomUUID } from "crypto";
 
 type ConversionRpcResult = {
   student_id?: string;
@@ -242,9 +243,14 @@ export async function POST(
       redirectTo,
     });
 
+    // Create a temporary password and create a user.
+    const tempPassword = randomUUID() + randomUUID();
+
     const { data: authUser, error: authErr } =
-      await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        redirectTo,
+      await supabaseAdmin.auth.admin.createUser({
+        email,
+        password: tempPassword,
+        email_confirm: true,
       });
 
     if (authErr) {

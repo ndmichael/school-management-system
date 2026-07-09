@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
 
   if (error) {
     const loginUrl = new URL("/login", url.origin);
-    loginUrl.searchParams.set("error", "invite_invalid_or_expired");
+    loginUrl.searchParams.set("error", "link_invalid_or_expired");
     loginUrl.searchParams.set("next", nextPath);
     return NextResponse.redirect(loginUrl);
   }
