@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 
 const LoginSchema = z.object({
   email: z.string().email('Enter a valid email'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: z.string().min(1, "Password is required"),
 })
 
 export type LoginResult = {
