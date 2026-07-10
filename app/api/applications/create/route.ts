@@ -7,81 +7,17 @@ const DOCUMENTS_BUCKET = "applications";
 
 type JsonObject = Record<string, unknown>;
 
-function isObject(v: unknown): v is JsonObject {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
+type ExistingApplication = {
+  id: string;
+  application_no: string;
+  status: string | null;
+  created_at: string;
+};
 
-function getString(v: unknown): string {
-  return typeof v === "string" ? v : "";
-}
-
-/*
-  Optional field helper:
-  Better to store null in DB than an empty string.
-*/
-function getOptionalString(v: unknown): string | null {
-  const s = getString(v).trim();
-  return s ? s : null;
-}
-
-// Helper function to validate attestation date
-function getRequiredIsoDate(v: unknown, label: string): string | NextResponse {
-  const raw = getString(v).trim();
-
-  if (!raw) {
-    return NextResponse.json(
-      { error: `${label} is required.` },
-      { status: 400 }
-    );
-  }
-
-  const date = new Date(raw);
-
-  if (Number.isNaN(date.getTime())) {
-    return NextResponse.json(
-      { error: `${label} is invalid.` },
-      { status: 400 }
-    );
-  }
-
-  return date.toISOString();
-}
-
-// File reference type from the frontend
-type FileRef = { bucket: string; path: string };
-
-/*
-  Checks file reference shape:
-  - must be an object
-  - bucket must be a non-empty string
-  - path must be a non-empty string
-*/
-function isFileRef(v: unknown): v is FileRef {
-  return (
-    isObject(v) &&
-    typeof v.bucket === "string" &&
-    typeof v.path === "string" &&
-    v.bucket.length > 0 &&
-    v.path.length > 0
-  );
-}
-
-function getFileRef(v: unknown): FileRef | null {
-  return isFileRef(v) ? v : null;
-}
-
-function getFileRefArray(v: unknown): FileRef[] {
-  if (!Array.isArray(v)) return [];
-
-  const out: FileRef[] = [];
-
-  for (const item of v) {
-    const ref = getFileRef(item);
-    if (ref) out.push(ref);
-  }
-
-  return out;
-}
+type FileRef = {
+  bucket: string;
+  path: string;
+};
 
 type SupportingDocType =
   | "academic_result"
@@ -96,62 +32,192 @@ type SupportingDocInput = {
   mime_type?: string | null;
 };
 
-function isSupportingDocType(v: unknown): v is SupportingDocType {
+function isObject(value: unknown): value is JsonObject {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function getOptionalString(value: unknown): string | null {
+  const stringValue = getString(value).trim();
+
+  return stringValue || null;
+}
+
+function getRequiredIsoDate(
+  value: unknown,
+  label: string
+): string | NextResponse {
+  const rawValue = getString(value).trim();
+
+  if (!rawValue) {
+    return NextResponse.json(
+      {
+        error: `${label} is required.`,
+      },
+      {
+        status: 400,
+      }
+    );
+  }
+
+  const date = new Date(rawValue);
+
+  if (Number.isNaN(date.getTime())) {
+    return NextResponse.json(
+      {
+        error: `${label} is invalid.`,
+      },
+      {
+        status: 400,
+      }
+    );
+  }
+
+  return date.toISOString();
+}
+
+function isFileRef(value: unknown): value is FileRef {
   return (
-    v === "academic_result" ||
-    v === "birth_or_age" ||
-    v === "sponsorship_letter" ||
-    v === "supporting_optional"
+    isObject(value) &&
+    typeof value.bucket === "string" &&
+    typeof value.path === "string" &&
+    value.bucket.length > 0 &&
+    value.path.length > 0
   );
 }
 
-// Cleans a messy incoming array into a safe array of valid supporting documents.
-function parseSupportingDocs(v: unknown): SupportingDocInput[] {
-  if (!Array.isArray(v)) return [];
+function getFileRef(value: unknown): FileRef | null {
+  return isFileRef(value) ? value : null;
+}
 
-  const out: SupportingDocInput[] = [];
+function getFileRefArray(value: unknown): FileRef[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
 
-  for (const item of v) {
-    if (!isObject(item)) continue;
+  const files: FileRef[] = [];
+
+  for (const item of value) {
+    const file = getFileRef(item);
+
+    if (file) {
+      files.push(file);
+    }
+  }
+
+  return files;
+}
+
+function isSupportingDocType(
+  value: unknown
+): value is SupportingDocType {
+  return (
+    value === "academic_result" ||
+    value === "birth_or_age" ||
+    value === "sponsorship_letter" ||
+    value === "supporting_optional"
+  );
+}
+
+function parseSupportingDocs(value: unknown): SupportingDocInput[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const documents: SupportingDocInput[] = [];
+
+  for (const item of value) {
+    if (!isObject(item)) {
+      continue;
+    }
 
     const docType = item.doc_type;
-    const file = item.file;
+    const file = getFileRef(item.file);
 
-    if (!isSupportingDocType(docType)) continue;
+    if (!isSupportingDocType(docType) || !file) {
+      continue;
+    }
 
-    const ref = getFileRef(file);
-    if (!ref) continue;
-
-    out.push({
+    documents.push({
       doc_type: docType,
-      file: ref,
+      file,
       original_name:
-        typeof item.original_name === "string" ? item.original_name : null,
-      mime_type: typeof item.mime_type === "string" ? item.mime_type : null,
+        typeof item.original_name === "string"
+          ? item.original_name
+          : null,
+      mime_type:
+        typeof item.mime_type === "string"
+          ? item.mime_type
+          : null,
     });
   }
 
-  return out;
+  return documents;
 }
 
-// Validates bucket and folder/path
 function validateFileRef(
-  ref: FileRef | null,
+  file: FileRef | null,
   expectedBucket: string,
   expectedFolder: string,
   label: string
 ): string | null {
-  if (!ref) return `${label} is required.`;
+  if (!file) {
+    return `${label} is required.`;
+  }
 
-  if (ref.bucket !== expectedBucket) {
+  if (file.bucket !== expectedBucket) {
     return `${label} was uploaded to an invalid bucket.`;
   }
 
-  if (!ref.path.startsWith(`${expectedFolder}/`)) {
+  if (!file.path.startsWith(`${expectedFolder}/`)) {
     return `${label} has an invalid file path.`;
   }
 
   return null;
+}
+
+function duplicateApplicationResponse(
+  application: ExistingApplication
+): NextResponse {
+  if (application.status === "rejected") {
+    return NextResponse.json(
+      {
+        error:
+          "A rejected application already exists for this programme and academic session.",
+        code: "REJECTED_APPLICATION_EXISTS",
+        action: "appeal_or_reopen",
+        application: {
+          id: application.id,
+          application_no: application.application_no,
+          status: application.status,
+          created_at: application.created_at,
+        },
+      },
+      {
+        status: 409,
+      }
+    );
+  }
+
+  return NextResponse.json(
+    {
+      error:
+        "You already have an application for this programme and academic session.",
+      code: "APPLICATION_ALREADY_EXISTS",
+      application: {
+        id: application.id,
+        application_no: application.application_no,
+        status: application.status,
+        created_at: application.created_at,
+      },
+    },
+    {
+      status: 409,
+    }
+  );
 }
 
 export async function POST(req: Request): Promise<NextResponse> {
@@ -159,7 +225,14 @@ export async function POST(req: Request): Promise<NextResponse> {
     const raw: unknown = await req.json();
 
     if (!isObject(raw)) {
-      return NextResponse.json({ error: "Invalid payload." }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: "Invalid payload.",
+        },
+        {
+          status: 400,
+        }
+      );
     }
 
     const email = getString(raw.email).trim().toLowerCase();
@@ -170,18 +243,25 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     if (!email || !firstName || !lastName || !programId || !nin) {
       return NextResponse.json(
-        { error: "Missing required fields." },
-        { status: 400 }
+        {
+          error: "Missing required fields.",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
-    // Validate phone number properly
     const phoneRaw = getString(raw.phone).trim();
 
     if (!phoneRaw) {
       return NextResponse.json(
-        { error: "Phone number is required." },
-        { status: 400 }
+        {
+          error: "Phone number is required.",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
@@ -193,13 +273,16 @@ export async function POST(req: Request): Promise<NextResponse> {
       return NextResponse.json(
         {
           error:
-            error instanceof Error ? error.message : "Invalid phone number.",
+            error instanceof Error
+              ? error.message
+              : "Invalid phone number.",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
-    // Validate attestation date
     const attestationDate = getRequiredIsoDate(
       raw.attestationDate,
       "Attestation date"
@@ -212,8 +295,12 @@ export async function POST(req: Request): Promise<NextResponse> {
     const passportFile = getFileRef(raw.passportFile);
     const signatureFile = getFileRef(raw.signatureFile);
     const academicResultFile = getFileRef(raw.academicResultFile);
-    const birthCertificateFile = getFileRef(raw.birthCertificateFile);
-    const sponsorshipLetterFile = getFileRef(raw.sponsorshipLetterFile);
+    const birthCertificateFile = getFileRef(
+      raw.birthCertificateFile
+    );
+    const sponsorshipLetterFile = getFileRef(
+      raw.sponsorshipLetterFile
+    );
 
     const passportError = validateFileRef(
       passportFile,
@@ -223,7 +310,14 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
 
     if (passportError) {
-      return NextResponse.json({ error: passportError }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: passportError,
+        },
+        {
+          status: 400,
+        }
+      );
     }
 
     const signatureError = validateFileRef(
@@ -234,7 +328,14 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
 
     if (signatureError) {
-      return NextResponse.json({ error: signatureError }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: signatureError,
+        },
+        {
+          status: 400,
+        }
+      );
     }
 
     const academicResultError = validateFileRef(
@@ -246,8 +347,12 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     if (academicResultError) {
       return NextResponse.json(
-        { error: academicResultError },
-        { status: 400 }
+        {
+          error: academicResultError,
+        },
+        {
+          status: 400,
+        }
       );
     }
 
@@ -260,8 +365,12 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     if (birthCertificateError) {
       return NextResponse.json(
-        { error: birthCertificateError },
-        { status: 400 }
+        {
+          error: birthCertificateError,
+        },
+        {
+          status: 400,
+        }
       );
     }
 
@@ -275,8 +384,12 @@ export async function POST(req: Request): Promise<NextResponse> {
 
       if (sponsorshipError) {
         return NextResponse.json(
-          { error: sponsorshipError },
-          { status: 400 }
+          {
+            error: sponsorshipError,
+          },
+          {
+            status: 400,
+          }
         );
       }
     }
@@ -288,63 +401,139 @@ export async function POST(req: Request): Promise<NextResponse> {
       !birthCertificateFile
     ) {
       return NextResponse.json(
-        { error: "Required files are missing." },
-        { status: 400 }
+        {
+          error: "Required files are missing.",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
-    const supportingDocs = parseSupportingDocs(raw.supportingDocs);
-    const legacySupportingFiles = getFileRefArray(raw.supportingFiles);
+    const supportingDocs = parseSupportingDocs(
+      raw.supportingDocs
+    );
 
-    const admissionType = getString(raw.admissionType).trim();
+    const legacySupportingFiles = getFileRefArray(
+      raw.supportingFiles
+    );
+
+    const admissionType = getString(
+      raw.admissionType
+    ).trim();
 
     if (admissionType === "direct_entry") {
-      const prevSchool = getString(raw.previousSchool).trim();
-      const prevQual = getString(raw.previousQualification).trim();
+      const previousSchool = getString(
+        raw.previousSchool
+      ).trim();
 
-      if (!prevSchool || !prevQual) {
+      const previousQualification = getString(
+        raw.previousQualification
+      ).trim();
+
+      if (!previousSchool || !previousQualification) {
         return NextResponse.json(
           {
             error:
               "Previous school and qualification are required for Direct Entry.",
           },
-          { status: 400 }
+          {
+            status: 400,
+          }
         );
       }
     }
 
     const supabase = supabaseAdmin;
 
-    const { data: activeSession, error: sessionError } = await supabase
+    const {
+      data: activeSession,
+      error: sessionError,
+    } = await supabase
       .from("sessions")
       .select("id")
       .eq("is_active", true)
-      .order("start_date", { ascending: false })
+      .order("start_date", {
+        ascending: false,
+      })
       .limit(1)
       .single();
 
     if (sessionError || !activeSession) {
       return NextResponse.json(
-        { error: "No active session configured." },
-        { status: 400 }
+        {
+          error: "No active session configured.",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
-    const { data: programRow, error: programErr } = await supabase
+    const {
+      data: programRow,
+      error: programError,
+    } = await supabase
       .from("programs")
       .select("department_id")
       .eq("id", programId)
       .single();
 
-    if (programErr || !programRow?.department_id) {
+    if (programError || !programRow?.department_id) {
       return NextResponse.json(
-        { error: "Selected program is missing department mapping." },
-        { status: 400 }
+        {
+          error:
+            "Selected program is missing department mapping.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    /*
+      Friendly duplicate check.
+
+      The unique database index remains the final protection
+      if two requests reach this point concurrently.
+    */
+    const {
+      data: existingApplication,
+      error: existingApplicationError,
+    } = await supabase
+      .from("applications")
+      .select("id, application_no, status, created_at")
+      .eq("nin", nin)
+      .eq("program_id", programId)
+      .eq("session_id", activeSession.id)
+      .maybeSingle<ExistingApplication>();
+
+    if (existingApplicationError) {
+      console.error(
+        "[CHECK_EXISTING_APPLICATION_ERROR]",
+        existingApplicationError
+      );
+
+      return NextResponse.json(
+        {
+          error:
+            "Unable to verify the existing application.",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    if (existingApplication) {
+      return duplicateApplicationResponse(
+        existingApplication
       );
     }
 
     const applicationPayload = {
       application_no: crypto.randomUUID(),
+
       session_id: activeSession.id,
       program_id: programId,
       department_id: programRow.department_id,
@@ -359,25 +548,56 @@ export async function POST(req: Request): Promise<NextResponse> {
       email,
       phone,
       nin,
-      special_needs: getOptionalString(raw.specialNeeds),
+      special_needs: getOptionalString(
+        raw.specialNeeds
+      ),
 
       state_of_origin: getString(raw.stateOfOrigin),
       lga_of_origin: getString(raw.lgaOfOrigin),
       religion: getString(raw.religion),
       address: getString(raw.address),
 
-      class_applied_for: getString(raw.classAppliedFor),
-      application_type: getString(raw.admissionType),
-      previous_school: getOptionalString(raw.previousSchool),
-      previous_qualification: getOptionalString(raw.previousQualification),
+      class_applied_for: getString(
+        raw.classAppliedFor
+      ),
 
-      guardian_first_name: getString(raw.guardianFirstName),
-      guardian_middle_name: getOptionalString(raw.guardianMiddleName),
-      guardian_last_name: getString(raw.guardianLastName),
-      guardian_gender: getString(raw.guardianGender),
-      guardian_status: getString(raw.guardianStatus),
-      guardian_phone: getString(raw.guardianPhone),
-      guardian_email: getOptionalString(raw.guardianEmail),
+      application_type: admissionType,
+
+      previous_school: getOptionalString(
+        raw.previousSchool
+      ),
+
+      previous_qualification: getOptionalString(
+        raw.previousQualification
+      ),
+
+      guardian_first_name: getString(
+        raw.guardianFirstName
+      ),
+
+      guardian_middle_name: getOptionalString(
+        raw.guardianMiddleName
+      ),
+
+      guardian_last_name: getString(
+        raw.guardianLastName
+      ),
+
+      guardian_gender: getString(
+        raw.guardianGender
+      ),
+
+      guardian_status: getString(
+        raw.guardianStatus
+      ),
+
+      guardian_phone: getString(
+        raw.guardianPhone
+      ),
+
+      guardian_email: getOptionalString(
+        raw.guardianEmail
+      ),
 
       attestation_date: attestationDate,
 
@@ -387,20 +607,79 @@ export async function POST(req: Request): Promise<NextResponse> {
       status: "pending",
     };
 
-    const { data: app, error: appErr } = await supabase
+    const {
+      data: application,
+      error: applicationError,
+    } = await supabase
       .from("applications")
       .insert(applicationPayload)
-      .select("id, application_no, status, created_at")
+      .select(
+        "id, application_no, status, created_at"
+      )
       .single();
 
-    if (appErr || !app) {
+    /*
+      PostgreSQL 23505 means the unique index rejected
+      a concurrent or repeated application.
+    */
+    if (applicationError?.code === "23505") {
+      const {
+        data: conflictingApplication,
+        error: conflictLookupError,
+      } = await supabase
+        .from("applications")
+        .select(
+          "id, application_no, status, created_at"
+        )
+        .eq("nin", nin)
+        .eq("program_id", programId)
+        .eq("session_id", activeSession.id)
+        .maybeSingle<ExistingApplication>();
+
+      if (conflictLookupError) {
+        console.error(
+          "[LOOKUP_CONFLICTING_APPLICATION_ERROR]",
+          conflictLookupError
+        );
+      }
+
+      if (conflictingApplication) {
+        return duplicateApplicationResponse(
+          conflictingApplication
+        );
+      }
+
       return NextResponse.json(
-        { error: appErr?.message ?? "Failed to create application." },
-        { status: 400 }
+        {
+          error:
+            "An application already exists for this programme and academic session.",
+          code: "APPLICATION_ALREADY_EXISTS",
+        },
+        {
+          status: 409,
+        }
       );
     }
 
-    const docsToInsert: {
+    if (applicationError || !application) {
+      console.error(
+        "[CREATE_APPLICATION_ERROR]",
+        applicationError
+      );
+
+      return NextResponse.json(
+        {
+          error:
+            applicationError?.message ??
+            "Failed to create application.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const documentsToInsert: {
       application_id: string;
       doc_type: string;
       file: FileRef;
@@ -408,14 +687,14 @@ export async function POST(req: Request): Promise<NextResponse> {
       mime_type: string | null;
     }[] = [
       {
-        application_id: app.id,
+        application_id: application.id,
         doc_type: "academic_result",
         file: academicResultFile,
         original_name: null,
         mime_type: null,
       },
       {
-        application_id: app.id,
+        application_id: application.id,
         doc_type: "birth_or_age",
         file: birthCertificateFile,
         original_name: null,
@@ -424,8 +703,8 @@ export async function POST(req: Request): Promise<NextResponse> {
     ];
 
     if (sponsorshipLetterFile) {
-      docsToInsert.push({
-        application_id: app.id,
+      documentsToInsert.push({
+        application_id: application.id,
         doc_type: "sponsorship_letter",
         file: sponsorshipLetterFile,
         original_name: null,
@@ -433,44 +712,78 @@ export async function POST(req: Request): Promise<NextResponse> {
       });
     }
 
-    for (const d of supportingDocs) {
-      docsToInsert.push({
-        application_id: app.id,
-        doc_type: d.doc_type,
-        file: d.file,
-        original_name: d.original_name ?? null,
-        mime_type: d.mime_type ?? null,
+    for (const document of supportingDocs) {
+      documentsToInsert.push({
+        application_id: application.id,
+        doc_type: document.doc_type,
+        file: document.file,
+        original_name:
+          document.original_name ?? null,
+        mime_type: document.mime_type ?? null,
       });
     }
 
-    for (const f of legacySupportingFiles) {
-      docsToInsert.push({
-        application_id: app.id,
+    for (const file of legacySupportingFiles) {
+      documentsToInsert.push({
+        application_id: application.id,
         doc_type: "supporting_optional",
-        file: f,
+        file,
         original_name: null,
         mime_type: null,
       });
     }
 
-    const { error: docsErr } = await supabase
+    const {
+      error: documentsError,
+    } = await supabase
       .from("application_documents")
-      .insert(docsToInsert);
+      .insert(documentsToInsert);
 
-    if (docsErr) {
+    if (documentsError) {
+      console.error(
+        "[CREATE_APPLICATION_DOCUMENTS_ERROR]",
+        documentsError
+      );
+
       return NextResponse.json(
         {
           success: true,
-          application: app,
-          warning: `Application saved but documents failed: ${docsErr.message}`,
+          application,
+          warning: `Application saved but documents failed: ${documentsError.message}`,
         },
-        { status: 200 }
+        {
+          status: 200,
+        }
       );
     }
 
-    return NextResponse.json({ success: true, application: app });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Invalid request";
-    return NextResponse.json({ error: msg }, { status: 400 });
+    return NextResponse.json(
+      {
+        success: true,
+        application,
+      },
+      {
+        status: 201,
+      }
+    );
+  } catch (error: unknown) {
+    console.error(
+      "[CREATE_APPLICATION_FATAL_ERROR]",
+      error
+    );
+
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Invalid request";
+
+    return NextResponse.json(
+      {
+        error: message,
+      },
+      {
+        status: 400,
+      }
+    );
   }
 }
