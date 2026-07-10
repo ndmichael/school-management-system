@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
@@ -58,7 +59,7 @@ export async function POST(req: Request) {
   }
 
   if (mode === "set") {
-    const { error: onboardingErr } = await supabase
+    const { error: onboardingErr } = await supabaseAdmin
       .from("profiles")
       .update({
         onboarding_status: "completed",
@@ -67,7 +68,16 @@ export async function POST(req: Request) {
       .eq("id", user.id);
 
     if (onboardingErr) {
-      return NextResponse.json({ error: onboardingErr.message }, { status: 400 });
+      console.error("[ONBOARDING_STATUS_UPDATE_ERROR]", onboardingErr);
+
+      return NextResponse.json(
+        {
+          error:
+            "Your password was updated, but onboarding could not be completed. Please try again.",
+          code: "ONBOARDING_STATUS_UPDATE_FAILED",
+        },
+        { status: 500 }
+      );
     }
   }
 
