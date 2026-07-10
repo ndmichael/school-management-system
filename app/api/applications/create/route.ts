@@ -32,8 +32,19 @@ type SupportingDocInput = {
   mime_type?: string | null;
 };
 
+type ApplicationDocumentPayload = {
+  doc_type: SupportingDocType;
+  file: FileRef;
+  original_name: string | null;
+  mime_type: string | null;
+};
+
 function isObject(value: unknown): value is JsonObject {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+  );
 }
 
 function getString(value: unknown): string {
@@ -122,7 +133,9 @@ function isSupportingDocType(
   );
 }
 
-function parseSupportingDocs(value: unknown): SupportingDocInput[] {
+function parseSupportingDocs(
+  value: unknown
+): SupportingDocInput[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -220,7 +233,9 @@ function duplicateApplicationResponse(
   );
 }
 
-export async function POST(req: Request): Promise<NextResponse> {
+export async function POST(
+  req: Request
+): Promise<NextResponse> {
   try {
     const raw: unknown = await req.json();
 
@@ -235,13 +250,22 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    const email = getString(raw.email).trim().toLowerCase();
+    const email = getString(raw.email)
+      .trim()
+      .toLowerCase();
+
     const firstName = getString(raw.firstName).trim();
     const lastName = getString(raw.lastName).trim();
     const programId = getString(raw.programId).trim();
     const nin = getString(raw.nin).trim();
 
-    if (!email || !firstName || !lastName || !programId || !nin) {
+    if (
+      !email ||
+      !firstName ||
+      !lastName ||
+      !programId ||
+      !nin
+    ) {
       return NextResponse.json(
         {
           error: "Missing required fields.",
@@ -294,10 +318,15 @@ export async function POST(req: Request): Promise<NextResponse> {
 
     const passportFile = getFileRef(raw.passportFile);
     const signatureFile = getFileRef(raw.signatureFile);
-    const academicResultFile = getFileRef(raw.academicResultFile);
+
+    const academicResultFile = getFileRef(
+      raw.academicResultFile
+    );
+
     const birthCertificateFile = getFileRef(
       raw.birthCertificateFile
     );
+
     const sponsorshipLetterFile = getFileRef(
       raw.sponsorshipLetterFile
     );
@@ -431,7 +460,10 @@ export async function POST(req: Request): Promise<NextResponse> {
         raw.previousQualification
       ).trim();
 
-      if (!previousSchool || !previousQualification) {
+      if (
+        !previousSchool ||
+        !previousQualification
+      ) {
         return NextResponse.json(
           {
             error:
@@ -479,7 +511,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       .eq("id", programId)
       .single();
 
-    if (programError || !programRow?.department_id) {
+    if (
+      programError ||
+      !programRow?.department_id
+    ) {
       return NextResponse.json(
         {
           error:
@@ -494,15 +529,17 @@ export async function POST(req: Request): Promise<NextResponse> {
     /*
       Friendly duplicate check.
 
-      The unique database index remains the final protection
-      if two requests reach this point concurrently.
+      The database unique index remains the final protection
+      when concurrent requests reach the RPC.
     */
     const {
       data: existingApplication,
       error: existingApplicationError,
     } = await supabase
       .from("applications")
-      .select("id, application_no, status, created_at")
+      .select(
+        "id, application_no, status, created_at"
+      )
       .eq("nin", nin)
       .eq("program_id", programId)
       .eq("session_id", activeSession.id)
@@ -531,9 +568,13 @@ export async function POST(req: Request): Promise<NextResponse> {
       );
     }
 
-    const applicationPayload = {
-      application_no: crypto.randomUUID(),
+    /*
+      Data sent to the RPC.
 
+      The RPC generates application_no and forces
+      the application status to pending.
+    */
+    const applicationPayload = {
       session_id: activeSession.id,
       program_id: programId,
       department_id: programRow.department_id,
@@ -548,11 +589,15 @@ export async function POST(req: Request): Promise<NextResponse> {
       email,
       phone,
       nin,
+
       special_needs: getOptionalString(
         raw.specialNeeds
       ),
 
-      state_of_origin: getString(raw.stateOfOrigin),
+      state_of_origin: getString(
+        raw.stateOfOrigin
+      ),
+
       lga_of_origin: getString(raw.lgaOfOrigin),
       religion: getString(raw.religion),
       address: getString(raw.address),
@@ -603,26 +648,81 @@ export async function POST(req: Request): Promise<NextResponse> {
 
       passport_file: passportFile,
       signature_file: signatureFile,
-
-      status: "pending",
     };
 
-    const {
-      data: application,
-      error: applicationError,
-    } = await supabase
-      .from("applications")
-      .insert(applicationPayload)
-      .select(
-        "id, application_no, status, created_at"
-      )
-      .single();
+    /*
+      Documents are sent without application_id.
+
+      The RPC creates the application first and uses
+      its new ID when inserting each document.
+    */
+    const documentsPayload: ApplicationDocumentPayload[] =
+      [
+        {
+          doc_type: "academic_result",
+          file: academicResultFile,
+          original_name: null,
+          mime_type: null,
+        },
+        {
+          doc_type: "birth_or_age",
+          file: birthCertificateFile,
+          original_name: null,
+          mime_type: null,
+        },
+      ];
+
+    if (sponsorshipLetterFile) {
+      documentsPayload.push({
+        doc_type: "sponsorship_letter",
+        file: sponsorshipLetterFile,
+        original_name: null,
+        mime_type: null,
+      });
+    }
+
+    for (const document of supportingDocs) {
+      documentsPayload.push({
+        doc_type: document.doc_type,
+        file: document.file,
+        original_name:
+          document.original_name ?? null,
+        mime_type: document.mime_type ?? null,
+      });
+    }
+
+    for (const file of legacySupportingFiles) {
+      documentsPayload.push({
+        doc_type: "supporting_optional",
+        file,
+        original_name: null,
+        mime_type: null,
+      });
+    }
 
     /*
-      PostgreSQL 23505 means the unique index rejected
-      a concurrent or repeated application.
+      The RPC inserts the application and all documents
+      within one database transaction.
     */
-    if (applicationError?.code === "23505") {
+    const {
+      data: rpcData,
+      error: rpcError,
+    } = await supabase.rpc(
+      "create_application_with_documents",
+      {
+        p_application: applicationPayload,
+        p_documents: documentsPayload,
+      }
+    );
+
+    /*
+      PostgreSQL error 23505 means a unique index
+      rejected the insert.
+
+      Look up the matching application to determine
+      whether this was a duplicate submission.
+    */
+    if (rpcError?.code === "23505") {
       const {
         data: conflictingApplication,
         error: conflictLookupError,
@@ -649,110 +749,62 @@ export async function POST(req: Request): Promise<NextResponse> {
         );
       }
 
-      return NextResponse.json(
-        {
-          error:
-            "An application already exists for this programme and academic session.",
-          code: "APPLICATION_ALREADY_EXISTS",
-        },
-        {
-          status: 409,
-        }
-      );
-    }
-
-    if (applicationError || !application) {
       console.error(
-        "[CREATE_APPLICATION_ERROR]",
-        applicationError
+        "[CREATE_APPLICATION_UNIQUE_CONFLICT]",
+        rpcError
       );
 
       return NextResponse.json(
         {
           error:
-            applicationError?.message ??
-            "Failed to create application.",
+            "A database conflict prevented the application from being submitted.",
+          code: "APPLICATION_UNIQUE_CONFLICT",
         },
         {
-          status: 400,
+          status: 500,
         }
       );
     }
 
-    const documentsToInsert: {
-      application_id: string;
-      doc_type: string;
-      file: FileRef;
-      original_name: string | null;
-      mime_type: string | null;
-    }[] = [
-      {
-        application_id: application.id,
-        doc_type: "academic_result",
-        file: academicResultFile,
-        original_name: null,
-        mime_type: null,
-      },
-      {
-        application_id: application.id,
-        doc_type: "birth_or_age",
-        file: birthCertificateFile,
-        original_name: null,
-        mime_type: null,
-      },
-    ];
-
-    if (sponsorshipLetterFile) {
-      documentsToInsert.push({
-        application_id: application.id,
-        doc_type: "sponsorship_letter",
-        file: sponsorshipLetterFile,
-        original_name: null,
-        mime_type: null,
-      });
-    }
-
-    for (const document of supportingDocs) {
-      documentsToInsert.push({
-        application_id: application.id,
-        doc_type: document.doc_type,
-        file: document.file,
-        original_name:
-          document.original_name ?? null,
-        mime_type: document.mime_type ?? null,
-      });
-    }
-
-    for (const file of legacySupportingFiles) {
-      documentsToInsert.push({
-        application_id: application.id,
-        doc_type: "supporting_optional",
-        file,
-        original_name: null,
-        mime_type: null,
-      });
-    }
-
-    const {
-      error: documentsError,
-    } = await supabase
-      .from("application_documents")
-      .insert(documentsToInsert);
-
-    if (documentsError) {
+    /*
+      Any other RPC error rolls back both the application
+      and document inserts.
+    */
+    if (rpcError) {
       console.error(
-        "[CREATE_APPLICATION_DOCUMENTS_ERROR]",
-        documentsError
+        "[CREATE_APPLICATION_RPC_ERROR]",
+        rpcError
       );
 
       return NextResponse.json(
         {
-          success: true,
-          application,
-          warning: `Application saved but documents failed: ${documentsError.message}`,
+          error:
+            "Application submission failed. No application or documents were saved.",
+          code: "APPLICATION_TRANSACTION_FAILED",
         },
         {
-          status: 200,
+          status: 500,
+        }
+      );
+    }
+
+    const application =
+      rpcData as ExistingApplication | null;
+
+    if (!application?.id) {
+      console.error(
+        "[CREATE_APPLICATION_RPC_INVALID_RESULT]",
+        rpcData
+      );
+
+      return NextResponse.json(
+        {
+          error:
+            "Application submission returned an invalid result.",
+          code: "INVALID_APPLICATION_RESULT",
+        },
+        {
+          status: 500,
         }
       );
     }
