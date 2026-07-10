@@ -4,19 +4,22 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 
 import Image from "next/image";
 import {
+  Archive,
   ChevronLeft,
   ChevronRight,
   Edit,
   Eye,
   Filter,
+  MoreVertical,
+  RefreshCcw,
   Search,
-  Archive,
 } from "lucide-react";
 import { toast } from "react-toastify";
 
@@ -26,6 +29,7 @@ import { EditStudentSelectModal } from "@/components/modals/students/EditStudent
 import { EditProfileModal } from "@/components/modals/students/EditProfileModal";
 import { EditAcademicModal } from "@/components/modals/students/EditAcademicModal";
 import { EditGuardianModal } from "@/components/modals/students/EditGuardianModal";
+import { ChangeStatusModal } from "@/components/modals/shared/ChangeStatusModal";
 
 import {
   toPublicImageSrc,
@@ -94,6 +98,29 @@ interface ApiMessage {
   message?: string;
 }
 
+const STUDENT_STATUS_OPTIONS = [
+  {
+    value: "active",
+    label: "Active",
+  },
+  {
+    value: "suspended",
+    label: "Suspended",
+  },
+  {
+    value: "dismissed",
+    label: "Dismissed",
+  },
+  {
+    value: "withdrawn",
+    label: "Withdrawn",
+  },
+  {
+    value: "graduated",
+    label: "Graduated",
+  },
+] as const;
+
 const DEFAULT_PAGINATION: PaginationData = {
   page: 1,
   pageSize: 20,
@@ -133,10 +160,29 @@ async function readErrorMessage(
     : `Request failed (${response.status})`;
 }
 
+function getStudentDisplayName(student: StudentRow): string {
+  const fullName = [
+    student.profiles?.first_name,
+    student.profiles?.middle_name,
+    student.profiles?.last_name,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return fullName || student.matric_no || "Student";
+}
+
+function formatStatus(status: string): string {
+  return status
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 export default function AdminStudentsPage() {
   const supabase = useMemo(() => createClient(), []);
 
   const [students, setStudents] = useState<StudentRow[]>([]);
+
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -154,10 +200,20 @@ export default function AdminStudentsPage() {
     useState<ActiveSession | null>(null);
 
   const [loading, setLoading] = useState(true);
+
   const [archivingId, setArchivingId] =
     useState<string | null>(null);
 
-  const [viewId, setViewId] = useState<string | null>(null);
+  const [statusStudent, setStatusStudent] =
+    useState<StudentRow | null>(null);
+
+  const [updatingStatus, setUpdatingStatus] =
+    useState(false);
+
+  const [viewId, setViewId] = useState<string | null>(
+    null,
+  );
+
   const [editSelectId, setEditSelectId] =
     useState<string | null>(null);
 
@@ -214,14 +270,16 @@ export default function AdminStudentsPage() {
 
         setStudents(nextStudents);
         setPagination(nextPagination);
+
         setStatistics(
           json.statistics ?? DEFAULT_STATISTICS,
         );
+
         setActiveSession(json.activeSession ?? null);
 
         /*
-         * Handles a page becoming invalid after archiving the
-         * final student on that page.
+         * Handles a page becoming invalid after the final
+         * student on that page is archived.
          */
         if (
           nextPagination.total > 0 &&
@@ -253,7 +311,7 @@ export default function AdminStudentsPage() {
   );
 
   /*
-   * Debounce the search field.
+   * Debounce the search input.
    */
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -267,7 +325,7 @@ export default function AdminStudentsPage() {
   }, [searchInput]);
 
   /*
-   * Load whenever pagination or applied filters change.
+   * Reload whenever pagination or applied filters change.
    */
   useEffect(() => {
     const controller = new AbortController();
@@ -293,20 +351,73 @@ export default function AdminStudentsPage() {
     }
   }
 
+  async function updateStudentStatus(
+    newStatus: string,
+    reason: string,
+  ) {
+    if (!statusStudent) {
+      return;
+    }
+
+    const student = statusStudent;
+
+    try {
+      setUpdatingStatus(true);
+
+      const response = await fetch(
+        `/api/admin/students/${student.id}/status`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            status: newStatus,
+            reason,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(
+          await readErrorMessage(response),
+        );
+      }
+
+      toast.success(
+        `${getStudentDisplayName(
+          student,
+        )}'s status changed to ${formatStatus(
+          newStatus,
+        )}`,
+      );
+
+      setStatusStudent(null);
+
+      await load();
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to update student status";
+
+      toast.error(message);
+    } finally {
+      setUpdatingStatus(false);
+    }
+  }
+
   async function archiveStudent(student: StudentRow) {
-    const fullName = [
-      student.profiles?.first_name,
-      student.profiles?.last_name,
-    ]
-      .filter(Boolean)
-      .join(" ");
+    const studentName = getStudentDisplayName(student);
 
     const confirmed = window.confirm(
-      `Archive ${fullName || student.matric_no}?\n\n` +
+      `Archive ${studentName}?\n\n` +
         "The student will disappear from the active list, but their profile, registrations, results, payments, and academic history will be preserved.",
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     try {
       setArchivingId(student.id);
@@ -447,6 +558,8 @@ export default function AdminStudentsPage() {
               <option value="all">All statuses</option>
               <option value="active">Active</option>
               <option value="suspended">Suspended</option>
+              <option value="dismissed">Dismissed</option>
+              <option value="withdrawn">Withdrawn</option>
               <option value="graduated">Graduated</option>
             </select>
           </div>
@@ -466,7 +579,7 @@ export default function AdminStudentsPage() {
       </div>
 
       {/* Desktop table */}
-      <div className="hidden overflow-hidden rounded-xl border bg-white lg:block">
+      <div className="relative hidden rounded-xl border bg-white lg:block">
         <table className="w-full text-sm">
           <thead className="border-b bg-gray-50">
             <tr>
@@ -506,7 +619,7 @@ export default function AdminStudentsPage() {
               students.map((student) => (
                 <tr
                   key={student.id}
-                  className="border-b hover:bg-gray-50"
+                  className="border-b last:border-b-0 hover:bg-gray-50"
                 >
                   <Td>
                     <StudentIdentity
@@ -541,37 +654,27 @@ export default function AdminStudentsPage() {
                   </Td>
 
                   <Td className="text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <ActionButton
-                        label="View student"
-                        onClick={() =>
+                    <div className="flex justify-end">
+                      <StudentActionsMenu
+                        disabled={
+                          archivingId === student.id ||
+                          (updatingStatus &&
+                            statusStudent?.id ===
+                              student.id)
+                        }
+                        onView={() =>
                           setViewId(student.id)
                         }
-                      >
-                        <Eye className="h-4 w-4 text-gray-700" />
-                      </ActionButton>
-
-                      <ActionButton
-                        label="Edit student"
-                        onClick={() =>
+                        onEdit={() =>
                           setEditSelectId(student.id)
                         }
-                      >
-                        <Edit className="h-4 w-4 text-gray-700" />
-                      </ActionButton>
-
-                      <ActionButton
-                        label="Archive student"
-                        disabled={
-                          archivingId === student.id
+                        onChangeStatus={() =>
+                          setStatusStudent(student)
                         }
-                        onClick={() =>
-                          void archiveStudent(student)
-                        }
-                        danger
-                      >
-                        <Archive className="h-4 w-4 text-red-600" />
-                      </ActionButton>
+                        onArchive={() => {
+                          void archiveStudent(student);
+                        }}
+                      />
                     </div>
                   </Td>
                 </tr>
@@ -600,10 +703,30 @@ export default function AdminStudentsPage() {
               key={student.id}
               className="rounded-xl border bg-white p-4"
             >
-              <StudentIdentity
-                student={student}
-                supabase={supabase}
-              />
+              <div className="flex items-start justify-between gap-3">
+                <StudentIdentity
+                  student={student}
+                  supabase={supabase}
+                />
+
+                <StudentActionsMenu
+                  disabled={
+                    archivingId === student.id ||
+                    (updatingStatus &&
+                      statusStudent?.id === student.id)
+                  }
+                  onView={() => setViewId(student.id)}
+                  onEdit={() =>
+                    setEditSelectId(student.id)
+                  }
+                  onChangeStatus={() =>
+                    setStatusStudent(student)
+                  }
+                  onArchive={() => {
+                    void archiveStudent(student);
+                  }}
+                />
+              </div>
 
               <div className="mt-4 space-y-2 text-sm">
                 <p>
@@ -623,6 +746,7 @@ export default function AdminStudentsPage() {
 
                 <div className="flex items-center gap-2">
                   <strong>Status:</strong>
+
                   <StatusBadge
                     status={student.status}
                   />
@@ -634,37 +758,6 @@ export default function AdminStudentsPage() {
                     Not registered for the current session
                   </p>
                 )}
-              </div>
-
-              <div className="mt-4 flex items-center gap-3">
-                <ActionButton
-                  label="View student"
-                  onClick={() =>
-                    setViewId(student.id)
-                  }
-                >
-                  <Eye className="h-4 w-4" />
-                </ActionButton>
-
-                <ActionButton
-                  label="Edit student"
-                  onClick={() =>
-                    setEditSelectId(student.id)
-                  }
-                >
-                  <Edit className="h-4 w-4" />
-                </ActionButton>
-
-                <ActionButton
-                  label="Archive student"
-                  disabled={archivingId === student.id}
-                  onClick={() =>
-                    void archiveStudent(student)
-                  }
-                  danger
-                >
-                  <Archive className="h-4 w-4 text-red-600" />
-                </ActionButton>
               </div>
             </div>
           ))}
@@ -722,7 +815,7 @@ export default function AdminStudentsPage() {
         </div>
       )}
 
-      {/* Modals */}
+      {/* Student details modal */}
       {viewId && (
         <ViewStudentDetailsModal
           isOpen
@@ -731,6 +824,7 @@ export default function AdminStudentsPage() {
         />
       )}
 
+      {/* Select edit section modal */}
       {editSelectId && (
         <EditStudentSelectModal
           isOpen
@@ -756,6 +850,7 @@ export default function AdminStudentsPage() {
         />
       )}
 
+      {/* Edit profile modal */}
       {editProfileId && (
         <EditProfileModal
           isOpen
@@ -765,6 +860,7 @@ export default function AdminStudentsPage() {
         />
       )}
 
+      {/* Edit academic modal */}
       {editAcademicId && (
         <EditAcademicModal
           isOpen
@@ -774,12 +870,33 @@ export default function AdminStudentsPage() {
         />
       )}
 
+      {/* Edit guardian modal */}
       {editGuardianId && (
         <EditGuardianModal
           isOpen
           studentId={editGuardianId}
           onClose={() => setEditGuardianId(null)}
           onUpdated={load}
+        />
+      )}
+
+      {/* Reusable student/staff status modal */}
+      {statusStudent && (
+        <ChangeStatusModal
+          isOpen
+          entityType="student"
+          entityName={getStudentDisplayName(
+            statusStudent,
+          )}
+          currentStatus={statusStudent.status}
+          options={STUDENT_STATUS_OPTIONS}
+          loading={updatingStatus}
+          onClose={() => {
+            if (!updatingStatus) {
+              setStatusStudent(null);
+            }
+          }}
+          onConfirm={updateStudentStatus}
         />
       )}
     </div>
@@ -802,7 +919,7 @@ function StudentIdentity({
     .join(" ");
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex min-w-0 items-center gap-3">
       <div className="relative h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gray-200">
         <Image
           src={toPublicImageSrc(
@@ -834,33 +951,165 @@ function StudentIdentity({
   );
 }
 
-function ActionButton({
-  children,
+function StudentActionsMenu({
+  disabled = false,
+  onView,
+  onEdit,
+  onChangeStatus,
+  onArchive,
+}: {
+  disabled?: boolean;
+  onView: () => void;
+  onEdit: () => void;
+  onChangeStatus: () => void;
+  onArchive: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const containerRef = useRef<HTMLDivElement | null>(
+    null,
+  );
+
+  /*
+   * No state update effect is needed.
+   * A disabled menu is simply treated as closed.
+   */
+  const menuOpen = open && !disabled;
+
+  useEffect(() => {
+    if (!menuOpen) {
+      return;
+    }
+
+    function handleOutsideClick(event: MouseEvent) {
+      const target = event.target;
+
+      if (
+        target instanceof Node &&
+        !containerRef.current?.contains(target)
+      ) {
+        setOpen(false);
+      }
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener(
+      "mousedown",
+      handleOutsideClick,
+    );
+
+    document.addEventListener(
+      "keydown",
+      handleKeyDown,
+    );
+
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleOutsideClick,
+      );
+
+      document.removeEventListener(
+        "keydown",
+        handleKeyDown,
+      );
+    };
+  }, [menuOpen]);
+
+  function runAction(action: () => void) {
+    setOpen(false);
+    action();
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative inline-block text-left"
+    >
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label="Open student actions"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        onClick={() => {
+          if (!disabled) {
+            setOpen((current) => !current);
+          }
+        }}
+        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <MoreVertical className="h-4 w-4" />
+      </button>
+
+      {menuOpen && (
+        <div
+          role="menu"
+          className="absolute right-0 z-40 mt-2 w-52 rounded-xl border border-gray-200 bg-white p-1.5 text-left shadow-lg"
+        >
+          <MenuButton
+            icon={<Eye className="h-4 w-4" />}
+            label="View student"
+            onClick={() => runAction(onView)}
+          />
+
+          <MenuButton
+            icon={<Edit className="h-4 w-4" />}
+            label="Edit student"
+            onClick={() => runAction(onEdit)}
+          />
+
+          <MenuButton
+            icon={<RefreshCcw className="h-4 w-4" />}
+            label="Change status"
+            onClick={() =>
+              runAction(onChangeStatus)
+            }
+          />
+
+          <div className="my-1 border-t border-gray-100" />
+
+          <MenuButton
+            icon={<Archive className="h-4 w-4" />}
+            label="Archive student"
+            danger
+            onClick={() => runAction(onArchive)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuButton({
+  icon,
   label,
   onClick,
-  disabled = false,
   danger = false,
 }: {
-  children: ReactNode;
+  icon: ReactNode;
   label: string;
   onClick: () => void;
-  disabled?: boolean;
   danger?: boolean;
 }) {
   return (
     <button
       type="button"
-      aria-label={label}
-      title={label}
-      disabled={disabled}
+      role="menuitem"
       onClick={onClick}
-      className={`rounded-lg p-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm ${
         danger
-          ? "hover:bg-red-50"
-          : "hover:bg-gray-100"
+          ? "text-red-600 hover:bg-red-50"
+          : "text-gray-700 hover:bg-gray-100"
       }`}
     >
-      {children}
+      {icon}
+      <span>{label}</span>
     </button>
   );
 }
@@ -903,7 +1152,10 @@ function StatusBadge({
   const base =
     "inline-flex rounded-full px-3 py-1 text-xs font-semibold";
 
-  if (status === "active") {
+  const normalizedStatus =
+    status?.trim().toLowerCase() ?? "";
+
+  if (normalizedStatus === "active") {
     return (
       <span
         className={`${base} bg-green-100 text-green-700`}
@@ -913,7 +1165,7 @@ function StatusBadge({
     );
   }
 
-  if (status === "suspended") {
+  if (normalizedStatus === "suspended") {
     return (
       <span
         className={`${base} bg-orange-100 text-orange-700`}
@@ -923,7 +1175,27 @@ function StatusBadge({
     );
   }
 
-  if (status === "graduated") {
+  if (normalizedStatus === "dismissed") {
+    return (
+      <span
+        className={`${base} bg-red-100 text-red-700`}
+      >
+        Dismissed
+      </span>
+    );
+  }
+
+  if (normalizedStatus === "withdrawn") {
+    return (
+      <span
+        className={`${base} bg-purple-100 text-purple-700`}
+      >
+        Withdrawn
+      </span>
+    );
+  }
+
+  if (normalizedStatus === "graduated") {
     return (
       <span
         className={`${base} bg-gray-200 text-gray-700`}
