@@ -123,22 +123,33 @@ export default function SessionsPage() {
   // 🔹 new: update handler (like handleProgramUpdated)
   const handleSessionUpdated = (row: SessionRow) => {
     const updated = mapRowToSession(row);
-    setSessions(prev => {
-      // If not active, only replace that one
+
+    setSessions((prev) => {
+      // If not active, replace only the updated session
       if (updated.status !== 'active') {
-        return prev.map(s => (s.id === updated.id ? updated : s));
+        return prev.map((s) =>
+          s.id === updated.id ? updated : s
+        );
       }
 
       const today = new Date();
 
-      // If active, make sure all other sessions are NOT active
-      return prev.map(s => {
-        if (s.id === updated.id) return updated;
+      // If active, update it and recalculate the former active session
+      return prev.map((s) => {
+        if (s.id === updated.id) {
+          return updated;
+        }
 
         if (s.status === 'active') {
           const end = new Date(s.endDate);
-          const status: SessionStatus = end < today ? 'completed' : 'upcoming';
-          return { ...s, status };
+
+          const status: SessionStatus =
+            end < today ? 'completed' : 'upcoming';
+
+          return {
+            ...s,
+            status,
+          };
         }
 
         return s;
