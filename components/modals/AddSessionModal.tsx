@@ -7,7 +7,9 @@ import { Input } from '@/components/shared/Input';
 import { AdminPrimaryButton } from '@/components/shared/AdminPrimaryButton';
 import { AlertCircle, CheckCircle } from 'lucide-react';
 import { toast } from 'react-toastify';
-import type { SessionRow } from "@/types/session";
+import type { SessionRow } from '@/types/session';
+
+type Semester = 'first' | 'second';
 
 interface AddSessionModalProps {
   isOpen: boolean;
@@ -24,7 +26,7 @@ interface FormState {
   applicationFee: string;
   maxApplications: string;
   isActive: boolean;
-  currentSemester: string; 
+  currentSemester: Semester | '';
   studentsCount: string;
 }
 
@@ -34,6 +36,7 @@ interface FormErrors {
   endDate?: string;
   registrationStartDate?: string;
   registrationEndDate?: string;
+  currentSemester?: string;
 }
 
 export function AddSessionModal({
@@ -52,8 +55,8 @@ export function AddSessionModal({
     applicationFee: '',
     maxApplications: '',
     isActive: true,
-    currentSemester: '', // 🔹 add
-  studentsCount: '',
+    currentSemester: '',
+    studentsCount: '',
   });
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitting, setSubmitting] = useState(false);
@@ -101,6 +104,11 @@ export function AddSessionModal({
       }
     }
 
+    if (form.isActive && !form.currentSemester) {
+      e.currentSemester =
+        'Current semester is required for an active session';
+    }
+
     return e;
   };
 
@@ -114,7 +122,7 @@ export function AddSessionModal({
       applicationFee: '',
       maxApplications: '',
       isActive: true,
-      currentSemester: '', // 🔹 add
+      currentSemester: '',
       studentsCount: '',
     });
     setErrors({});
@@ -181,7 +189,7 @@ export function AddSessionModal({
   } catch (error) {
     console.error(error);
     const message =
-      error instanceof Error ? error.message : 'Failed to update session';
+      error instanceof Error ? error.message : 'Failed to create session';
     toast.error(message);
     return;
   } finally {
@@ -196,6 +204,7 @@ export function AddSessionModal({
     form.name &&
     form.startDate &&
     form.endDate &&
+    (!form.isActive || form.currentSemester) &&
     Object.keys(errors).length === 0;
 
   return (
@@ -222,15 +231,56 @@ export function AddSessionModal({
           </div>
         </div>
 
-        {/* Name */}
-        <Input
-          label="Session Name"
-          required
-          value={form.name}
-          onChange={(e) => handleChange('name', e.target.value)}
-          placeholder="e.g., 2024/2025 Academic Session"
-          error={errors.name}
-        />
+        {/* Name + current semester */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Session Name"
+            required
+            value={form.name}
+            onChange={(e) => handleChange('name', e.target.value)}
+            placeholder="e.g., 2024/2025 Academic Session"
+            error={errors.name}
+          />
+
+          <div>
+            <label
+              htmlFor="currentSemester"
+              className="mb-2 block text-sm font-medium text-gray-700"
+            >
+              Current Semester
+              {form.isActive && (
+                <span className="ml-1 text-red-500">*</span>
+              )}
+            </label>
+
+            <select
+              id="currentSemester"
+              value={form.currentSemester}
+              onChange={(e) =>
+                handleChange(
+                  'currentSemester',
+                  e.target.value as Semester | ''
+                )
+              }
+              aria-invalid={Boolean(errors.currentSemester)}
+              className={`w-full rounded-xl border px-4 py-3 text-sm outline-none transition ${
+                errors.currentSemester
+                  ? 'border-red-500 focus:border-red-500'
+                  : 'border-gray-300 focus:border-gray-500'
+              }`}
+            >
+              <option value="">Select semester</option>
+              <option value="first">First Semester</option>
+              <option value="second">Second Semester</option>
+            </select>
+
+            {errors.currentSemester && (
+              <p className="mt-1 text-xs text-red-600">
+                {errors.currentSemester}
+              </p>
+            )}
+          </div>
+        </div>
 
         {/* Dates */}
         <div className="grid gap-4 sm:grid-cols-2">
@@ -343,6 +393,16 @@ export function AddSessionModal({
                 </p>
               </div>
               <div>
+                <span className="text-emerald-700/80">Semester:</span>
+                <p className="font-semibold">
+                  {form.currentSemester === 'first'
+                    ? 'First Semester'
+                    : form.currentSemester === 'second'
+                      ? 'Second Semester'
+                      : 'Not selected'}
+                </p>
+              </div>
+              <div>
                 <span className="text-emerald-700/80">Dates:</span>
                 <p className="font-semibold">
                   {form.startDate} → {form.endDate}
@@ -353,7 +413,7 @@ export function AddSessionModal({
                 <p className="font-semibold">
                   {form.registrationStartDate && form.registrationEndDate
                     ? `${form.registrationStartDate} → ${form.registrationEndDate}`
-                    : 'Not configured'}
+                    : 'Uses session dates'}
                 </p>
               </div>
             </div>
