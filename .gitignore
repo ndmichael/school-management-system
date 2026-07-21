@@ -43,3 +43,7 @@ next-env.d.ts
 
 # extras from me (Dev)
 scripts/
+
+# From vs code
+.vscode/
+supabase/.temp/
