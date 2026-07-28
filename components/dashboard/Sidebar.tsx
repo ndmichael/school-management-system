@@ -17,6 +17,7 @@ import {
   Settings,
   Menu,
   X,
+  UserPlus,
   GraduationCap,
 } from "lucide-react";
 import type { DashboardUser, UserRole } from "@/types/dashboard";
@@ -48,6 +49,11 @@ const roleConfig: Record<UserRole, RoleConfig> = {
     items: [
       { icon: LayoutDashboard, label: "Dashboard", href: "/dashboard/admin" },
       { icon: Users, label: "Students", href: "/dashboard/admin/students" },
+      {
+        icon: UserPlus,
+        label: "Session Registration",
+        href: "/dashboard/admin/students/session-registration",
+      },
       { icon: FileText, label: "Applications", href: "/dashboard/admin/applications" },
       { icon: UserCog, label: "Staff", href: "/dashboard/admin/staff" },
       { icon: BookOpen, label: "Courses", href: "/dashboard/admin/courses" },
