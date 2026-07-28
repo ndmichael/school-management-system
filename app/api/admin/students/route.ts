@@ -10,12 +10,8 @@ const ALLOWED_STATUSES = new Set([
   "graduated",
 ]);
 
-interface ProfileSearchRow {
-  id: string;
-}
-
-interface StudentIdRow {
-  id: string;
+interface StudentSearchIdRow {
+  student_id: string;
 }
 
 interface CurrentSession {
@@ -134,103 +130,32 @@ async function getActiveSession(): Promise<CurrentSession | null> {
 async function getMatchingStudentIds(
   search: string,
 ): Promise<string[] | null> {
+  // No search term means the main query should return all matching students.
   if (!search) return null;
 
-  const pattern = `%${search}%`;
-
   /*
-   * We intentionally perform separate searches.
+   * Search is handled by one PostgreSQL function so the database can match:
+   * - matriculation numbers
+   * - email addresses
+   * - first, middle, and last names
+   * - combined names such as "John Doe" or "Doe John"
    *
-   * This avoids Supabase/PostgREST's limitation where one .or()
-   * cannot combine students columns and profiles columns.
+   * The RPC uses ILIKE, so matching is case-insensitive.
    */
-  const [
-    matricResult,
-    firstNameResult,
-    middleNameResult,
-    lastNameResult,
-    emailResult,
-  ] = await Promise.all([
-    supabaseAdmin
-      .from("students")
-      .select("id")
-      .is("archived_at", null)
-      .ilike("matric_no", pattern),
+  const { data, error } = await supabaseAdmin.rpc(
+    "search_student_ids",
+    {
+      p_search: search,
+    },
+  );
 
-    supabaseAdmin
-      .from("profiles")
-      .select("id")
-      .ilike("first_name", pattern),
-
-    supabaseAdmin
-      .from("profiles")
-      .select("id")
-      .ilike("middle_name", pattern),
-
-    supabaseAdmin
-      .from("profiles")
-      .select("id")
-      .ilike("last_name", pattern),
-
-    supabaseAdmin
-      .from("profiles")
-      .select("id")
-      .ilike("email", pattern),
-  ]);
-
-  const searchError =
-    matricResult.error ??
-    firstNameResult.error ??
-    middleNameResult.error ??
-    lastNameResult.error ??
-    emailResult.error;
-
-  if (searchError) {
-    throw new Error(`Student search failed: ${searchError.message}`);
+  if (error) {
+    throw new Error(`Student search failed: ${error.message}`);
   }
 
-  const profileIds = new Set<string>();
-
-  const profileResults = [
-    firstNameResult.data,
-    middleNameResult.data,
-    lastNameResult.data,
-    emailResult.data,
-  ];
-
-  for (const result of profileResults) {
-    for (const profile of (result ?? []) as ProfileSearchRow[]) {
-      profileIds.add(profile.id);
-    }
-  }
-
-  const studentIds = new Set<string>();
-
-  for (const student of (matricResult.data ?? []) as StudentIdRow[]) {
-    studentIds.add(student.id);
-  }
-
-  if (profileIds.size > 0) {
-    const { data: studentsByProfile, error: studentsByProfileError } =
-      await supabaseAdmin
-        .from("students")
-        .select("id")
-        .is("archived_at", null)
-        .in("profile_id", Array.from(profileIds));
-
-    if (studentsByProfileError) {
-      throw new Error(
-        `Profile student search failed: ${studentsByProfileError.message}`,
-      );
-    }
-
-    for (const student of (studentsByProfile ??
-      []) as StudentIdRow[]) {
-      studentIds.add(student.id);
-    }
-  }
-
-  return Array.from(studentIds);
+  return ((data ?? []) as StudentSearchIdRow[]).map(
+    (row) => row.student_id,
+  );
 }
 
 async function getStatistics() {
