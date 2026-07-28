@@ -6,17 +6,17 @@ import {
   useState,
 } from "react";
 
+import {
+  getSessionStatus,
+  isSessionAvailableForRegistration,
+} from "@/lib/sessions/session-status";
+
 import StudentSearchCombobox, {
   getStudentSearchLabel,
   type StudentSearchOption,
 } from "@/components/admin/students/StudentSearchCombobox";
 
 type RegistrationStatus = "registered" | "deferred";
-
-type SessionStatus =
-  | "active"
-  | "upcoming"
-  | "completed";
 
 type AcademicSession = {
   id: string;
@@ -73,62 +73,6 @@ function isAcademicSession(
       session.is_active === null
     )
   );
-}
-
-/**
- * Returns today's local date in YYYY-MM-DD format.
- *
- * PostgreSQL date columns also use YYYY-MM-DD, so string
- * comparison avoids timezone changes caused by Date parsing.
- */
-function getTodayDate(): string {
-  const today = new Date();
-
-  const year = today.getFullYear();
-  const month = String(
-    today.getMonth() + 1,
-  ).padStart(2, "0");
-
-  const day = String(
-    today.getDate(),
-  ).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}
-
-/**
- * Reproduces the status logic already used by the
- * academic sessions UI:
- *
- * - is_active = true        → active
- * - expired end_date        → completed
- * - otherwise               → upcoming
- *
- * Status is calculated in the UI and is not stored
- * as a sessions-table column.
- */
-function getSessionStatus(
-  session: AcademicSession,
-): SessionStatus {
-  if (session.is_active === true) {
-    return "active";
-  }
-
-  if (session.end_date < getTodayDate()) {
-    return "completed";
-  }
-
-  return "upcoming";
-}
-
-/**
- * Allows only active and upcoming sessions to appear
- * as registration targets.
- */
-function isSessionAvailable(
-  session: AcademicSession,
-): boolean {
-  return getSessionStatus(session) !== "completed";
 }
 
 /**
@@ -247,7 +191,12 @@ export default function SingleSessionRegistrationForm() {
          * 2. Upcoming sessions by starting date
          */
         const availableSessions = validSessions
-          .filter(isSessionAvailable)
+          .filter((session) =>
+            isSessionAvailableForRegistration(
+              session.is_active,
+              session.end_date,
+            ),
+          )
           .sort((firstSession, secondSession) => {
             if (
               firstSession.is_active === true &&
@@ -516,17 +465,23 @@ export default function SingleSessionRegistrationForm() {
 
             {sessions.map((session) => {
               const sessionStatus =
-                getSessionStatus(session);
+              getSessionStatus(
+                session.is_active,
+                session.end_date,
+              );
+              const isActive = sessionStatus === "active";
 
               return (
                 <option
                   key={session.id}
                   value={session.id}
+                  className={
+                    isActive
+                      ? "font-extrabold text-emerald-600"
+                      : "font-normal text-slate-900"
+                  }
                 >
-                  {session.name} —{" "}
-                  {sessionStatus === "active"
-                    ? "Active"
-                    : "Upcoming"}
+                  {session.name} - {isActive ? "Active" : "Upcoming"}
                 </option>
               );
             })}

@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { SessionRow, SessionUI, SessionStatus } from "@/types/session";
+import type { SessionRow, SessionUI } from "@/types/session";
+import {
+  getSessionStatus,
+} from "@/lib/sessions/session-status";
 
 import { 
   Search, 
@@ -21,28 +24,28 @@ import { ViewSessionModal } from '@/components/modals/ViewSessionModal';
 import { EditSessionModal } from '@/components/modals/EditSessionModal';
 
 
-function mapRowToSession(row: SessionRow): SessionUI {
-  const today = new Date();
-  const start = new Date(row.start_date);
-  const end = new Date(row.end_date);
-
-  let status: SessionStatus;
-
-  if (row.is_active) {
-    status = 'active';
-  } else if (end < today) {
-    status = 'completed';
-  } else {
-    status = 'upcoming';
-  }
-
+/**
+ * Converts the database session shape into the shape
+ * displayed by the Sessions page.
+ */
+function mapRowToSession(
+  row: SessionRow,
+): SessionUI {
   return {
     id: row.id,
     name: row.name,
     startDate: row.start_date,
     endDate: row.end_date,
-    status,
-    currentSemester: row.current_semester || 'Academic Session', // fallback
+
+    // Use the shared rule instead of calculating status locally.
+    status: getSessionStatus(
+      row.is_active,
+      row.end_date,
+    ),
+
+    currentSemester:
+      row.current_semester || "Academic Session",
+
     students: row.students_count ?? 0,
   };
 }
@@ -132,27 +135,28 @@ export default function SessionsPage() {
         );
       }
 
-      const today = new Date();
-
-      // If active, update it and recalculate the former active session
-      return prev.map((s) => {
-        if (s.id === updated.id) {
+      /*
+      * If a different session becomes active, the former
+      * active session must be recalculated as inactive.
+      */
+      return prev.map((session) => {
+        if (session.id === updated.id) {
           return updated;
         }
 
-        if (s.status === 'active') {
-          const end = new Date(s.endDate);
-
-          const status: SessionStatus =
-            end < today ? 'completed' : 'upcoming';
-
+        if (session.status === "active") {
           return {
-            ...s,
-            status,
+            ...session,
+
+            // The former active session now has is_active = false.
+            status: getSessionStatus(
+              false,
+              session.endDate,
+            ),
           };
         }
 
-        return s;
+        return session;
       });
     });
   };
