@@ -1,4 +1,4 @@
-import SingleSessionRegistrationForm from "@/components/admin/students/SingleSessionRegistrationForm";
+import SessionRegistrationTabs from "@/components/admin/students/SessionRegistrationTabs";
 
 export default function SessionRegistrationPage() {
   return (
@@ -15,7 +15,7 @@ export default function SessionRegistrationPage() {
       </header>
 
       {/* The bulk-registration workflow will later be added beside this form. */}
-      <SingleSessionRegistrationForm />
+      <SessionRegistrationTabs />
     </main>
   );
 }
