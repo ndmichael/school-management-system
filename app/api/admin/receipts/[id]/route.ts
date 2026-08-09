@@ -9,8 +9,7 @@ const ParamsSchema = z.object({ id: z.string().uuid() });
 
 const PatchSchema = z.object({
   action: z.enum(["approve", "reject"]),
-  remarks: z.string().trim().optional(),
-  approved_amount: z.coerce.number().positive().optional(),
+  remarks: z.string().trim().max(1000).optional(),
 });
 
 const json = (body: unknown, status = 200) =>
@@ -161,147 +160,121 @@ export async function PATCH(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  // 1. Only admin or bursary staff can review payments.
   const guard = await requireAdminOrBursary();
-  if (guard.error) return guard.error;
 
+  if (guard.error) {
+    return guard.error;
+  }
+
+  // 2. Validate the receipt ID from the URL.
   const rawParams = await ctx.params;
-  const p = ParamsSchema.safeParse(rawParams);
-  if (!p.success) return json({ ok: false, error: "Invalid receipt id." }, 422);
+  const parsedParams = ParamsSchema.safeParse(rawParams);
 
+  if (!parsedParams.success) {
+    return json(
+      {
+        ok: false,
+        error: "Invalid receipt id.",
+      },
+      422
+    );
+  }
+
+  // 3. Safely read the request body.
   let rawBody: unknown;
+
   try {
     rawBody = await req.json();
   } catch {
-    return json({ ok: false, error: "Invalid JSON body." }, 400);
-  }
-
-  const b = PatchSchema.safeParse(rawBody);
-  if (!b.success) {
     return json(
-      { ok: false, error: "Validation failed.", issues: b.error.flatten() },
-      422
-    );
-  }
-
-  const { id } = p.data;
-  const { action, remarks, approved_amount } = b.data;
-
-  if (action === "reject" && (!remarks || !remarks.trim())) {
-    return json(
-      { ok: false, error: "Remarks required when rejecting." },
-      422
-    );
-  }
-
-  if (action === "approve" && (!approved_amount || approved_amount <= 0)) {
-    return json(
-      { ok: false, error: "approved_amount is required when approving." },
-      422
-    );
-  }
-
-  const { data: receipt, error: receiptErr } = await supabaseAdmin
-    .from("payment_receipts")
-    .select("id, student_fee_account_id, amount_submitted, status")
-    .eq("id", id)
-    .single<{
-      id: string;
-      student_fee_account_id: string;
-      amount_submitted: number;
-      status: string;
-    }>();
-
-  if (receiptErr || !receipt) {
-    return json({ ok: false, error: "Receipt not found." }, 404);
-  }
-
-  if (receipt.status !== "pending") {
-    return json(
-      { ok: false, error: "Only pending receipts can be updated." },
+      {
+        ok: false,
+        error: "Invalid JSON body.",
+      },
       400
     );
   }
 
-  const now = new Date().toISOString();
+  // 4. Validate the requested action.
+  const parsedBody = PatchSchema.safeParse(rawBody);
 
-  if (action === "approve") {
-    const { data: feeAccount, error: feeErr } = await supabaseAdmin
-      .from("student_fee_accounts")
-      .select("id, annual_fee, total_paid_approved")
-      .eq("id", receipt.student_fee_account_id)
-      .single<{
-        id: string;
-        annual_fee: number;
-        total_paid_approved: number;
-      }>();
+  if (!parsedBody.success) {
+    return json(
+      {
+        ok: false,
+        error: "Validation failed.",
+        issues: parsedBody.error.flatten(),
+      },
+      422
+    );
+  }
 
-    if (feeErr || !feeAccount) {
-      return json({ ok: false, error: "Fee account not found." }, 404);
+  const { id } = parsedParams.data;
+  const { action, remarks } = parsedBody.data;
+
+  // Rejecting a receipt requires an explanation.
+  if (action === "reject" && !remarks?.trim()) {
+    return json(
+      {
+        ok: false,
+        error: "Remarks are required when rejecting a receipt.",
+      },
+      422
+    );
+  }
+
+  // 5. Let PostgreSQL perform the complete review transaction.
+  const { data, error } = await supabaseAdmin.rpc(
+    "review_payment_receipt",
+    {
+      p_receipt_id: id,
+      p_action: action,
+      p_reviewer_id: guard.userId,
+      p_review_remarks: remarks?.trim() || null,
     }
+  );
 
-    const newTotalPaid =
-      Number(feeAccount.total_paid_approved ?? 0) + Number(approved_amount);
-    const annualFee = Number(feeAccount.annual_fee ?? 0);
-    const newBalance = Math.max(annualFee - newTotalPaid, 0);
-    const payment_status =
-      newBalance <= 0 ? "paid" : newTotalPaid > 0 ? "partial" : "unpaid";
-
-    const { error: receiptUpdateErr } = await supabaseAdmin
-      .from("payment_receipts")
-      .update({
-        status: "approved",
-        approved_amount: approved_amount,
-        verified_by: guard.userId,
-        verified_at: now,
-        rejected_by: null,
-        rejected_at: null,
-      })
-      .eq("id", id);
-
-    if (receiptUpdateErr) {
+  if (error) {
+    // Receipt or fee account does not exist.
+    if (error.code === "P0002") {
       return json(
-        { ok: false, error: receiptUpdateErr.message },
-        400
+        {
+          ok: false,
+          error: error.message,
+        },
+        404
       );
     }
 
-    const { error: feeUpdateErr } = await supabaseAdmin
-      .from("student_fee_accounts")
-      .update({
-        total_paid_approved: newTotalPaid,
-        balance_due: newBalance,
-        payment_status,
-      })
-      .eq("id", feeAccount.id);
-
-    if (feeUpdateErr) {
+    // Business-rule failure:
+    // already reviewed, overpayment, invalid action, etc.
+    if (error.code === "22023") {
       return json(
-        { ok: false, error: feeUpdateErr.message },
-        400
+        {
+          ok: false,
+          error: error.message,
+        },
+        422
       );
     }
 
-    return json({ ok: true, success: true });
+    // Unexpected database problem.
+    console.error("Receipt review failed:", error);
+
+    return json(
+      {
+        ok: false,
+        error: "Unable to review payment receipt.",
+      },
+      500
+    );
   }
 
-  const { error: rejectErr } = await supabaseAdmin
-    .from("payment_receipts")
-    .update({
-      status: "rejected",
-      approved_amount: null,
-      rejected_by: guard.userId,
-      rejected_at: now,
-      verified_by: null,
-      verified_at: null,
-      remarks: remarks?.trim() ?? null,
-    })
-    .eq("id", id);
-
-  if (rejectErr) {
-    return json({ ok: false, error: rejectErr.message }, 400);
-  }
-
-  return json({ ok: true, success: true });
+  return json({
+    ok: true,
+    result: data,
+  });
 }
 
 // ---------------------
