@@ -8,6 +8,7 @@ import {
   XCircle,
   ZoomIn,
   ZoomOut,
+  RotateCcw,
 } from "lucide-react";
 import Image from "next/image";
 import { toast } from "react-toastify";
@@ -19,7 +20,11 @@ interface ViewReceiptModalProps {
   onVerified?: () => void;
 }
 
-type ReceiptStatus = "pending" | "approved" | "rejected";
+type ReceiptStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "reversed";
 
 interface ReceiptData {
   id: string;
@@ -32,6 +37,12 @@ interface ReceiptData {
   created_at: string;
   verified_at: string | null;
   rejected_at: string | null;
+
+  review_remarks: string | null;
+  reversed_by: string | null;
+  reversed_at: string | null;
+  reversal_reason: string | null;
+
   receipt_url: string | null;
   annual_fee: number;
   total_paid_approved: number;
@@ -90,7 +101,10 @@ export default function ViewReceiptModal({
 
   const [rejectMode, setRejectMode] = useState(false);
   const [remarks, setRemarks] = useState("");
-  const [approveAmount, setApproveAmount] = useState("");
+
+  const [reverseMode, setReverseMode] = useState(false);
+  const [reversalReason, setReversalReason] = useState("");
+
   const [zoom, setZoom] = useState(false);
 
   useEffect(() => {
@@ -98,16 +112,19 @@ export default function ViewReceiptModal({
       setReceipt(null);
       setRejectMode(false);
       setRemarks("");
-      setApproveAmount("");
       setZoom(false);
       setLoading(false);
       setSubmitting(false);
+      setReverseMode(false);
+      setReversalReason("");
       return;
     }
 
     setRejectMode(false);
     setRemarks("");
     setZoom(false);
+    setReverseMode(false);
+    setReversalReason("");
   }, [isOpen, receiptId]);
 
   useEffect(() => {
@@ -134,7 +151,6 @@ export default function ViewReceiptModal({
 
         if (!cancelled) {
           setReceipt(payload.receipt);
-          setApproveAmount(String(payload.receipt.amount_submitted ?? ""));
         }
       } catch (e) {
         if (!cancelled) {
@@ -167,13 +183,6 @@ export default function ViewReceiptModal({
     }
 
     if (action === "approve") {
-      const approvedAmount = Number(approveAmount);
-
-      if (!Number.isFinite(approvedAmount) || approvedAmount <= 0) {
-        toast.error("Enter a valid approved amount");
-        return;
-      }
-
       setSubmitting(true);
 
       try {
@@ -181,8 +190,7 @@ export default function ViewReceiptModal({
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action,
-            approved_amount: approvedAmount,
+            action: "approve",
           }),
         });
 
@@ -225,6 +233,51 @@ export default function ViewReceiptModal({
       }
 
       toast.success("Receipt rejected");
+      onVerified?.();
+      onClose();
+    } catch {
+      toast.error("Server error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /*
+  ** Here we handle the reversal logic
+  */
+  async function reverseReceipt() {
+    if (!receiptId || !receipt) return;
+
+    if (!reversalReason.trim()) {
+      toast.error("Reversal reason is required");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const res = await fetch(
+        `/api/admin/receipts/${receiptId}/reverse`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            reason: reversalReason.trim(),
+          }),
+        }
+      );
+
+      const payload = await readJson<ApiError>(res);
+
+      if (!res.ok) {
+        toast.error(payload?.error || "Unable to reverse payment");
+        return;
+      }
+
+      toast.success("Payment reversed");
+
       onVerified?.();
       onClose();
     } catch {
@@ -366,36 +419,51 @@ export default function ViewReceiptModal({
                     </div>
                   ) : null}
 
-                  {receipt.status === "pending" && (
+                  {/* Reversal information, if reversed */}
+                  {receipt.review_remarks ? (
+                    <div className="bg-gray-50 p-4 rounded-xl border">
+                      <p className="text-xs text-gray-500">
+                        Review Remarks
+                      </p>
+
+                      <p className="text-sm text-gray-900 mt-2 whitespace-pre-wrap">
+                        {receipt.review_remarks}
+                      </p>
+                    </div>
+                  ) : null}
+                  
+                  {receipt.status === "reversed" ? (
+                    <div className="bg-purple-50 p-4 rounded-xl border border-purple-200">
+                      <p className="text-xs font-medium text-purple-700">
+                        Payment Reversed
+                      </p>
+
+                      <p className="text-sm text-gray-900 mt-2 whitespace-pre-wrap">
+                        {receipt.reversal_reason ?? "—"}
+                      </p>
+
+                      <p className="text-xs text-gray-500 mt-2">
+                        Reversed: {fmtDate(receipt.reversed_at)}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {receipt.status === "pending" && rejectMode && (
                     <div className="bg-gray-50 p-4 rounded-xl border space-y-4">
-                      {!rejectMode ? (
-                        <div>
-                          <label className="text-sm font-medium text-gray-700">
-                            Approved Amount
-                          </label>
-                          <input
-                            type="number"
-                            value={approveAmount}
-                            onChange={(e) => setApproveAmount(e.target.value)}
-                            className="w-full mt-2 p-3 border rounded-xl bg-white text-sm"
-                            disabled={submitting}
-                          />
-                        </div>
-                      ) : (
-                        <div>
-                          <label className="text-sm font-medium text-gray-700">
-                            Rejection Reason <span className="text-red-600">*</span>
-                          </label>
-                          <textarea
-                            ref={rejectTextareaRef}
-                            value={remarks}
-                            onChange={(e) => setRemarks(e.target.value)}
-                            placeholder="Why are you rejecting this receipt?"
-                            className="w-full mt-2 p-3 border rounded-xl bg-white text-sm min-h-[120px]"
-                            disabled={submitting}
-                          />
-                        </div>
-                      )}
+                      <div>
+                        <label className="text-sm font-medium text-gray-700">
+                          Rejection Reason <span className="text-red-600">*</span>
+                        </label>
+
+                        <textarea
+                          ref={rejectTextareaRef}
+                          value={remarks}
+                          onChange={(e) => setRemarks(e.target.value)}
+                          placeholder="Why are you rejecting this receipt?"
+                          className="w-full mt-2 p-3 border rounded-xl bg-white text-sm min-h-[120px]"
+                          disabled={submitting}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -465,6 +533,7 @@ export default function ViewReceiptModal({
         </div>
 
         {receipt?.status === "pending" && (
+          // Approve / Reject UI
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 sm:p-5 border-t bg-gray-50">
             <button
               onClick={() =>
@@ -512,6 +581,74 @@ export default function ViewReceiptModal({
             </div>
           </div>
         )}
+
+        {receipt?.status === "approved" && (
+          // Reverse Payment UI
+          <div className="p-4 sm:p-5 border-t bg-gray-50">
+            {!reverseMode ? (
+              <button
+                type="button"
+                onClick={() => setReverseMode(true)}
+                disabled={submitting}
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-50"
+              >
+                <RotateCcw className="w-5 h-5" />
+                Reverse Payment
+              </button>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-700">
+                    Reversal Reason{" "}
+                    <span className="text-red-600">*</span>
+                  </label>
+
+                  <textarea
+                    value={reversalReason}
+                    onChange={(e) =>
+                      setReversalReason(e.target.value)
+                    }
+                    placeholder="Why is this approved payment being reversed?"
+                    className="w-full mt-2 p-3 border rounded-xl bg-white text-sm min-h-[100px]"
+                    disabled={submitting}
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReverseMode(false);
+                      setReversalReason("");
+                    }}
+                    disabled={submitting}
+                    className="px-5 py-2.5 rounded-xl border bg-white"
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={reverseReceipt}
+                    disabled={
+                      submitting || !reversalReason.trim()
+                    }
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-600 text-white font-semibold disabled:opacity-50"
+                  >
+                    {submitting ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <RotateCcw className="w-5 h-5" />
+                    )}
+
+                    Confirm Reversal
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
       </div>
     </div>
   );
