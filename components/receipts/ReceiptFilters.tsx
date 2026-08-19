@@ -41,6 +41,7 @@ export default function ReceiptFilters({
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
+            <option value="reversed">Reversed</option>
           </select>
         </div>
       </div>

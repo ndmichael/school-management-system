@@ -15,11 +15,17 @@ export interface ReceiptRow {
   approved_amount: number | null;
   transaction_reference: string | null;
   remarks: string | null;
-  status: "pending" | "approved" | "rejected";
+  status: "pending" | "approved" | "rejected" | "reversed";
   created_at: string;
   updated_at: string;
   verified_at: string | null;
   rejected_at: string | null;
+
+  review_remarks: string | null;
+  reversed_by: string | null;
+  reversed_at: string | null;
+  reversal_reason: string | null;
+
   receipt_url: string | null;
   student_fee_account_id: string;
   annual_fee: number;
@@ -39,7 +45,9 @@ export interface ReceiptRow {
 function statusClasses(status: ReceiptRow["status"]) {
   if (status === "approved") return "bg-green-100 text-green-700";
   if (status === "pending") return "bg-orange-100 text-orange-700";
-  return "bg-red-100 text-red-700";
+  if (status === "rejected") return "bg-red-100 text-red-700";
+  if (status === "reversed") return "bg-purple-100 text-purple-700";
+  return "bg-gray-100 text-gray-700";
 }
 
 function formatMoney(value: number | null | undefined) {
@@ -85,12 +93,16 @@ export default function ReceiptTable({ role }: { role: ReceiptRole }) {
     const pending = receipts.filter((r) => r.status === "pending").length;
     const approved = receipts.filter((r) => r.status === "approved").length;
     const rejected = receipts.filter((r) => r.status === "rejected").length;
+    const reversed = receipts.filter(
+                        (r) => r.status === "reversed"
+                      ).length;
 
     return {
       total: receipts.length,
       pending,
       approved,
       rejected,
+      reversed,
     };
   }, [receipts]);
 
