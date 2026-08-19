@@ -22,11 +22,15 @@ type ReceiptGetRow = {
   approved_amount: number | string | null;
   transaction_reference: string | null;
   remarks: string | null;
-  status: "pending" | "approved" | "rejected" | string;
+  status: "pending" | "approved" | "rejected" | "reversed";
   receipt_file: { bucket: string; path: string } | null;
   created_at: string;
   verified_at: string | null;
   rejected_at: string | null;
+  review_remarks: string | null;
+  reversed_by: string | null;
+  reversed_at: string | null;
+  reversal_reason: string | null;
   student_fee_accounts: {
     id: string;
     annual_fee: number | string;
@@ -88,6 +92,10 @@ export async function GET(
       created_at,
       verified_at,
       rejected_at,
+      review_remarks,
+      reversed_by,
+      reversed_at,
+      reversal_reason,
       student_fee_accounts!inner (
         id,
         annual_fee,
@@ -131,6 +139,10 @@ export async function GET(
       created_at: data.created_at,
       verified_at: data.verified_at,
       rejected_at: data.rejected_at,
+      review_remarks: data.review_remarks,
+      reversed_by: data.reversed_by,
+      reversed_at: data.reversed_at,
+      reversal_reason: data.reversal_reason,
       receipt_url: await makeReceiptUrl(data.receipt_file),
       annual_fee: Number(data.student_fee_accounts?.annual_fee ?? 0),
       total_paid_approved: Number(
@@ -288,17 +300,93 @@ export async function DELETE(
   if (guard.error) return guard.error;
 
   const rawParams = await ctx.params;
-  const p = ParamsSchema.safeParse(rawParams);
-  if (!p.success) return json({ ok: false, error: "Invalid receipt id." }, 422);
+  const parsed = ParamsSchema.safeParse(rawParams);
 
-  const { id } = p.data;
+  if (!parsed.success) {
+    return json(
+      { ok: false, error: "Invalid receipt id." },
+      422
+    );
+  }
 
-  const { error } = await supabaseAdmin
+  const { id } = parsed.data;
+
+  // First load the receipt so we know its status
+  // and storage file before deleting it.
+  const { data: receipt, error: receiptError } = await supabaseAdmin
+    .from("payment_receipts")
+    .select("id, status, receipt_file")
+    .eq("id", id)
+    .maybeSingle<{
+      id: string;
+      status: string;
+      receipt_file: { bucket: string; path: string } | null;
+    }>();
+
+  if (receiptError) {
+    return json({ ok: false, error: receiptError.message }, 400);
+  }
+
+  if (!receipt) {
+    return json({ ok: false, error: "Receipt not found." }, 404);
+  }
+
+  // Financial history must not be erased.
+  if (receipt.status === "approved" || receipt.status === "reversed") {
+    return json(
+      {
+        ok: false,
+        error:
+          "Approved or reversed receipts cannot be deleted. Reverse an approved payment instead.",
+      },
+      409
+    );
+  }
+
+  // Delete only if it is STILL pending or rejected.
+  // This also protects against another request approving it
+  // between our first SELECT and this DELETE.
+  const { data: deleted, error: deleteError } = await supabaseAdmin
     .from("payment_receipts")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    .in("status", ["pending", "rejected"])
+    .select("id")
+    .maybeSingle<{ id: string }>();
 
-  if (error) return json({ ok: false, error: error.message }, 400);
+  if (deleteError) {
+    return json({ ok: false, error: deleteError.message }, 400);
+  }
 
-  return json({ ok: true });
+  if (!deleted) {
+    return json(
+      {
+        ok: false,
+        error: "Receipt can no longer be deleted.",
+      },
+      409
+    );
+  }
+
+  // Database deletion succeeded.
+  // Now clean up the stored file.
+  if (receipt.receipt_file?.bucket && receipt.receipt_file?.path) {
+    const { error: storageError } = await supabaseAdmin.storage
+      .from(receipt.receipt_file.bucket)
+      .remove([receipt.receipt_file.path]);
+
+    // Do not restore the database row if storage cleanup fails.
+    // The important financial record is already correctly removed.
+    if (storageError) {
+      console.error(
+        "Receipt file cleanup failed:",
+        storageError.message
+      );
+    }
+  }
+
+  return json({
+    ok: true,
+    success: true,
+  });
 }

@@ -10,7 +10,7 @@ const json = (body: unknown, status = 200) =>
 
 const GetQuerySchema = z.object({
   search: z.string().optional(),
-  status: z.enum(["all", "pending", "approved", "rejected"]).default("all"),
+  status: z.enum(["all", "pending", "approved", "rejected", "reversed"]).default("all"),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
@@ -30,7 +30,7 @@ type ReceiptListRow = {
   approved_amount: number | string | null;
   transaction_reference: string | null;
   remarks: string | null;
-  status: "pending" | "approved" | "rejected" | string;
+  status: "pending" | "approved" | "rejected" | "reversed";
   receipt_file: { bucket: string; path: string } | null;
   created_at: string;
   updated_at: string;
@@ -39,6 +39,10 @@ type ReceiptListRow = {
   rejected_by: string | null;
   verified_at: string | null;
   rejected_at: string | null;
+  review_remarks: string | null;
+  reversed_by: string | null;
+  reversed_at: string | null;
+  reversal_reason: string | null;
   student_fee_accounts: {
     id: string;
     student_registration_id: string;
@@ -121,6 +125,10 @@ export async function GET(req: NextRequest) {
       rejected_by,
       verified_at,
       rejected_at,
+      review_remarks,
+      reversed_by,
+      reversed_at,
+      reversal_reason,
       student_fee_accounts!inner (
         id,
         student_registration_id,
@@ -199,6 +207,10 @@ export async function GET(req: NextRequest) {
         status: r.status,
         created_at: r.created_at,
         updated_at: r.updated_at,
+        review_remarks: r.review_remarks,
+        reversed_by: r.reversed_by,
+        reversed_at: r.reversed_at,
+        reversal_reason: r.reversal_reason,
         verified_at: r.verified_at,
         rejected_at: r.rejected_at,
         receipt_file: r.receipt_file,
