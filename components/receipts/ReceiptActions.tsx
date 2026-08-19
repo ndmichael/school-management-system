@@ -16,10 +16,10 @@ export default function ReceiptActions({
     <div className="flex items-center justify-end gap-2 whitespace-nowrap">
       <button
         onClick={onView}
-        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm"
+        className="inline-flex items-center gap-2 px-2 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm"
         title="View receipt"
       >
-        <Eye className="w-4 h-4" />
+        <Eye />
         <span className="hidden xl:inline">View</span>
       </button>
 
@@ -27,13 +27,13 @@ export default function ReceiptActions({
         href={receipt.receipt_url ?? "#"}
         target="_blank"
         rel="noreferrer"
-        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm"
+        className="inline-flex items-center gap-2 px-2 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm"
         title="Download receipt"
         onClick={(e) => {
           if (!receipt.receipt_url) e.preventDefault();
         }}
       >
-        <Download className="w-4 h-4" />
+        <Download />
         <span className="hidden xl:inline">Download</span>
       </a>
     </div>

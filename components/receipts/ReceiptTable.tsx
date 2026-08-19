@@ -156,28 +156,28 @@ export default function ReceiptTable({ role }: { role: ReceiptRole }) {
       <div className="w-full min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="hidden lg:block">
           <div className="w-full overflow-x-auto">
-            <table className="min-w-[1050px] w-full text-sm">
+            <table className="min-w-[850px] w-full text-sm">
               <thead className="border-b bg-gray-50">
                 <tr>
-                  <th className="px-6 py-4 text-left font-semibold text-gray-900">
+                  <th className="px-4 py-3 text-left font-semibold text-gray-900">
                     Student
                   </th>
-                  <th className="px-6 py-4 text-left font-semibold text-gray-900">
+                  <th className="px-4 py-3 text-left font-semibold text-gray-900">
                     Reference
                   </th>
-                  <th className="px-6 py-4 text-left font-semibold text-gray-900">
+                  <th className="px-4 py-3 text-left font-semibold text-gray-900">
                     Submitted
                   </th>
-                  <th className="px-6 py-4 text-left font-semibold text-gray-900">
+                  <th className="px-4 py-3 text-left font-semibold text-gray-900">
                     Approved
                   </th>
-                  <th className="px-6 py-4 text-left font-semibold text-gray-900">
+                  <th className="px-4 py-3 text-left font-semibold text-gray-900">
                     Date
                   </th>
-                  <th className="px-6 py-4 text-left font-semibold text-gray-900">
+                  <th className="px-4 py-3 text-left font-semibold text-gray-900">
                     Status
                   </th>
-                  <th className="px-6 py-4 text-right font-semibold text-gray-900">
+                  <th className="px-4 py-3 text-right font-semibold text-gray-900">
                     Actions
                   </th>
                 </tr>

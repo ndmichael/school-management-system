@@ -293,7 +293,7 @@ export default function ViewReceiptModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-5xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 max-h-[90vh] flex flex-col">
+      <div className="bg-white rounded-2xl w-full max-w-4xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b">
           <h2 className="text-xl font-semibold text-gray-900">Receipt Details</h2>
           <button
