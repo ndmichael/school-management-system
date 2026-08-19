@@ -14,12 +14,13 @@ type FileRef = {
   path: string;
 };
 
-type ReceiptStatus = "pending" | "approved" | "rejected";
+type ReceiptStatus = "pending" | "approved" | "rejected" | "reversed";
 
 type StudentRow = {
   id: string;
   profile_id: string;
   matric_no: string | null;
+  reversal_reason: string | null;
 };
 
 type ActiveSessionRow = {
@@ -55,14 +56,25 @@ type PaymentReceiptRow = {
   amount_submitted: number | string;
   approved_amount: number | string | null;
   transaction_reference: string | null;
+
   remarks: string | null;
+  review_remarks: string | null;
+
   status: ReceiptStatus | string;
+
   receipt_file: FileRef | null;
+
   uploaded_by: string | null;
   verified_by: string | null;
   rejected_by: string | null;
+  reversed_by: string | null;
+
   verified_at: string | null;
   rejected_at: string | null;
+  reversed_at: string | null;
+
+  reversal_reason: string | null;
+
   created_at: string;
   updated_at: string;
 };
@@ -99,6 +111,9 @@ function statusBadge(status: string | null | undefined) {
   if (status === "rejected") return "bg-red-100 text-red-700";
   if (status === "paid") return "bg-green-100 text-green-700";
   if (status === "partial") return "bg-yellow-100 text-yellow-700";
+  if (status === "reversed") {
+    return "bg-purple-100 text-purple-700";
+  }
   return "bg-gray-200 text-gray-700";
 }
 
@@ -222,7 +237,7 @@ export default function StudentPaymentsPage() {
       const { data: receiptRows, error: receiptErr } = await supabase
         .from("payment_receipts")
         .select(
-          "id, student_fee_account_id, amount_submitted, approved_amount, transaction_reference, remarks, status, receipt_file, uploaded_by, verified_by, rejected_by, verified_at, rejected_at, created_at, updated_at"
+          "id, student_fee_account_id, amount_submitted, approved_amount, transaction_reference, remarks, review_remarks, status, receipt_file, uploaded_by, verified_by, rejected_by, reversed_by, verified_at, rejected_at, reversed_at, reversal_reason, created_at, updated_at"
         )
         .eq("student_fee_account_id", feeRow.id)
         .order("created_at", { ascending: false })
@@ -475,6 +490,7 @@ export default function StudentPaymentsPage() {
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
+            <option value="reversed">Reversed</option>
           </select>
         </div>
       </div>
@@ -759,6 +775,22 @@ export default function StudentPaymentsPage() {
                         <p className="text-xs text-gray-500">Remarks</p>
                         <p className="text-sm text-gray-900 mt-1 whitespace-pre-wrap">
                           {activeReceipt.remarks}
+                        </p>
+                      </div>
+                    ) : null}
+
+                    {activeReceipt.status === "reversed" ? (
+                      <div className="mt-4 rounded-lg border border-purple-200 bg-purple-50 p-3">
+                        <p className="text-xs font-medium text-purple-700">
+                          Payment Reversed
+                        </p>
+
+                        <p className="mt-1 text-sm text-gray-900">
+                          {activeReceipt.reversal_reason ?? "No reason provided."}
+                        </p>
+
+                        <p className="mt-2 text-xs text-gray-500">
+                          Reversed: {fmtDate(activeReceipt.reversed_at)}
                         </p>
                       </div>
                     ) : null}
