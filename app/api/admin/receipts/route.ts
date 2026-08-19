@@ -143,7 +143,7 @@ export async function GET(req: NextRequest) {
           students!inner (
             id,
             matric_no,
-            profiles!inner (
+            profiles!students_profile_id_fkey (
               first_name,
               last_name,
               email

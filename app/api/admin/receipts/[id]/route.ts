@@ -103,15 +103,16 @@ export async function GET(
         balance_due,
         payment_status,
         student_registrations!inner (
-          students!inner (
-            matric_no,
-            profiles!inner (
-              first_name,
-              last_name,
-              email
-            )
+        students!inner (
+          id,
+          matric_no,
+          profiles!students_profile_id_fkey (
+            first_name,
+            last_name,
+            email
           )
         )
+      )
       )
     `
     )
