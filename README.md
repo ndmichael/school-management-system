@@ -23,7 +23,7 @@ That review led to a broader hardening of the platform around data integrity, au
 
 <!-- Replace with your strongest dashboard / platform screenshot -->
 
-![Institutional Management Platform](./docs/assets/platform-overview.png)
+![Institutional Management Platform](./docs/assets/screenshots/platform-overview.png)
 
 ---
 
