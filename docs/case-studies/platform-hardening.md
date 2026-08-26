@@ -2,136 +2,81 @@
 
 ## Context
 
-The Institutional Management Platform already had its major workflows in place across admissions, student management, academic operations, course registration, staff administration, and finance.
+The Institutional Management Platform already had its main workflows in place across admissions, student management, academic operations, staff access, course registration, and finance.
 
-At that point, my goal was no longer to keep adding features.
+The next phase was not about adding more features.
 
-I wanted to understand how reliable the existing system actually was.
+It was about asking whether the existing workflows were actually safe when something went wrong.
 
-A feature working through the normal UI does not necessarily mean the underlying workflow is safe. So I went back through the platform and started reviewing it from the business process down to the database.
+The review focused on questions such as:
 
-Instead of only asking:
+- What happens when the same request is submitted twice?
+- Can a multi-step workflow partially succeed?
+- Can two users modify the same state at the same time?
+- Is authorization too broad?
+- Can financial history be corrected without being erased?
 
-> Does this work?
-
-I started asking:
-
-> What assumptions does this workflow make?
-
-> What happens if the request is repeated?
-
-> What happens when two users act at the same time?
-
-> Can one part succeed while another fails?
-
-> Who should actually be allowed to perform this operation?
-
-> What happens when a mistake needs to be corrected?
-
-That changed the way I approached the platform.
-
----
-
-## Platform Scope
-
-The review covered connected workflows across several areas:
-
-- Applications and admission review
-- Applicant-to-student conversion
-- Student records
-- Academic sessions
-- Single student session registration
-- Bulk student session registration
-- Programmes
-- Courses
-- Course offerings
-- Course registration
-- Staff roles and authorization
-- Programme fee plans
-- Student fee accounts
-- Payment review
-- Financial reversals and audit history
-
-<!-- IMAGE PLACEHOLDER: Platform overview -->
+That shifted the work from feature development toward system hardening.
 
 ![Platform Overview](../assets/screenshots/platform-overview.png)
 
 ---
 
-## How I Approached the Review
+## Review Approach
 
-Rather than opening random files and fixing whatever looked suspicious, I started following complete business workflows.
-
-My process became:
+I reviewed the platform by following complete business workflows rather than fixing isolated files.
 
 ```text
 Understand the Business Process
-            ↓
-Trace the UI Action
-            ↓
-Trace the API / Server Logic
-            ↓
+        ↓
+Trace UI and Server Flow
+        ↓
 Inspect Database Relationships
-            ↓
-Identify Existing Business Rules
-            ↓
+        ↓
+Identify Business Rules
+        ↓
 Look for Failure Cases
-            ↓
-Decide Where the Rule Should Live
-            ↓
-Implement
-            ↓
-Test
-            ↓
-Document the Decision
+        ↓
+Decide Where the Rule Belongs
+        ↓
+Implement and Test
 ```
 
-This was important because some problems that looked like frontend issues were actually database-design issues, while others were authorization or workflow problems.
+This helped separate frontend issues from deeper problems in authorization, data modelling, transactions, and database integrity.
 
 ---
 
-# Areas I Hardened
+# Main Areas Hardened
 
-## 1. Application and Registration Integrity
+## 1. Duplicate Protection
 
-Several workflows depend on a record being logically unique.
+Several records should logically exist only once.
 
 Examples include:
 
 ```text
-Applicant
-+
-Programme
-+
-Academic Session
+NIN + Programme + Session
 ```
 
-and:
+for applications, and:
 
 ```text
-Student
-+
-Academic Session
+Student + Session
 ```
 
-I did not want duplicate prevention to depend only on the frontend checking whether a record already existed.
+for academic registration.
 
-The database also needed to protect the rule.
+The frontend can prevent accidental duplicate submissions, but the database also needs to guarantee that invalid duplicates cannot be stored.
 
-This led to using database uniqueness constraints and controlled conflict handling for important institutional records.
-
-The general principle became:
-
-> The UI can prevent an accidental duplicate.  
-> The database must prevent an invalid duplicate.
+That led to stronger use of unique constraints and controlled conflict handling.
 
 ---
 
 ## 2. Applicant-to-Student Conversion
 
-An accepted application does not become a student through one simple update.
+Converting an accepted applicant is not one database update.
 
-The conversion connects several records:
+It creates or connects several related records:
 
 ```text
 Accepted Application
@@ -145,97 +90,57 @@ Initial Registration
 Fee Account
 ```
 
-These records depend on each other.
+![Applicant to Student Conversion](../assets/diagrams/application-to-student-flow.png)
 
-The important question was therefore not:
+The important reliability question was:
 
-> Can I create these records?
+> What happens if one of those steps succeeds and the next one fails?
 
-It was:
-
-> What happens if record three succeeds and record four fails?
-
-That pushed the workflow toward treating conversion as one business operation rather than several unrelated database writes.
-
-<!-- IMAGE PLACEHOLDER: Conversion workflow -->
-
-![Applicant Conversion](../assets/diagrams/applicant-conversion.png)
+The conversion was treated as one business operation so the platform does not intentionally leave an applicant only partially converted.
 
 ---
 
-## 3. Single and Bulk Session Registration
+## 3. Session Registration Integrity
 
-The session-registration workflow exposed an interesting business distinction.
+Single and bulk registration need different failure behaviour.
 
 ### Single registration
 
-When registering one student, the system validates that the required programme fee configuration exists.
-
-If it does not:
+If the required programme fee plan is missing:
 
 ```text
-Registration fails
+Registration Fails
 ```
 
-rather than creating an academic registration without the expected fee account.
+The system does not create the registration without the related fee account.
 
 ### Bulk registration
 
-Bulk registration needs different behaviour.
-
-If twenty students are selected and one student is missing required configuration, failing all twenty is not always the correct business outcome.
-
-Instead:
+A bad record should not necessarily stop the whole batch.
 
 ```text
 Valid Student
-→ Registration created
-→ Fee account created
+→ registration + fee account created
 
 Invalid Student
-→ Skipped
-→ Reason returned
+→ skipped
+→ reason returned
 
 Remaining Students
-→ Continue processing
+→ continue
 ```
 
-This was an important lesson for me:
+This was an important design decision:
 
-> Similar operations do not always need identical failure behaviour.
-
-The correct behaviour depends on the business meaning of the operation.
+> Similar operations can require different failure behaviour depending on the business context.
 
 ---
 
-## 4. Courses vs Course Offerings
+## 4. Course vs Course Offering
 
-Another important modelling decision was keeping courses separate from course offerings.
+A course represents the permanent academic subject.
 
-A course describes:
-
-```text
-What is taught
-```
-
-A course offering describes:
-
-```text
-When it is taught
-Who it is available to
-Who teaches it
-```
-
-An offering can therefore connect a course to:
-
-- Academic session
-- Semester
-- Programme
-- Level
-- Lecturer
-- Publication state
-
-This avoids duplicating permanent course records every academic period.
+A course offering represents when and for whom that course is available.
 
 ```text
 Course
@@ -248,23 +153,23 @@ Course Offering
    └── Lecturer
 ```
 
-This separation also makes course-registration rules easier to reason about.
+Keeping those concepts separate avoids duplicating permanent course records every academic period and makes course-registration rules easier to enforce.
 
 ---
 
-## 5. Authorization Beyond Roles
+## 5. Authorization Beyond Broad Roles
 
-One issue I found during the review was authorization that was technically working but too broad.
+One issue discovered during the review was authorization that technically worked but was too broad.
 
-For example, allowing:
+A generic:
 
 ```text
 non_academic_staff
 ```
 
-to perform a bursary operation meant every user with that broad role could potentially access the workflow.
+role should not automatically provide access to bursary operations.
 
-The authorization model was tightened to consider institutional responsibility:
+The rule was tightened to consider institutional responsibility:
 
 ```text
 Authenticated User
@@ -273,115 +178,65 @@ Role
         ↓
 Staff Record
         ↓
-Unit
+Institutional Unit
         ↓
 Allowed Operation
 ```
 
-For financial review, this means distinguishing bursary personnel from unrelated non-academic staff.
-
-This reinforced an important distinction:
-
-> Authentication tells me who the user is.
-
-> Authorization tells me whether that user should be allowed to perform this particular operation.
+For payment review, this means administrators or authorized bursary personnel rather than every non-academic staff member.
 
 ---
 
-## 6. Financial Workflow Consistency
+## 6. Financial Consistency
 
-The payment workflow was one of the clearest examples of why multiple independent database calls can become dangerous.
+The payment workflow was one of the clearest examples of why related database changes should not be treated as independent calls.
 
-The earlier pattern could conceptually do:
+A financial review may need to:
 
 ```text
-Approve Payment
+Validate Payment
       ↓
-Update Receipt
+Approve / Reject
+      ↓
+Recalculate Approved Total
       ↓
 Update Fee Account
+      ↓
+Write Audit Information
 ```
 
-If the first update succeeded and the second failed, financial state could become inconsistent.
+If one step succeeds and another fails, the platform can become inconsistent.
 
-The workflow was moved into transactional PostgreSQL functions so the related operation could be treated atomically.
-
-```text
-BEGIN
-
-Lock relevant records
-
-Validate current state
-
-Approve / Reject payment
-
-Recalculate financial totals
-
-Update account
-
-Store audit information
-
-COMMIT
-```
-
-If an important step fails:
-
-```text
-ROLLBACK
-```
-
-The result is either a completed financial operation or no financial operation.
-
-Not half of one.
+The sensitive financial operations were moved into transactional PostgreSQL functions so they succeed or roll back as one unit.
 
 ---
 
-## 7. Concurrency
+## 7. Concurrency Protection
 
-Another question was:
+Two authorized reviewers can act on the same payment at nearly the same time.
 
-> What happens if two authorized users review the same payment at almost exactly the same time?
+Without protection, both can make decisions from the same stale state.
 
-Both could potentially read the same previous state before either update completed.
-
-For shared financial state, I used PostgreSQL row locking:
+PostgreSQL row locking is used for shared financial state:
 
 ```sql
 SELECT ...
 FOR UPDATE;
 ```
 
-The first transaction locks the relevant row while it performs the operation.
+![Payment Concurrency Control](../assets/diagrams/payment-concurrency-control.png)
 
-A second transaction trying to modify the same state must wait and then re-evaluate the updated state.
+One transaction completes while the other waits and then re-evaluates the updated state.
 
-This protects against race conditions that are difficult to reproduce through ordinary manual testing.
-
-<!-- IMAGE PLACEHOLDER: Row locking / transaction -->
-
-![Concurrency Protection](../assets/diagrams/row-locking.png)
+This protects a class of race conditions that normal manual testing may never expose.
 
 ---
 
 ## 8. Financial Corrections
 
-Initially, an approved payment could potentially be treated like an ordinary record.
+Approved financial history should not disappear when a mistake needs correction.
 
-That is dangerous for financial history.
-
-If an approved transaction was incorrect, deleting it would answer:
-
-```text
-What is the balance now?
-```
-
-but lose the answer to:
-
-```text
-What actually happened?
-```
-
-The workflow therefore uses controlled reversal.
+Instead of deleting or rewriting an approved payment:
 
 ```text
 Approved
@@ -391,164 +246,123 @@ Correction Required
 Reversed
 ```
 
-The original approval remains available together with:
+The original approval remains, while the reversal records:
 
-- Original reviewer
-- Original approval time
-- Reversing user
-- Reversal time
-- Reversal reason
+- who reversed it
+- when it was reversed
+- why it was reversed
 
-The account is recalculated from the financial records that remain approved.
+The account is then recalculated from payments that remain approved.
 
-The correction therefore changes current financial state without erasing history.
+This preserves the difference between:
+
+```text
+Current Financial State
+```
+
+and:
+
+```text
+What Actually Happened
+```
 
 ---
 
-# Where I Put Business Rules
+# Where the Rules Live
 
-One of the strongest lessons from the review was that not every rule belongs in the same place.
-
-I now think about the layers roughly like this:
+The hardening work also clarified where different rules belong.
 
 | Layer | Main Responsibility |
 |---|---|
-| Frontend | User interaction and immediate feedback |
-| API | Request validation and authorization |
-| Database constraints | Permanent data invariants |
+| Frontend | Interaction and immediate feedback |
+| API / Server | Request validation and authorization |
+| Database constraints | Permanent invariants |
 | PostgreSQL RPCs | Atomic multi-step operations |
-| Row locking | Concurrent shared-state protection |
+| Row locking | Shared-state concurrency protection |
 | Audit fields | Historical accountability |
 
-For example:
+The goal was not to move everything into PostgreSQL.
 
-### Frontend
-
-> Reversal reason is required.
-
-### API
-
-> This user is not authorized to reverse payments.
-
-### Database
-
-> A reversed payment must contain valid reversal audit information.
-
-Each layer protects a different concern.
+It was to place important rules in the layer that can enforce them reliably.
 
 ---
 
 # Before and After
 
-The biggest difference was not necessarily visible in the UI.
+The biggest change was not necessarily visible in the UI.
 
-### Earlier mindset
+### Earlier
 
 ```text
-User performs action
-        ↓
-API receives request
-        ↓
-Update database
-        ↓
-Feature works
+User Action
+    ↓
+API Request
+    ↓
+Update Database
+    ↓
+Feature Works
 ```
 
-### Hardened mindset
+### Hardened
 
 ```text
-User performs action
-        ↓
+User Action
+    ↓
 Authenticate
-        ↓
+    ↓
 Authorize
-        ↓
-Validate business request
-        ↓
-Check current state
-        ↓
-Protect concurrent state
-        ↓
-Perform atomic operation
-        ↓
-Protect database invariants
-        ↓
-Record audit information
-        ↓
-Return controlled result
+    ↓
+Validate Current State
+    ↓
+Protect Concurrent State
+    ↓
+Perform Atomic Operation
+    ↓
+Enforce Database Invariants
+    ↓
+Record Audit Information
 ```
 
-<!-- IMAGE PLACEHOLDER: Before vs after -->
+![Platform Hardening](../assets/diagrams/platform-hardening-overview.png)
 
-![Platform Hardening](../assets/diagrams/platform-hardening-before-after.png)
-
-The interface may look almost identical.
-
-The difference is in how much more predictable the system becomes when unusual conditions occur.
-
----
-
-# Trade-offs
-
-Not every rule was moved into PostgreSQL.
-
-Doing that would make the application unnecessarily difficult to understand and maintain.
-
-I also did not try to redesign every CRUD screen simply because I was reviewing the platform.
-
-The goal was to strengthen areas where failure would actually matter.
-
-That meant prioritizing:
-
-- Data integrity
-- Multi-record workflows
-- Authorization boundaries
-- Financial state
-- Duplicate prevention
-- Concurrency
-- Audit history
-
-while leaving straightforward application logic at the application layer.
-
-This helped avoid turning "hardening" into an unnecessary rewrite.
+The interface may look almost the same, but the behaviour is more predictable when unusual conditions occur.
 
 ---
 
 # Outcome
 
-By the end of the review, the platform had stronger protection around:
+The hardening work strengthened:
 
-- Duplicate institutional records
-- Applicant conversion
-- Single session registration
-- Bulk session registration
-- Fee-account creation
-- Course-registration integrity
-- Staff authorization
-- Financial transactions
-- Concurrent payment review
-- Payment state transitions
-- Financial reversals
-- Audit history
+- duplicate protection
+- applicant conversion
+- single and bulk session registration
+- fee-account creation
+- course-registration integrity
+- staff authorization
+- payment transactions
+- concurrent payment review
+- financial reversal
+- audit history
 
-More importantly, I came away with a different way of evaluating software.
-
-A system is not reliable simply because the happy path works.
-
-For the workflows that matter, I now try to understand:
+The main shift in thinking was from:
 
 ```text
-What should happen?
-What can go wrong?
+Does the feature work?
+```
+
+to:
+
+```text
+What can fail?
 Who can trigger it?
 Can it happen twice?
 Can it happen concurrently?
-Can it partially fail?
-How can it be corrected?
-What history should remain?
+Can it partially succeed?
+How should it be corrected?
+What history must remain?
 ```
 
-Those questions became more useful to me than simply asking whether another feature could be added.
+That became a much more useful way to evaluate the platform.
 
 ---
 
@@ -560,22 +374,5 @@ Those questions became more useful to me than simply asking whether another feat
 
 ## Related Case Studies
 
-- [Registration & Data Integrity](./registration-integrity.md)
+- [Registration Integrity](./registration-integrity.md)
 - [Financial Workflow Hardening](./financial-workflow.md)
-
----
-
-## Visual Placeholders
-
-```text
-docs/assets/
-├── screenshots/
-│   └── platform-overview.png
-│
-└── diagrams/
-    ├── applicant-conversion.png
-    ├── row-locking.png
-    └── platform-hardening-before-after.png
-```
-
-<!-- Delete this section once the final visuals have been added. -->

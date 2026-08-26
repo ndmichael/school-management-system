@@ -2,35 +2,27 @@
 
 ## Context
 
-Registration looks simple from the interface.
+Registration looks simple in the interface, but it sits between several important records.
 
-Select a student, choose an academic session, click register.
+A successful student registration determines:
 
-But once I followed the workflow deeper into the system, I realised registration sits at the centre of several other records.
+- the academic session
+- the student's programme context
+- the fee plan that applies
+- the fee account that should exist
+- the academic context later used for course registration
 
-A successful registration determines things such as:
+That means registration cannot be treated as an isolated insert.
 
-- Which academic session the student belongs to
-- Which programme context applies
-- Which courses can later become available
-- Which fee plan applies
-- Which student fee account should exist
+The core question became:
 
-That meant a registration could not be treated as an isolated insert.
-
-The main question became:
-
-> What records must always remain consistent when a student is registered?
+> What records must remain consistent whenever a student is registered?
 
 ---
 
-## The Registration Model
+## Registration Model
 
-A student exists independently from an academic registration.
-
-The student represents the person.
-
-The registration represents that student's participation in a particular academic year.
+A student exists independently from an academic-session registration.
 
 ```text
 Student
@@ -38,128 +30,101 @@ Student
 Student Registration
    ├── Academic Session
    ├── Programme
-   └── Financial Account
+   └── Student Fee Account
 ```
 
-This distinction is important because the same student can move through several academic sessions without creating a new student record each year.
+![Registration Data Model](../assets/diagrams/registration-data-model.png)
 
-<!-- IMAGE PLACEHOLDER -->
+The student is the long-lived institutional record.
 
-![Registration Model](../assets/diagrams/registration-model.png)
+The registration represents that student's participation in one academic year.
 
----
-
-# One Registration per Academic Session
-
-One of the main integrity rules is:
-
-> A student should only have one registration for the same academic session.
-
-The logical identity of the registration is therefore:
+The platform therefore treats:
 
 ```text
-Student
-+
-Academic Session
+Student ≠ Student Registration
 ```
-
-This rule is protected with a database uniqueness constraint.
-
-Conceptually:
-
-```sql
-UNIQUE(student_id, session_id)
-```
-
-The frontend can check whether the student is already registered, but that is not enough.
-
-Two requests could still reach the server at almost the same time.
-
-The database therefore remains the final authority.
 
 ---
 
-# Why the Academic Session Represents the Full Year
+## One Registration per Academic Session
 
-The platform treats one academic session as the complete academic year.
+One student should have only one registration for the same academic session.
+
+The database protects:
+
+```text
+Student ID
++
+Session ID
+```
+
+with a unique constraint.
+
+The frontend can check first and return a friendly message, but the database remains the final authority because concurrent or repeated requests can still reach the backend.
+
+---
+
+## Session vs Semester
+
+One session represents the full academic year.
 
 For example:
 
 ```text
 2025 / 2026
+   │
+   ├── First Semester
+   └── Second Semester
 ```
 
-The first and second semesters exist inside that session.
+A student registers once for the session.
 
-```text
-2025 / 2026
-     ↓
- ┌───┴───┐
- ↓       ↓
-First   Second
-```
-
-Because of this, a student registers once for the academic year rather than creating a new student registration for every semester.
-
-Semester-specific behaviour belongs to other records such as course offerings.
-
-This keeps the model clear:
+Semester-specific behaviour belongs to records such as course offerings.
 
 ```text
 Student Registration
-→ Academic year
+→ academic year
 
 Course Offering
-→ Academic year + semester
+→ academic year + semester
 ```
+
+This keeps the academic model consistent.
 
 ---
 
-# Initial Registration During Applicant Conversion
+## The Integrity Problem
 
-The first registration can be created when an accepted applicant is converted into a student.
+The first student registration was created during applicant conversion.
 
-The workflow is approximately:
+That workflow already created:
 
 ```text
 Accepted Application
         ↓
-Create / Connect Profile
+Student
         ↓
-Create Student
+Initial Registration
         ↓
-Create Student Registration
-        ↓
-Find Programme Fee Plan
-        ↓
-Create Student Fee Account
+Fee Account
 ```
 
-This already created the financial account required for the student's first academic session.
+The problem appeared when an existing student was registered into a later academic session.
 
-The issue appeared later when existing students were registered into another academic session.
-
----
-
-# Problem Identified
-
-The single and bulk session-registration workflows originally created:
+The single and bulk registration workflows could create:
 
 ```text
 Student Registration
 ```
 
-but did not create:
+without also creating:
 
 ```text
 Student Fee Account
 ```
 
-The applicant-conversion workflow handled fee-account creation, but that function only runs when an applicant first becomes a student.
-
-An existing student moving into a new academic session does not go through applicant conversion again.
-
-That could produce:
+That produced an incomplete state:
 
 ```text
 Student
@@ -169,24 +134,20 @@ New Session Registration ✅
 Fee Account ❌
 ```
 
-The academic record existed, but the expected financial record did not.
-
-That was a cross-workflow integrity problem.
-
-The individual features worked independently, but together they could produce incomplete state.
+The features worked individually, but the full student lifecycle was inconsistent.
 
 ---
 
-# The Fix
+## The Fix
 
-I updated both the single and bulk registration workflows so a successful registration also creates the corresponding student fee account.
+Both single and bulk session registration were updated so a successful registration also creates the related fee account.
 
-The account is based on the programme fee plan for the target academic session.
+The account is based on the programme fee plan for the target session.
 
 ```text
 Student
    ↓
-Target Academic Session
+Target Session
    ↓
 Programme
    ↓
@@ -197,66 +158,27 @@ Student Registration
 Student Fee Account
 ```
 
-The fee account starts with:
+The account starts with:
 
 ```text
-Annual Fee
-→ value from programme fee plan
-
-Approved Paid
-→ 0
-
-Balance Due
-→ annual fee
-
-Payment Status
-→ unpaid
+Annual Fee     = programme fee
+Approved Paid  = 0
+Balance Due    = annual fee
+Payment Status = unpaid
 ```
+
+A fee account is unique to its student registration.
 
 ---
 
-# One Fee Account per Registration
+## Single Registration
 
-A fee account belongs to a specific student registration.
-
-The relationship is protected so the same registration cannot accidentally receive multiple fee accounts.
-
-Conceptually:
-
-```sql
-UNIQUE(student_registration_id)
-```
-
-This gives the database another important invariant:
+Single registration processes one student.
 
 ```text
-One Student Registration
-        ↓
-At Most One Fee Account
-```
-
-The application can attempt to behave correctly.
-
-The database guarantees the relationship.
-
----
-
-# Single Session Registration
-
-## Goal
-
-Single registration processes one specific student.
-
-The workflow became:
-
-```text
-Student Selected
+Select Student
       ↓
-Target Session Selected
-      ↓
-Validate Student
-      ↓
-Validate Session
+Select Target Session
       ↓
 Check Existing Registration
       ↓
@@ -265,130 +187,11 @@ Find Programme Fee Plan
 Create Registration
       ↓
 Create Fee Account
-      ↓
-Return Result
 ```
 
-<!-- IMAGE PLACEHOLDER -->
+If the required fee plan is missing, the whole operation fails for that student.
 
-![Single Registration](../assets/screenshots/single-session-registration.png)
-
----
-
-## Missing Fee Plan
-
-For single registration, a missing programme fee plan causes the operation to fail.
-
-For example:
-
-```text
-Student Programme
-       ↓
-Target Session
-       ↓
-No Fee Plan
-       ↓
-Registration Fails
-```
-
-The reason is that the expected state after a successful registration is:
-
-```text
-Registration
-+
-Fee Account
-```
-
-Creating only one would leave an incomplete workflow.
-
----
-
-# Bulk Session Registration
-
-Bulk registration has a different business requirement.
-
-The system may be asked to process many students at once.
-
-For example:
-
-```text
-25 students
-```
-
-If one student cannot be registered correctly, failing all 25 may not be the best operational behaviour.
-
-The bulk workflow therefore processes each selected student individually.
-
-```text
-Selected Students
-       ↓
-Process Student
-       ↓
- ┌─────┴─────────────┐
- ↓                   ↓
-Valid               Invalid
- ↓                   ↓
-Create              Skip
-Registration         Student
- ↓                   ↓
-Create              Record Reason
-Fee Account           ↓
- ↓                   Continue
-Continue
-```
-
-<!-- IMAGE PLACEHOLDER -->
-
-![Bulk Registration](../assets/screenshots/bulk-session-registration.png)
-
----
-
-## Missing Fee Plan During Bulk Registration
-
-If a student's programme does not have a fee plan configured for the target academic session:
-
-```text
-Student
-   ↓
-Fee Plan Missing
-   ↓
-Skip Student
-   ↓
-Return Reason
-```
-
-The remaining valid students continue processing.
-
-An example returned reason is:
-
-> No fee plan is configured for the student's programme and target session.
-
-This is intentional behaviour rather than simply ignoring an error.
-
----
-
-# Single vs Bulk Behaviour
-
-The two workflows perform similar work but have different failure semantics.
-
-| Single Registration | Bulk Registration |
-|---|---|
-| Processes one student | Processes many students |
-| Missing required configuration fails the request | Invalid student can be skipped |
-| Caller expects one clear outcome | Caller expects a result for each student |
-| All-or-nothing for that student | Partial batch success is allowed |
-
-This was one of the more useful design lessons from the module.
-
-Two workflows can share most of their underlying logic while still needing different business behaviour.
-
----
-
-# Atomic Registration
-
-For one student, registration and fee-account creation represent one logical operation.
-
-The valid outcomes are:
+The valid outcome is:
 
 ```text
 Registration Created
@@ -399,38 +202,65 @@ Fee Account Created
 or:
 
 ```text
-Neither Created
+Nothing Created
 ```
 
-The invalid outcome is:
+not:
 
 ```text
 Registration Created
-+
 Fee Account Missing
 ```
 
-The database function handles these related writes within the same transaction.
-
-If a required insert fails, the operation rolls back.
-
-This protects the workflow from partial state.
+This preserves the expected relationship between academic and financial state.
 
 ---
 
-# Concurrency Protection
+## Bulk Registration
 
-Registration can also be affected by concurrent requests.
+Bulk registration has different failure behaviour.
 
-Imagine two requests attempt to register the same student into the same academic session at almost the same time.
+One invalid student should not necessarily stop the rest of the batch.
 
-Both might initially observe:
+```text
+Selected Students
+      ↓
+Process Each Student
+      ↓
+ ┌────┴──────────────┐
+ ↓                   ↓
+Valid              Invalid
+ ↓                   ↓
+Create             Skip
+Registration       Student
+ ↓                   ↓
+Create             Return Reason
+Fee Account          ↓
+ ↓                 Continue
+Continue
+```
+
+![Bulk Session Registration](../assets/screenshots/bulk-session-registration.png)
+
+If a student's fee plan is missing, that student is skipped and the reason is returned while valid students continue.
+
+This was a deliberate business decision:
+
+> Single registration is all-or-nothing for one student. Bulk registration allows partial batch success.
+
+---
+
+## Concurrency and Duplicate Protection
+
+Two requests can attempt to register the same student into the same session at nearly the same time.
+
+Both may initially see:
 
 ```text
 No Registration Found
 ```
 
-and then both attempt to insert.
+and then both try to insert.
 
 The unique constraint on:
 
@@ -438,317 +268,85 @@ The unique constraint on:
 student_id + session_id
 ```
 
-provides the final database protection.
+protects the final database state.
 
-The workflows also use database locking where appropriate while processing important source records.
+This is why checking first is useful for application behaviour, but it does not replace database enforcement.
 
-The important lesson was:
-
-> Checking first does not replace enforcing the rule.
-
-A query like:
+The same principle applies to:
 
 ```text
-Does this registration already exist?
+Student + Course Offering
 ```
 
-is useful for application behaviour.
-
-The uniqueness constraint is what guarantees correctness.
+for course enrolment.
 
 ---
 
-# Idempotency
+## Course Registration Integrity
 
-Registration also introduced an important idempotency concept.
+Course registration depends on valid course offerings rather than the course catalogue alone.
 
-If the same logical request is repeated:
+A course tells the system what the subject is.
 
-```text
-Register Student A
-for Session 2026/2027
-```
+A course offering tells the system whether that subject is available for a particular:
 
-the system should not create:
+- session
+- semester
+- programme
+- level
 
-```text
-Registration 1
+So the student's available courses are derived from published offerings that match the student's academic context.
 
-Registration 2
-
-Registration 3
-```
-
-The logical operation has one valid business result.
-
-Database uniqueness helps make repeated attempts safe.
-
-This is different from a race condition.
-
-A repeated request may happen seconds or minutes later.
-
-A race condition involves overlapping operations.
-
-The registration model needs protection against both.
+This protects both duplicate enrolment and academic eligibility.
 
 ---
 
-# Course Registration Integrity
+## Main Design Decisions
 
-The same reasoning applies later when students register for courses.
+The final model relies on several layers:
 
-A student should not be enrolled into the same course offering multiple times.
+| Layer | Responsibility |
+|---|---|
+| Frontend | User feedback and selection |
+| API / Server | Request validation |
+| PostgreSQL Function | Multi-step registration workflow |
+| Database Constraints | Uniqueness and permanent integrity |
 
-The logical relationship is:
+The main trade-offs were:
 
-```text
-Student
-+
-Course Offering
-```
+- **Fail single registration when fee configuration is missing**  
+  Stronger consistency, but registration depends on finance configuration being ready.
 
-The platform therefore treats course enrolment as another business relationship that needs duplicate protection.
+- **Allow partial success in bulk registration**  
+  Better for administrative batches, but the result must clearly show which students were skipped.
 
----
+- **Store the applicable annual fee on the fee account**  
+  Preserves the fee that applied when the account was created instead of rewriting historical accounts when a fee plan changes later.
 
-# Why Course Offerings Matter
-
-Course-registration integrity also depends on keeping courses and offerings separate.
-
-A course tells the system:
-
-```text
-What is this subject?
-```
-
-A course offering tells the system:
-
-```text
-Is this subject actually available
-for this programme,
-session,
-semester,
-and level?
-```
-
-The student's available courses should therefore come from valid offerings rather than simply returning every course in the catalogue.
-
-This protects academic context as well as duplicate enrolment.
+- **Use database constraints for uniqueness**  
+  Stronger duplicate protection, but migrations and exceptional corrections must respect those constraints.
 
 ---
 
-# Integrity Across Workflows
+## Outcome
 
-One of the bigger lessons from the review was that integrity problems often exist **between modules**, not inside one module.
+The registration workflow now has stronger guarantees around:
 
-For example:
+- one registration per student/session
+- one fee account per registration
+- fee-account creation during both initial and later session registration
+- single-registration failure when required configuration is missing
+- partial success during bulk registration
+- duplicate course-enrolment protection
+- concurrent registration attempts
 
-```text
-Applicant Conversion
-→ correctly creates fee account
-```
+The main lesson was that data integrity problems often appear between modules rather than inside one screen.
 
-while:
-
-```text
-New Session Registration
-→ originally did not
-```
-
-Both individual features could appear to work.
-
-The inconsistency only becomes visible when the full student lifecycle is followed.
-
-That is why I started reviewing workflows end-to-end rather than evaluating pages independently.
+Following the complete student lifecycle exposed a problem that isolated feature testing did not.
 
 ---
 
-# Where the Rules Are Enforced
-
-The registration workflow uses several layers.
-
-## Frontend
-
-Helps the user choose valid students and sessions and displays useful errors.
-
-## API
-
-Validates the request and protects the operation.
-
-## PostgreSQL Function
-
-Coordinates the related registration operation.
-
-## Database Constraints
-
-Protect permanent invariants such as:
-
-```text
-One registration per student/session
-```
-
-and:
-
-```text
-One fee account per registration
-```
-
-The combination is stronger than depending on one layer alone.
-
----
-
-# Failure Cases Considered
-
-## Duplicate Session Registration
-
-```text
-Student already registered
-        ↓
-Second registration prevented
-```
-
----
-
-## Missing Fee Plan — Single Registration
-
-```text
-Required fee plan missing
-        ↓
-Operation fails
-        ↓
-No incomplete registration
-```
-
----
-
-## Missing Fee Plan — Bulk Registration
-
-```text
-Required fee plan missing
-        ↓
-Student skipped
-        ↓
-Reason returned
-        ↓
-Other students continue
-```
-
----
-
-## Duplicate Fee Account
-
-```text
-Registration already has fee account
-        ↓
-Second fee account prevented
-```
-
----
-
-## Concurrent Registration
-
-```text
-Two requests
-Same student
-Same session
-        ↓
-Database uniqueness protects final state
-```
-
----
-
-## Duplicate Course Enrolment
-
-```text
-Student already enrolled
-in offering
-        ↓
-Duplicate prevented
-```
-
----
-
-# Trade-offs
-
-The final design was not the only possible design.
-
-Several decisions involved choosing one behaviour over another.
-
-### Fail single registration when fee configuration is missing
-
-This gives stronger consistency, but it also means registration depends on finance configuration being ready.
-
-### Allow partial success during bulk registration
-
-This makes large administrative operations more practical, but callers need a clear result showing which students succeeded and which were skipped.
-
-### Store the applicable annual fee on the student fee account
-
-This preserves the fee that applied when the account was created, but changes to the programme fee plan do not automatically rewrite historical student accounts.
-
-### Enforce uniqueness in PostgreSQL
-
-This gives strong protection against duplicate records, but corrections and exceptional migrations need to respect those constraints deliberately.
-
-### Use database functions for multi-step registration
-
-This improves atomicity and integrity, but moves some business logic out of the application code and into PostgreSQL.
-
-These were intentional trade-offs rather than accidental limitations.
-
----
-
-# Outcome
-
-After the changes, the registration model became more consistent across the student's lifecycle.
-
-The system now has stronger guarantees around:
-
-- Application uniqueness
-- Student session uniqueness
-- Fee-account creation
-- Fee-account uniqueness
-- Single registration
-- Bulk registration
-- Missing fee configuration
-- Course-enrolment uniqueness
-- Concurrent registration attempts
-
-The biggest lesson was that data integrity is rarely about one table.
-
-It comes from understanding the relationships between business records and deciding which combinations must always remain valid.
-
----
-
-# What I Learned
-
-This review changed the way I think about registration workflows.
-
-The important questions became:
-
-```text
-What record are we creating?
-
-What other records must exist with it?
-
-What makes this record unique?
-
-Can the request happen twice?
-
-Can two requests happen simultaneously?
-
-What happens when configuration is missing?
-
-Should one failure stop the entire operation?
-
-Which layer should guarantee the rule?
-```
-
-Those questions made the implementation much easier to reason about than simply adding more validation to the UI.
-
----
-
-# Related Documentation
+## Related Documentation
 
 - [System Architecture](../architecture.md)
 - [Core Workflows](../workflows.md)
@@ -758,19 +356,3 @@ Those questions made the implementation much easier to reason about than simply 
 
 - [Platform Hardening](./platform-hardening.md)
 - [Financial Workflow Hardening](./financial-workflow.md)
-
----
-
-## Visual Placeholders
-
-```text
-docs/assets/
-├── diagrams/
-│   └── registration-model.png
-│
-└── screenshots/
-    ├── single-session-registration.png
-    └── bulk-session-registration.png
-```
-
-<!-- Delete this section once the final visuals are added. -->
