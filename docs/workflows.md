@@ -16,17 +16,14 @@ Admission Decision
 Applicant → Student Conversion
     ↓
 Academic Session Registration
+    ├──────────────┐
+    ↓              ↓
+Fee Account    Course Registration
     ↓
-Fee Account
-    ↓
-Course Registration
-    ↓
-Ongoing Academic & Financial Operations
+Payment Operations
 ```
 
-<!-- IMAGE PLACEHOLDER: Core institutional workflow -->
-
-![Core Institutional Workflow](./assets/diagrams/core-workflow.png)
+![Institutional Lifecycle](./assets/diagrams/institutional-lifecycle.png)
 
 ---
 
@@ -36,11 +33,7 @@ Ongoing Academic & Financial Operations
 
 The application workflow manages a person before they become an active student.
 
-An application represents an applicant's request to join a programme during a particular academic session.
-
-It remains separate from the student record until the admission process is complete.
-
----
+An application represents an applicant's request to join a programme during a particular academic session. It remains separate from the student record until the admission process is complete.
 
 ## Main Flow
 
@@ -57,57 +50,39 @@ Provide Required Information / Documents
     ↓
 Application Created
     ↓
-Staff Review
+Authorized Staff Review
     ↓
 Admission Decision
 ```
 
-<!-- IMAGE PLACEHOLDER: Applications / review screenshot -->
-
 ![Application Review](./assets/screenshots/application-review.png)
-
----
 
 ## Important Rules
 
-An application is tied to:
+An application is tied to the applicant's identity, programme, and academic session.
 
-- Applicant identity
-- Programme
-- Academic session
-
-The platform protects against duplicate applications for the same logical combination.
-
-For example, the same applicant should not be able to create multiple applications for the same programme during the same academic session.
-
-At the database level, the logical uniqueness is based on:
+The database protects against duplicate applications for the same logical combination:
 
 ```text
-Applicant Identity
+NIN
 +
 Programme
 +
 Academic Session
 ```
 
-This protects the workflow even if the same request is submitted more than once.
-
----
+This means the same applicant cannot create multiple applications for the same programme in the same academic session, even if the request is submitted more than once.
 
 ## Application Review
 
-Authorized staff review applications and make an admission decision.
+Authorized staff review submitted applications and make an admission decision.
 
-The review process is more than simply changing a status field.
-
-The current application state, supporting information, reviewer permissions, and intended transition all matter.
-
-A simplified flow is:
+Before an application can move to an accepted or rejected state, the workflow checks that the application is in a valid review state and that the reviewer is permitted to perform the action.
 
 ```text
 Submitted Application
         ↓
-Review
+Authorized Review
         ↓
  ┌──────┴──────┐
  ↓             ↓
@@ -116,7 +91,7 @@ Accepted     Rejected
 
 An accepted application becomes eligible for conversion into a student.
 
-A rejected application remains an application record and can follow whatever future reapplication rules apply to a later academic session.
+A rejected application remains an application record and may be eligible for a future application in a later academic session, depending on the applicable reapplication rules.
 
 ---
 
@@ -124,11 +99,9 @@ A rejected application remains an application record and can follow whatever fut
 
 ## Purpose
 
-Accepting an application does not by itself create all the records needed to manage the person as a student.
+Accepting an application does not by itself create the records required to manage the applicant as an active student.
 
-The conversion workflow turns an accepted applicant into the related institutional records required for active student management.
-
----
+The conversion workflow creates the institutional records needed to move an accepted applicant into the student system.
 
 ## Main Flow
 
@@ -139,41 +112,31 @@ Profile / User
         ↓
 Student Record
         ↓
-Initial Student Registration
+Initial Session Registration
         ↓
 Student Fee Account
 ```
 
-<!-- IMAGE PLACEHOLDER: Applicant conversion -->
-
-![Applicant to Student Conversion](./assets/diagrams/applicant-conversion.png)
-
----
+![Applicant to Student Conversion](./assets/diagrams/application-to-student-flow.png)
 
 ## What Happens During Conversion
 
-The conversion workflow creates or connects the records required for the student's new institutional identity.
+The conversion performs one logical business operation:
 
-This includes:
+1. Confirm that the application is accepted and eligible for conversion.
+2. Create or connect the required profile/user record.
+3. Create the student record.
+4. Create the student's initial academic-session registration.
+5. Locate the programme fee plan for that session.
+6. Create the student's fee account from that fee plan.
 
-1. Confirming that the application is eligible for conversion.
-2. Creating the required profile/user information.
-3. Creating the student record.
-4. Creating the initial academic-session registration.
-5. Finding the programme fee plan for that session.
-6. Creating the student's fee account.
+The workflow is designed to avoid leaving the system in a partially converted state.
 
-These operations represent one logical business action.
-
-The platform therefore avoids treating them as completely independent steps.
-
----
+For example, a student record should not be created successfully while the required registration or fee account is missing.
 
 ## Fee Account Creation
 
-The student's initial fee account is based on the programme fee plan for the relevant academic session.
-
-Conceptually:
+The student's initial fee account is based on the programme fee plan configured for the student's programme and academic session.
 
 ```text
 Programme
@@ -207,7 +170,7 @@ For example:
 2025 / 2026
 ```
 
-A session contains semester-specific activity rather than requiring a new session record for each semester.
+A session contains semester-specific activity rather than requiring a separate session record for each semester.
 
 ```text
 Academic Session
@@ -218,9 +181,9 @@ First    Second
 Semester Semester
 ```
 
-Student session registration therefore happens once for the academic year.
+A student is registered once for the academic session.
 
-Course offerings and course registration can still remain semester-specific.
+Course offerings and course registration remain semester-specific within that session.
 
 ---
 
@@ -228,11 +191,9 @@ Course offerings and course registration can still remain semester-specific.
 
 ## Purpose
 
-Single session registration is used when one existing student needs to be registered into an academic session.
+Single session registration is used when one existing student needs to be registered into a new academic session.
 
-This creates the student's academic registration for that year and the related fee account.
-
----
+The operation creates both the student's academic registration for that year and the related fee account.
 
 ## Main Flow
 
@@ -241,7 +202,9 @@ Select Student
       ↓
 Select Target Session
       ↓
-Validate Student / Session
+Validate Student
+      ↓
+Validate Target Session
       ↓
 Check Existing Registration
       ↓
@@ -254,19 +217,13 @@ Create Student Fee Account
 Return Successful Registration
 ```
 
-<!-- IMAGE PLACEHOLDER: Single registration -->
-
-![Single Session Registration](./assets/screenshots/single-session-registration.png)
-
----
-
 ## Important Rules
 
 ### One registration per student per academic session
 
-A student should not have multiple registrations for the same academic year.
+A student must not have more than one registration for the same academic year.
 
-The database protects:
+The database protects the combination:
 
 ```text
 Student ID
@@ -274,31 +231,25 @@ Student ID
 Session ID
 ```
 
-as a unique combination.
-
----
-
 ### A valid fee plan is required
 
-Before creating the registration, the workflow checks for the programme's fee plan in the target academic session.
+Before a registration is created, the workflow checks for a programme fee plan matching the student's programme and target session.
 
-If the required fee plan does not exist:
+If the required fee plan is missing, the operation fails for that student.
 
 ```text
-Registration
-    ↓
-Fails
+Fee Plan Missing
+      ↓
+Registration Fails
 ```
 
-The system does not intentionally create a registration and leave it without the expected fee account.
-
----
+The system does not intentionally create an academic registration without the fee account required for that registration.
 
 ## Atomic Behaviour
 
-Registration and fee-account creation belong to the same business operation.
+Registration creation and fee-account creation belong to the same business operation.
 
-The intended outcome is therefore either:
+The expected result is:
 
 ```text
 Registration Created
@@ -312,16 +263,16 @@ or:
 Nothing Created
 ```
 
-rather than:
+not:
 
 ```text
 Registration Created
 Fee Account Missing
 ```
 
-The detailed transactional behaviour is covered in:
+The transactional behaviour behind this is covered in:
 
-[reliability-and-security.md](./reliability-and-security.md#transactional-operations)
+[Reliability & Security →](./reliability-and-security.md#transactional-operations)
 
 ---
 
@@ -329,11 +280,9 @@ The detailed transactional behaviour is covered in:
 
 ## Purpose
 
-Bulk session registration allows multiple eligible students to be registered for a new academic session in one operation.
+Bulk session registration allows multiple eligible students to be processed for a target academic session in one operation.
 
-The workflow cannot behave exactly like single registration because one invalid student should not necessarily prevent every valid student from being processed.
-
----
+Unlike single registration, one student failing validation should not automatically prevent every other valid student in the batch from being registered.
 
 ## Main Flow
 
@@ -344,37 +293,28 @@ Choose Target Session
       ↓
 Process Each Student
       ↓
- ┌────┴─────────────────────┐
- │                          │
-Valid                     Invalid
- │                          │
- ↓                          ↓
-Check Fee Plan           Skip Student
- │                          │
- ↓                          ↓
-Create Registration     Record Reason
- │
- ↓
-Create Fee Account
- │
- ↓
+ ┌────┴──────────────────────────────┐
+ ↓                                   ↓
+Already Registered /           Valid Student
+Missing Fee Plan                    ↓
+ ↓                             Create Registration
+Skip Student                         ↓
+ ↓                             Create Fee Account
+Return Reason                        ↓
+ ↓                                Continue
 Continue
 ```
 
-<!-- IMAGE PLACEHOLDER: Bulk registration -->
-
 ![Bulk Session Registration](./assets/screenshots/bulk-session-registration.png)
-
----
 
 ## Per-Student Behaviour
 
-Each selected student is evaluated independently.
+Each selected student is processed independently.
 
 For a valid student:
 
 ```text
-Valid Academic Context
+No Existing Registration
         ↓
 Fee Plan Exists
         ↓
@@ -383,39 +323,31 @@ Registration Created
 Fee Account Created
 ```
 
-If required configuration is missing:
+If the student is already registered for the target session, or if the required fee plan is missing, that student is skipped and the reason is returned.
 
-```text
-Fee Plan Missing
-       ↓
-Student Skipped
-       ↓
-Reason Returned
-       ↓
-Continue Processing Others
-```
-
-One example reason is:
+For example:
 
 > No fee plan is configured for the student's programme and target session.
 
----
+The rest of the batch continues processing.
 
 ## Why Single and Bulk Behaviour Differ
 
-For a single operation, the caller asked the system to register one specific student.
+For a single operation, the caller asked the system to register one specific student. If that student cannot be registered correctly, failing the operation is the appropriate result.
 
-If that student cannot be registered correctly, failing the operation makes sense.
-
-For a batch:
+For a batch, one invalid student should not necessarily block all other valid students.
 
 ```text
 20 Students Selected
+        ↓
+19 Valid
+1 Invalid
+        ↓
+19 Processed
+1 Skipped with Reason
 ```
 
-one invalid record should not necessarily prevent the other 19 valid students from being processed.
-
-This is a deliberate business decision rather than an implementation accident.
+This is deliberate business behaviour rather than an accidental side effect of the implementation.
 
 ---
 
@@ -425,15 +357,11 @@ This is a deliberate business decision rather than an implementation accident.
 
 The platform separates the permanent course catalogue from the period-specific availability of those courses.
 
-This distinction became important as the academic model evolved.
-
----
-
 ## Course
 
-A course describes the academic subject itself.
+A course represents the academic subject itself.
 
-For example:
+Typical course information includes:
 
 ```text
 Course Code
@@ -443,15 +371,13 @@ Programme
 Academic Level
 ```
 
-A course does not automatically mean students can register for it during the current semester.
-
----
+A course existing in the catalogue does not automatically make it available for student registration.
 
 ## Course Offering
 
-A course offering describes a specific instance in which that course becomes available.
+A course offering represents a specific instance in which a course is available to students.
 
-An offering can include:
+An offering includes information such as:
 
 - Course
 - Academic session
@@ -460,8 +386,6 @@ An offering can include:
 - Academic level
 - Lecturer assignment
 - Publication status
-
-Conceptually:
 
 ```text
 Course
@@ -472,30 +396,26 @@ Semester
    ↓
 Programme / Level
    ↓
-Lecturer
+Lecturer Assignment
    ↓
 Course Offering
    ↓
 Published
 ```
 
-<!-- IMAGE PLACEHOLDER: Course offerings -->
-
 ![Course Offerings](./assets/screenshots/course-offerings.png)
-
----
 
 ## Why They Are Separate
 
-Without this separation, the institution might need to duplicate the main course record every time it is taught again.
+The permanent course record should not be duplicated every time the course is taught.
 
-Instead:
+For example:
 
 ```text
 CSC401
 ```
 
-can remain one course while different offerings represent:
+can remain one course while separate offerings represent:
 
 ```text
 CSC401
@@ -515,7 +435,7 @@ Programme A
 Lecturer Y
 ```
 
-The permanent academic concept remains separate from the academic period in which it is delivered.
+The course remains the permanent academic definition, while the offering represents when, where, and by whom it is delivered.
 
 ---
 
@@ -523,18 +443,16 @@ The permanent academic concept remains separate from the academic period in whic
 
 ## Purpose
 
-Course registration allows students to enrol in the published course offerings available to their current academic context.
-
----
+Course registration allows students to enrol in published course offerings that match their current academic context.
 
 ## Availability Flow
 
-The platform determines relevant offerings from information such as:
+Available offerings are determined from the student's active academic information:
 
 ```text
 Student
    ↓
-Current Academic Registration
+Current Session Registration
    ↓
 Programme
    ↓
@@ -547,35 +465,27 @@ Current Semester
 Published Course Offerings
 ```
 
-<!-- IMAGE PLACEHOLDER: Student course registration -->
-
-![Course Registration](./assets/screenshots/course-registration.png)
-
----
-
 ## Registration Flow
 
 ```text
 Student Opens Registration
         ↓
-Available Offerings Loaded
+Eligible Offerings Loaded
         ↓
 Student Selects Courses
         ↓
-Server Validates Request
+Server Validates Selection
         ↓
 Enrolment Records Created
         ↓
 Registered Courses Returned
 ```
 
----
-
 ## Important Rules
 
-Students should not enrol twice into the same course offering.
+A student must not enrol more than once in the same course offering.
 
-The database protects the logical relationship between:
+The database protects the relationship:
 
 ```text
 Student
@@ -583,9 +493,9 @@ Student
 Course Offering
 ```
 
-The platform also relies on the course-offering model to determine whether a course is actually available for registration.
+The server also validates that the selected offering is actually available to the student's programme, level, session, and semester.
 
-A course existing in the catalogue alone is not enough.
+A course existing in the catalogue alone is not sufficient.
 
 ---
 
@@ -595,9 +505,7 @@ A course existing in the catalogue alone is not enough.
 
 A student's financial position is tied to their academic-session registration.
 
-This prevents fees from different academic years from being mixed into one permanent balance.
-
-The relationship is:
+This keeps the financial state for one academic year separate from another.
 
 ```text
 Student
@@ -607,18 +515,16 @@ Student Registration
 Student Fee Account
 ```
 
-Each account tracks information such as:
+Each account tracks values such as:
 
 - Annual fee
 - Approved amount paid
 - Outstanding balance
 - Payment status
 
----
-
 ## Fee Plan Source
 
-The expected annual fee comes from the programme fee plan.
+The expected annual fee comes from the programme fee plan configured for the student's programme and academic session.
 
 ```text
 Programme
@@ -630,70 +536,37 @@ Programme Fee Plan
 Student Fee Account
 ```
 
-The fee account stores the applicable fee for that student's registration.
+The fee account stores the fee applicable to that specific student registration.
 
 ---
 
-# Payment Events
+# Payment Submission and Review
 
-At the business level, a payment is treated as a financial event that needs to be connected to the correct account.
+## Current Payment Entry
 
-Payment events can conceptually originate through channels such as:
+The current implementation uses receipt-based payment submission followed by authorized financial review.
 
-```text
-Payment Gateway
-Bank Transfer
-Institution-Managed Entry
-Other Validated Sources
-```
-
-The current implementation includes receipt-based payment review.
-
-The downstream financial concerns remain the same regardless of how the payment entered the institution:
+Future payment sources, such as a payment gateway or bank-confirmed transaction, can be integrated into the same downstream validation, account-update, and audit workflow without changing the core financial model.
 
 ```text
-Payment Event
+Payment Receipt
       ↓
-Identify Account
+Identify Fee Account
       ↓
-Validate
+Validate Payment State
       ↓
-Authorize
+Authorized Review
       ↓
-Process
-      ↓
-Update Financial State
-      ↓
+ ┌────┴────┐
+ ↓         ↓
+Approve   Reject
+ ↓
+Recalculate Account
+ ↓
 Preserve Audit History
 ```
 
-<!-- IMAGE PLACEHOLDER: Payment workflow -->
-
-![Payment Operations](./assets/diagrams/payment-operations.png)
-
----
-
-# Payment Review
-
-Where human review is required, the payment begins in a pending state.
-
-```text
-Pending
-   ↓
- ┌─┴────────────┐
- ↓              ↓
-Approved      Rejected
-```
-
-An approved payment can later be corrected through reversal:
-
-```text
-Approved
-   ↓
-Reversed
-```
-
----
+![Payment Processing Flow](./assets/diagrams/payment-processing-flow.png)
 
 ## Approval
 
@@ -701,34 +574,28 @@ When an authorized reviewer approves a payment:
 
 1. The payment must still be pending.
 2. The related fee account is loaded.
-3. The submitted payment is checked against the remaining balance.
+3. The submitted amount is checked against the remaining balance.
 4. Overpayment is rejected by the current workflow.
-5. The payment is approved.
-6. Approved payment totals are recalculated.
-7. The account balance is recalculated.
+5. The payment is marked as approved.
+6. The approved total is recalculated from payments that remain in the approved state.
+7. The outstanding balance is recalculated from that approved total.
 8. The account payment status is updated.
-9. Reviewer and timestamp information are preserved.
+9. Reviewer identity and review timestamp are preserved.
 
-The approved amount matches the validated submitted amount.
-
-The reviewer does not manually change the value during approval.
-
----
+The approved amount is the validated submitted amount. Reviewers do not manually replace it with a different figure during approval.
 
 ## Rejection
 
-A payment can also be rejected.
+A rejected payment requires a reason.
 
-A rejection requires a reason.
-
-The workflow stores:
+The workflow records:
 
 - Rejected status
 - Reviewer identity
 - Rejection timestamp
 - Review remarks
 
-A rejected payment does not change the approved financial balance.
+A rejected payment does not contribute to the account's approved payment total.
 
 ---
 
@@ -736,13 +603,9 @@ A rejected payment does not change the approved financial balance.
 
 ## Purpose
 
-A financial transaction can be validly approved and later discovered to require correction.
+A payment may be correctly approved and later require correction.
 
-Deleting the original transaction would remove important financial history.
-
-The platform therefore uses a reversal workflow.
-
----
+Deleting or rewriting the original financial event would remove important history, so approved payments are corrected through reversal instead.
 
 ## Flow
 
@@ -753,58 +616,45 @@ Correction Required
        ↓
 Provide Reversal Reason
        ↓
-Reverse Payment
+Validate Reversal Request
        ↓
-Recalculate Approved Total
+Mark Payment as Reversed
        ↓
-Recalculate Balance
+Exclude from Approved Total
        ↓
-Preserve Original Approval
+Recalculate Account Balance
+       ↓
+Preserve Approval + Reversal Audit
 ```
-
-<!-- IMAGE PLACEHOLDER: Payment reversal -->
-
-![Payment Reversal](./assets/screenshots/payment-reversal.png)
-
----
 
 ## Preserved Information
 
-A reversed payment retains the original approval information.
-
-It also records:
+A reversed payment keeps its original approval information and adds:
 
 - Who reversed the payment
-- When it was reversed
-- Why it was reversed
+- When the reversal occurred
+- Why the payment was reversed
 
-This makes the correction traceable.
-
----
+This makes the correction traceable without rewriting historical financial actions.
 
 ## Deletion Rules
 
-Financial records are not all treated equally.
-
-Pending or rejected records can be removable where appropriate.
-
-Approved and reversed records are protected from ordinary deletion because they form part of the financial history.
+Financial records are treated according to their state.
 
 ```text
 Pending  → deletion may be allowed
 Rejected → deletion may be allowed
-
 Approved → deletion blocked
 Reversed → deletion blocked
 ```
+
+Approved and reversed records remain part of the financial history and are protected from ordinary deletion.
 
 ---
 
 # How the Workflows Connect
 
-The important part of the platform is not any single module.
-
-It is the relationship between them.
+The platform's domains depend on one another.
 
 ```text
 Application
@@ -823,9 +673,7 @@ Fee Account     Course Registration
 Payment Operations
 ```
 
-A change in one domain can affect another.
-
-That is why the platform's business workflows are documented separately from individual pages and components.
+A change in one domain can affect records and rules in another.
 
 ---
 
