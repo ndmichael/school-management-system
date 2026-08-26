@@ -1,74 +1,67 @@
 # System Architecture
 
-This document describes the high-level architecture of the Institutional Management Platform, how the major parts of the system interact, and where different types of business rules are enforced.
+This document describes how the Institutional Management Platform is structured, how its major domains interact, and where critical business rules are enforced.
 
-The platform manages several connected institutional domains:
+The platform covers several connected domains:
 
-- Admissions
-- Application review
+- Admissions and application review
 - Applicant-to-student conversion
 - Student records
-- Academic sessions
-- Programmes
-- Courses
-- Course offerings
-- Student registration
+- Academic sessions and registrations
+- Programmes and courses
+- Course offerings and course registration
 - Staff and access control
-- Finance and payments
+- Finance and payment operations
 
-Although these areas appear as separate modules in the interface, they share the same application, authentication, API, and database infrastructure.
+Although these appear as separate modules in the interface, they share the same application, authentication, authorization, database, and storage infrastructure.
 
-The architecture therefore focuses on keeping those workflows connected without allowing business rules to become scattered across the application.
+The main architectural goal is to keep business rules close to the layer that can enforce them reliably.
 
 ---
 
 ## Architecture Overview
 
-At a high level, the platform follows this structure:
+At a high level:
 
 ```text
-                    Users
-                      │
-                      ▼
-             Next.js Application
-                      │
-          ┌───────────┴───────────┐
-          │                       │
-          ▼                       ▼
-      UI / Pages           Authentication
-                                  │
-                                  ▼
-                           Authorization
-                                  │
-                                  ▼
-                              API Layer
-                                  │
-                                  ▼
-                         Business Workflows
-                                  │
-             ┌────────────────────┼────────────────────┐
-             │                    │                    │
-             ▼                    ▼                    ▼
-       PostgreSQL /          Supabase Auth       Supabase Storage
-         Supabase
-             │
-      ┌──────┼─────────┐
-      │      │         │
-      ▼      ▼         ▼
-Constraints RPCs    Audit Data
+Users
+  │
+  ▼
+Next.js Application
+  │
+  ├── UI / Dashboards
+  │
+  ├── API Routes / Server-side Operations
+  │
+  └── Supabase Client Access where appropriate
+          │
+          ▼
+Authentication / Authorization
+          │
+          ▼
+Business Workflows
+          │
+   ┌──────┼───────────────┐
+   ▼      ▼               ▼
+PostgreSQL / Supabase   Supabase Auth   Supabase Storage
+   │
+   ├── Constraints
+   ├── Indexes
+   ├── Functions / RPCs
+   ├── Transactions
+   ├── Row Locks
+   └── Audit Fields
 ```
-
-<!-- IMAGE PLACEHOLDER -->
 
 ![System Architecture](./assets/diagrams/system-architecture.png)
 
-The key idea is that not every rule belongs in the same layer.
+The application does not rely on one layer for every concern.
 
-Some rules improve the user experience.
-
-Some protect application access.
-
-Others protect the integrity of the data itself.
+- The frontend handles interaction and immediate feedback.
+- The server handles sensitive request boundaries and authorization.
+- PostgreSQL protects data invariants and multi-step transactional operations.
+- Supabase Auth provides authenticated user identity.
+- Storage holds uploaded documents and payment evidence.
 
 ---
 
@@ -81,66 +74,63 @@ The frontend is built with:
 - TypeScript
 - Tailwind CSS
 
-The frontend provides the different dashboards and workflows used by applicants, students, staff, reviewers, administrators, and finance personnel.
+It provides interfaces for applicants, students, staff, reviewers, administrators, and finance personnel.
 
-Its main responsibilities include:
+Its responsibilities include:
 
-- Rendering application state
-- Collecting user input
-- Performing basic client-side validation
-- Displaying role-specific interfaces
-- Calling server APIs
-- Presenting errors and workflow outcomes
+- Rendering role-specific dashboards
+- Collecting and validating user input
+- Loading workflow data
+- Submitting actions to server endpoints
+- Displaying validation errors and workflow outcomes
 
-The frontend is intentionally **not treated as the final security or business-rule layer**.
+The frontend is not treated as the final security boundary.
 
-A user hiding a button in the interface does not mean the underlying operation is secure.
-
-Critical rules still need to be enforced by the server or database.
+For example, hiding an **Approve Payment** button from an unauthorized user improves the interface, but it does not secure the operation. The server and database still need to reject an unauthorized request.
 
 ---
 
 # Application and API Layer
 
-Next.js API routes act as the main application boundary between the frontend and sensitive backend operations.
+Sensitive administrative and financial operations are handled through server-side application boundaries such as Next.js API routes.
 
-The API layer is responsible for things such as:
+A protected request typically follows this path:
+
+```text
+Request
+   ↓
+Validate Input
+   ↓
+Authenticate User
+   ↓
+Authorize Operation
+   ↓
+Execute Business Workflow
+   ↓
+Return Controlled Result
+```
+
+The API layer is responsible for:
 
 - Request validation
 - Authentication checks
 - Authorization checks
 - Input normalization
-- Calling database operations
-- Calling PostgreSQL RPCs
-- Returning controlled HTTP responses
+- Calling database queries or RPCs
+- Mapping database failures into controlled responses
 
-A typical protected workflow looks like:
+Simple reads or low-risk operations do not always require a PostgreSQL function.
 
-```text
-Frontend Request
-       │
-       ▼
-API Route
-       │
-       ▼
-Validate Input
-       │
-       ▼
-Authenticate User
-       │
-       ▼
-Authorize Operation
-       │
-       ▼
-Execute Business Logic
-       │
-       ▼
-Return Result
-```
+Multi-step operations that must succeed or fail as one unit are delegated to transactional PostgreSQL functions.
 
-For simple operations, the API may interact directly with the database.
+Examples include:
 
-For operations requiring multiple dependent writes, stronger consistency, or concurrency protection, the API delegates the critical work to PostgreSQL functions.
+- Applicant-to-student conversion
+- Student registration with fee-account creation
+- Payment review
+- Payment reversal
+
+Some client-side Supabase access still exists in the application. Sensitive operations should not depend on browser-supplied identity or browser-only authorization checks.
 
 ---
 
@@ -152,25 +142,33 @@ Authentication answers:
 
 > Who is making this request?
 
-The application verifies the authenticated user before allowing protected operations.
+For sensitive operations, the application derives the acting user from the authenticated session instead of trusting an ID supplied by the browser.
 
-This prevents the application from trusting user IDs supplied directly by the browser for sensitive actions.
-
-For example, when recording who reviewed a financial transaction, the reviewer identity should come from the authenticated session rather than from:
+For example, a payment review request should not be able to decide its own reviewer:
 
 ```json
 {
-  "reviewer_id": "some-user-id-from-the-browser"
+  "reviewer_id": "user-controlled-value"
 }
 ```
 
-The server determines the authenticated user and supplies that identity to the database operation.
+Instead:
+
+```text
+Authenticated Session
+        ↓
+Server Resolves User
+        ↓
+Reviewer Identity Passed to Database Operation
+```
+
+This prevents the client from impersonating another reviewer simply by changing a request payload.
 
 ---
 
 # Authorization
 
-Authentication and authorization are deliberately treated as separate concerns.
+Authentication and authorization are separate concerns.
 
 Authentication answers:
 
@@ -180,43 +178,38 @@ Authorization answers:
 
 > Are you allowed to perform this operation?
 
-Authorization can depend on more than a broad user role.
+Authorization can depend on more than the user's broad role.
 
-For example:
+For financial review, the relevant logic distinguishes between:
 
 ```text
 Authenticated User
-        │
-        ▼
-Profile / Main Role
-        │
-        ▼
+        ↓
+Profile Role
+        ↓
 Staff Record
-        │
-        ▼
-Unit / Responsibility
-        │
-        ▼
+        ↓
+Institutional Unit
+        ↓
 Allowed Operation
 ```
 
-This became important for workflows where a generic staff role would otherwise provide too much access.
+For example, payment review is restricted to administrators or authorized bursary personnel rather than every non-academic staff member.
 
-For example, financial review can be restricted to administrators and authorized bursary personnel rather than every non-academic staff member.
+The server returns different outcomes for different failures:
 
-<!-- IMAGE PLACEHOLDER -->
+```text
+Not authenticated → 401
+Authenticated but not allowed → 403
+```
 
-![Authorization Flow](./assets/diagrams/authorization-flow.png)
+More detail is covered in:
 
-More detail is documented in:
-
-[reliability-and-security.md](./reliability-and-security.md)
+[Reliability & Security →](./reliability-and-security.md)
 
 ---
 
 # Major Domain Boundaries
-
-The application is organized around several related business domains.
 
 ## Admissions
 
@@ -224,28 +217,52 @@ The admissions domain handles:
 
 - Applications
 - Applicant information
-- Documents
+- Supporting documents
 - Application review
 - Admission decisions
 - Duplicate-application protection
 
-The applicant remains separate from the active student domain until conversion occurs.
+An applicant remains separate from the active student domain until conversion occurs.
+
+A duplicate application is protected by the logical combination:
+
+```text
+NIN
++
+Programme
++
+Academic Session
+```
 
 ---
 
 ## Student Lifecycle
 
-The student domain begins after an accepted applicant has been converted.
+The student domain begins after an accepted application is converted.
 
-It handles:
+It includes:
 
-- Student records
+- Student record
+- Programme relationship
 - Matriculation information
-- Programme relationships
-- Academic-session registration
+- Academic-session registrations
 - Registration history
 
-This separation prevents admissions data and active student data from becoming the same concept.
+The important distinction is:
+
+```text
+Applicant ≠ Student
+```
+
+and:
+
+```text
+Student ≠ Student Session Registration
+```
+
+A student is a long-lived institutional record.
+
+A student registration represents that student's participation in one academic session.
 
 ---
 
@@ -254,39 +271,78 @@ This separation prevents admissions data and active student data from becoming t
 The academic domain includes:
 
 - Academic sessions
-- Semesters
+- Semester state
 - Programmes
 - Courses
 - Course offerings
 - Lecturer assignment
-- Course publication
-- Student course registration
+- Publication state
+- Student course enrolment
 
-One important architectural distinction is:
+Two distinctions are especially important.
+
+### Session vs Semester
+
+One `sessions` record represents the full academic year.
+
+```text
+2025/2026
+   │
+   ├── First Semester
+   └── Second Semester
+```
+
+A student registers once for the session.
+
+Course offerings remain semester-specific.
+
+### Course vs Course Offering
 
 ```text
 Course ≠ Course Offering
 ```
 
-A course describes the academic subject.
+A course is the permanent academic definition.
 
-A course offering describes when, where, and for whom that course is available.
+A course offering represents that course being made available for a specific:
+
+- Session
+- Semester
+- Programme
+- Level
+- Lecturer assignment
+
+This prevents the course catalogue from being duplicated every time the same course is taught again.
 
 ---
 
-## Staff & Access
+## Staff and Access Control
 
-The staff domain contains information required to determine institutional responsibilities.
+The staff domain contains the institutional information used by authorization rules.
 
 This includes:
 
 - Academic staff
 - Non-academic staff
 - Roles
-- Units / departments
-- Operational permissions
+- Units
+- Operational responsibility
 
-This domain works closely with authorization.
+A broad role alone is not always enough to authorize a sensitive operation.
+
+For example:
+
+```text
+non_academic_staff
+```
+
+does not automatically mean:
+
+```text
+can review payments
+```
+
+The staff member's institutional unit is also checked where required.
 
 ---
 
@@ -296,26 +352,36 @@ The finance domain includes:
 
 - Programme fee plans
 - Student fee accounts
-- Payment records
+- Payment receipts
 - Payment review
-- Account balances
-- Rejections
-- Reversals
-- Financial audit information
+- Rejection
+- Reversal
+- Balance recalculation
+- Financial audit fields
 
-Financial state is connected to the appropriate student academic registration rather than being treated as one lifetime balance.
+Financial state is tied to the student's academic registration.
+
+```text
+Student
+   ↓
+Student Registration
+   ↓
+Student Fee Account
+   ↓
+Payment Receipts
+```
+
+This keeps fees for different academic sessions separate instead of maintaining one lifetime student balance.
 
 ---
 
 # Database Layer
 
-PostgreSQL, accessed through Supabase, is the main persistence layer.
+PostgreSQL, accessed through Supabase, is the main source of truth for institutional data.
 
-The database is not treated only as a storage mechanism.
+The database is used for more than persistence.
 
-It also protects important business invariants.
-
-The platform uses database features including:
+It also enforces business invariants through:
 
 - Primary keys
 - Foreign keys
@@ -325,205 +391,318 @@ The platform uses database features including:
 - PostgreSQL functions
 - Transactions
 - Row locking
+- Audit fields
 
-The general principle is:
+The guiding rule is:
 
-> If breaking a rule would leave the system in an invalid state, that rule should not depend only on the frontend.
+> If breaking a rule would leave the platform in an invalid state, that rule should not depend only on the frontend.
 
 ---
 
 # Database Constraints
 
-Constraints provide the final line of protection for several important workflows.
+Application validation helps return useful messages.
 
-Examples include preventing duplicate logical records such as:
+Database constraints provide final protection against invalid state.
+
+Examples include:
+
+### Student registration
 
 ```text
-Student + Academic Session
+Student ID
++
+Session ID
 ```
 
-from appearing more than once.
+must be unique.
 
-Similar protection exists for workflows such as:
-
-- Applications
-- Student session registrations
-- Course enrolments
-- Student fee accounts
-
-This gives the application two levels of protection:
+### Course enrolment
 
 ```text
-Application validation
+Student ID
++
+Course Offering ID
+```
+
+must be unique.
+
+### Fee account
+
+A fee account belongs to a student registration and must not be duplicated for the same registration.
+
+### Application
+
+The same applicant should not create the same programme/session application more than once.
+
+```text
+NIN
++
+Programme
++
+Session
+```
+
+The pattern is:
+
+```text
+Application Validation
         +
-Database enforcement
+Database Enforcement
 ```
 
-The API can provide a useful error message.
+The application explains the failure.
 
 The database guarantees the invariant.
 
 ---
 
-# PostgreSQL RPCs and Transactional Workflows
+# Transactional PostgreSQL Functions
 
-Some workflows require several related database changes.
+Some business operations touch several related records.
 
-Examples include:
+Those operations are implemented as one database transaction when partial success would create an invalid state.
 
-- Applicant-to-student conversion
-- Student session registration
-- Fee-account creation
-- Payment review
-- Payment reversal
-
-These operations are stronger when executed as one database transaction.
-
-Conceptually:
+The general pattern is:
 
 ```text
 BEGIN
 
-Validate current state
-
-Lock required records
-
-Perform related inserts / updates
-
-Recalculate dependent state
-
-Write audit information
+Validate Current State
+        ↓
+Lock Shared State if Required
+        ↓
+Perform Related Inserts / Updates
+        ↓
+Recalculate Dependent State
+        ↓
+Write Audit Information
 
 COMMIT
 ```
 
-If an important step fails:
+If a required step fails:
 
 ```text
 ROLLBACK
 ```
 
-This prevents situations where one half of a business operation succeeds while another fails.
+## Applicant-to-Student Conversion
 
-For example:
+The conversion workflow creates or connects:
 
 ```text
-Student Registration Created ✅
-Fee Account Creation Failed ❌
+Accepted Application
+        ↓
+Profile
+        ↓
+Student
+        ↓
+Initial Student Registration
+        ↓
+Student Fee Account
 ```
 
-should not silently leave the platform in an inconsistent state when those records are expected to exist together.
+![Applicant to Student Conversion](./assets/diagrams/application-to-student-flow.png)
+
+These records represent one business action and should not be created independently in a way that leaves the applicant only partially converted.
+
+## Student Session Registration
+
+For an existing student:
+
+```text
+Student
+   ↓
+Target Session
+   ↓
+Validate No Existing Registration
+   ↓
+Find Programme Fee Plan
+   ↓
+Create Registration
+   ↓
+Create Fee Account
+```
+
+The registration and fee account belong to the same logical operation.
+
+![Registration Data Model](./assets/diagrams/registration-data-model.png)
 
 ---
 
 # Concurrency Control
 
-Some workflows can be triggered by multiple users at nearly the same time.
+Concurrency becomes important when two users can act on the same shared state at nearly the same time.
 
-Financial operations are a good example.
+Payment review is the clearest example.
 
-Where shared state must be protected, PostgreSQL row locking is used:
+The payment review function uses PostgreSQL row locking:
 
 ```sql
 SELECT ...
 FOR UPDATE;
 ```
 
-This allows one transaction to temporarily lock the relevant row while it completes its work.
+Conceptually:
 
-Another transaction attempting to modify the same state must wait.
+```text
+Reviewer A                     Reviewer B
+    │                              │
+    ▼                              ▼
+Lock Payment Row            Request Same Row
+    │                              │
+    ▼                              ▼
+Validate + Approve               Wait
+    │                              │
+    ▼                              │
+Recalculate Account               │
+    │                              │
+    ▼                              │
+Commit / Release Lock ────────────┘
+                                   ↓
+                           Re-read Current State
+```
 
-This protects against race conditions such as two reviewers independently approving the same payment based on the same previous balance.
+![Payment Concurrency Control](./assets/diagrams/payment-concurrency-control.png)
 
-Concurrency behaviour is documented more deeply in:
-
-[reliability-and-security.md](./reliability-and-security.md#race-condition-protection)
+This prevents two reviewers from independently approving the same payment based on the same stale account state.
 
 ---
 
 # Idempotency and Duplicate Protection
 
-Concurrency and idempotency solve different problems.
+Concurrency and idempotency address different failure modes.
 
 Concurrency asks:
 
-> What happens when multiple operations happen at the same time?
+> What happens when operations overlap in time?
 
 Idempotency asks:
 
-> What happens when the same logical operation happens more than once?
+> What happens when the same logical operation is repeated?
 
-The platform uses uniqueness rules and controlled conflict handling to protect important workflows from duplicate processing.
+The platform protects repeated operations through database uniqueness and state validation.
 
 Examples include:
 
 ```text
-Applicant + Programme + Session
+NIN + Programme + Session
 ```
 
-and:
+for applications, and:
 
 ```text
-Student + Academic Session
+Student + Session
 ```
 
-The goal is that repeating the same logical operation does not create multiple copies of the same business record.
+for academic registration.
+
+For future external payment-gateway integration, a provider transaction or event identifier should also be stored uniquely so a retried webhook cannot create the same financial event twice.
+
+---
+
+# Financial State and Recalculation
+
+The platform does not treat the fee-account totals as blindly incremented counters.
+
+When a payment is approved or reversed, the approved financial total is recalculated from payment records that remain in the approved state.
+
+```text
+Approved Payment Records
+        ↓
+SUM(approved amounts)
+        ↓
+Approved Paid
+        ↓
+Outstanding Balance
+        ↓
+Payment Status
+```
+
+This reduces the risk of account totals drifting away from the underlying payment history.
+
+The current workflow also rejects overpayment rather than introducing a credit balance.
+
+Supporting credits, refunds, or carry-forward balances would require a broader financial model.
+
+![Payment Processing Flow](./assets/diagrams/payment-processing-flow.png)
+
+---
+
+# Payment Reversal and Auditability
+
+Approved financial history is not corrected by deleting or rewriting the original approval.
+
+Instead:
+
+```text
+Approved Payment
+       ↓
+Reversal Requested
+       ↓
+Record Reversal Actor / Time / Reason
+       ↓
+Mark Payment Reversed
+       ↓
+Recalculate Approved Total
+       ↓
+Recalculate Balance
+```
+
+The original approval remains visible in the audit history.
+
+This makes the correction traceable and preserves the sequence of financial decisions.
 
 ---
 
 # Storage
 
-Supabase Storage is used for uploaded files associated with platform workflows.
-
-Examples can include:
+Supabase Storage is used for uploaded files such as:
 
 - Application documents
 - Supporting documents
-- Financial evidence / receipt files
+- Payment receipt evidence
 
-Storage access should follow the same principle as database access:
+Sensitive file access should not rely only on possession of a public URL.
 
-> Possessing a URL should not automatically mean someone is allowed to access a sensitive institutional file.
+Server-controlled access and storage policies are the preferred direction for documents that contain private institutional information.
 
-For sensitive files, server-controlled access and appropriate storage policies are preferred over exposing unrestricted public URLs.
+Storage access remains an area where access policy should be reviewed carefully when hardening the platform.
 
 ---
 
 # Redis
 
-Redis is available as a supporting infrastructure component.
+Redis is a supporting infrastructure component rather than a source of truth.
 
-Its role should remain separate from the system's permanent business state.
+PostgreSQL remains authoritative for academic, student, and financial records.
 
-PostgreSQL remains the source of truth for institutional records.
-
-Redis is better suited to temporary or performance-oriented concerns such as:
+Redis is appropriate for temporary or performance-oriented concerns such as:
 
 - Caching
 - Short-lived state
-- Background processing coordination
 - Rate limiting
-- Queue-related workloads
+- Queue coordination
+- Background-job coordination
 
-The system should not rely on Redis as the authoritative store for important institutional or financial records.
+Important institutional records should not depend on Redis for permanent correctness.
 
 ---
 
 # Where Business Rules Live
 
-One of the most important architectural lessons from this project was deciding **where a rule belongs**.
+The platform uses different layers for different kinds of rules.
 
-I generally think about the layers like this:
-
-| Layer | Responsibility |
+| Layer | Primary Responsibility |
 |---|---|
-| Frontend | User experience and immediate feedback |
-| API | Request validation, authentication, authorization |
-| Database | Data integrity and invariants |
-| RPC / Transaction | Multi-step business operations requiring atomicity |
-| Storage policies | File-access boundaries |
+| Frontend | Interaction, feedback, basic input validation |
+| API / Server | Request validation, authentication, authorization |
+| Database | Data integrity, relationships, uniqueness, invariants |
+| Transactional RPC | Multi-step operations that require atomicity or row locking |
+| Storage Policy | File-access boundaries |
 
-For example:
+Examples:
 
 ### Frontend
 
@@ -531,13 +710,13 @@ For example:
 "This field is required."
 ```
 
-### API
+### API / Server
 
 ```text
 "This user is not authorized to review payments."
 ```
 
-### Database constraint
+### Database Constraint
 
 ```text
 "A student cannot have two registrations for the same session."
@@ -546,133 +725,22 @@ For example:
 ### Transactional RPC
 
 ```text
-"Approve payment and update the financial account as one atomic operation."
+"Approve the payment and update the related financial state as one operation."
 ```
 
-Keeping these responsibilities clear makes the system easier to reason about.
+The purpose is not to move every rule into PostgreSQL.
 
----
-
-# Example: Applicant → Student Architecture
-
-The applicant-conversion workflow crosses several domains.
-
-```text
-Application
-     │
-     ▼
-Admission Decision
-     │
-     ▼
-Conversion Workflow
-     │
-     ├────────► Profile
-     │
-     ├────────► Student
-     │
-     ├────────► Student Registration
-     │
-     └────────► Fee Account
-```
-
-<!-- IMAGE PLACEHOLDER -->
-
-![Applicant Conversion Architecture](./assets/diagrams/applicant-conversion.png)
-
-Because these records are related, conversion should be handled as a business workflow rather than allowing each record to be created independently.
-
----
-
-# Example: Academic Architecture
-
-The academic structure separates permanent records from period-specific records.
-
-```text
-Programme
-     │
-     ▼
-Course
-     │
-     ▼
-Course Offering
-     │
-     ├── Academic Session
-     ├── Semester
-     ├── Level
-     ├── Programme
-     └── Lecturer
-             │
-             ▼
-      Student Course Registration
-```
-
-<!-- IMAGE PLACEHOLDER -->
-
-![Academic Architecture](./assets/diagrams/academic-architecture.png)
-
-This separation allows a course to exist independently from the semester in which it is offered.
-
----
-
-# Example: Financial Architecture
-
-Financial state is connected to the student's academic registration.
-
-```text
-Programme Fee Plan
-        │
-        ▼
-Student Registration
-        │
-        ▼
-Student Fee Account
-        │
-        ▼
-Payment Events
-        │
-        ▼
-Validation / Review
-        │
-        ▼
-Approved Financial State
-        │
-        ├── Balance
-        ├── Payment Status
-        └── Audit History
-```
-
-If an approved financial event needs correction:
-
-```text
-Approved Payment
-       │
-       ▼
-Controlled Reversal
-       │
-       ▼
-Account Recalculation
-       │
-       ▼
-History Preserved
-```
-
-<!-- IMAGE PLACEHOLDER -->
-
-![Financial Architecture](./assets/diagrams/financial-architecture.png)
+The purpose is to place each rule in the layer that can enforce it reliably.
 
 ---
 
 # Architectural Principles
 
-A few principles became increasingly important while reviewing the platform.
+## 1. Model the workflow before changing the implementation
 
-## 1. Understand the workflow before changing the code
+A technically clean implementation can still encode the wrong institutional rule.
 
-A technically clean implementation can still encode the wrong business rule.
-
----
-
-## 2. Keep permanent concepts separate from period-specific concepts
+## 2. Separate permanent records from period-specific records
 
 Examples:
 
@@ -690,78 +758,68 @@ vs
 Student Session Registration
 ```
 
----
+## 3. Protect critical invariants at the database level
 
-## 3. Protect invariants at the database level
+Frontend validation is useful, but it should not be the only protection against invalid data.
 
-The frontend should not be the only thing preventing invalid data.
+## 4. Use transactions for operations the business considers atomic
 
----
+If several database writes represent one business action, partial success should not be an acceptable result.
 
-## 4. Use transactions when several writes represent one action
+## 5. Treat authorization as a business concern
 
-If the business sees several database updates as one operation, the database should usually treat them that way too.
+Being authenticated is not the same as being allowed to perform an institutional action.
 
----
+## 6. Design explicitly for failure paths
 
-## 5. Treat authorization as part of the architecture
+The system should have defined behaviour when:
 
-Security is not only about whether a user is logged in.
-
-The system also needs to understand their institutional responsibility.
-
----
-
-## 6. Design for failure paths
-
-The system should have clear behaviour when:
-
-- requests are repeated
-- records already exist
-- configuration is missing
-- concurrent operations occur
-- part of an operation fails
-- a financial correction is needed
-
----
+- A request is repeated
+- A record already exists
+- Required configuration is missing
+- Two users act concurrently
+- A multi-step operation fails
+- An approved financial action needs correction
 
 ## 7. Preserve important history
 
-Especially for financial and approval workflows, correcting a mistake should not require destroying the record of what happened.
+Especially in financial and approval workflows, correcting a mistake should not require destroying the record of what originally happened.
 
 ---
 
 # Architecture Trade-offs
 
-The platform does not try to move every piece of logic into PostgreSQL.
+The architecture does not move every business rule into PostgreSQL.
 
-That would make the application unnecessarily difficult to maintain.
+Doing so would make ordinary application logic unnecessarily difficult to maintain.
 
-Likewise, keeping every business rule inside React or API routes would leave important invariants too easy to bypass.
+It also does not keep every rule inside React or API routes, because application-layer checks alone cannot guarantee database consistency.
 
-The architecture therefore uses a combination:
+The responsibility is split deliberately:
 
 ```text
-UI
-for interaction
+Frontend
+→ interaction and immediate feedback
 
-API
-for application boundaries and authorization
+API / Server
+→ application boundaries and authorization
 
 PostgreSQL
-for data integrity
+→ data integrity and invariants
 
-RPCs
-for atomic business operations
+Transactional RPCs
+→ atomic multi-step operations and concurrency control
 ```
 
-The trade-off is additional architectural complexity, but the benefit is clearer ownership of important rules and stronger protection against inconsistent state.
+This adds some architectural complexity.
+
+The trade-off is accepted because the platform gains stronger consistency, clearer ownership of critical rules, and more predictable behaviour when operations fail or overlap.
 
 ---
 
 # Related Documentation
 
-For the actual business workflows:
+For the business workflows:
 
 [Core Workflows →](./workflows.md)
 
@@ -769,9 +827,8 @@ For security, concurrency, idempotency, transactions, and auditability:
 
 [Reliability & Security →](./reliability-and-security.md)
 
-For deeper engineering stories:
+For deeper engineering examples:
 
 - [Platform Hardening Case Study](./case-studies/platform-hardening.md)
 - [Registration Integrity Case Study](./case-studies/registration-integrity.md)
 - [Financial Workflow Case Study](./case-studies/financial-workflow.md)
-
