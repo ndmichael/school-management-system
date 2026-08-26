@@ -1,30 +1,28 @@
 # Reliability & Security
 
-This document covers the cross-cutting decisions I made while hardening the Institutional Management Platform.
+This document explains the cross-cutting reliability and security decisions used to harden the Institutional Management Platform.
 
-The individual workflows are documented separately in [`workflows.md`](./workflows.md). This document focuses on the rules and protections that apply across those workflows.
+The individual business workflows are documented in [Core Workflows](./workflows.md). This document focuses on the protections that apply across those workflows: authentication, authorization, validation, database constraints, transactions, concurrency control, idempotency, auditability, storage access, and failure handling.
 
-As I reviewed the platform, I stopped treating reliability as something that could be added at the end.
+The main lesson from the hardening work was simple:
 
-A feature can work perfectly during normal testing and still fail when:
+> A feature is not reliable just because the normal path works.
+
+The system also needs defined behaviour when:
 
 - the same request is submitted twice
 - two users act on the same record at the same time
-- one database write succeeds and another fails
-- an authenticated user performs an operation they should not have access to
-- related configuration is missing
+- one step in a multi-write operation fails
+- an authenticated user attempts an unauthorized action
+- required configuration is missing
 - a financial transaction needs correction
 - invalid state is sent directly to the backend
-
-The hardening work therefore focused on protecting the system at multiple layers.
 
 ---
 
 # Security Model
 
-The platform does not rely on a single security mechanism.
-
-Different layers protect different things:
+The platform uses several layers rather than relying on one control.
 
 ```text
 User
@@ -33,9 +31,9 @@ Authentication
  ↓
 Authorization
  ↓
-API Validation
+Request Validation
  ↓
-Business Rules
+Business-State Validation
  ↓
 Database Constraints
  ↓
@@ -44,29 +42,31 @@ Transactional Operations
 Audit History
 ```
 
-<!-- IMAGE PLACEHOLDER -->
+Each layer solves a different problem.
 
-![Security and Reliability Layers](./assets/diagrams/security-layers.png)
+- Authentication establishes identity.
+- Authorization decides whether that identity can perform the operation.
+- API validation rejects malformed or unsupported requests.
+- Database constraints prevent invalid persistent state.
+- Transactions protect multi-step operations from partial success.
+- Row locks protect shared state during concurrent operations.
+- Audit fields preserve who changed sensitive state and when.
 
-The main idea is that no single layer should be expected to solve every problem.
+The platform does not assume that one of these layers can replace the others.
 
 ---
 
-# Authentication and Authorization
+# Authentication
 
-One of the important distinctions I made during the review was separating **authentication** from **authorization**.
-
-## Authentication
+Authentication is handled through Supabase Auth.
 
 Authentication answers:
 
 > Who is making this request?
 
-The platform uses Supabase Auth to identify the current user.
+For sensitive server-side operations, the acting user is resolved from the authenticated session rather than from a user ID supplied by the client.
 
-For protected server operations, the authenticated identity is resolved from the session rather than trusting an identity supplied by the frontend.
-
-For example, a financial-review request should not accept this as the source of truth:
+A request should not be trusted simply because it contains:
 
 ```json
 {
@@ -74,53 +74,55 @@ For example, a financial-review request should not accept this as the source of 
 }
 ```
 
-A malicious client could change that value.
+The client controls that payload and can modify it.
 
-Instead:
+The safer flow is:
 
 ```text
 Request
    ↓
 Authenticated Session
    ↓
-Server resolves user ID
+Server Resolves User
    ↓
-User ID used for audit information
+Resolved Identity Used for Audit / Authorization
 ```
 
-The server therefore controls the identity associated with sensitive actions.
+This is especially important for operations such as payment review and payment reversal.
 
 ---
 
-## Authorization
+# Authorization
 
-Authorization answers a different question:
+Authentication and authorization are deliberately separate.
 
-> Is this authenticated user allowed to perform this action?
+Authentication asks:
 
-A broad role is not always enough.
+> Who are you?
 
-For example, the original financial-review authorization allowed any non-academic staff member to access the workflow.
+Authorization asks:
 
-That was too broad.
+> Are you allowed to perform this operation?
 
-The authorization flow was tightened to consider institutional responsibility:
+A broad role is not always sufficient.
+
+The financial review workflow is a concrete example.
+
+Earlier access rules were too broad because a generic non-academic staff role could reach financial review actions. The authorization rule was tightened to consider the staff member's institutional responsibility.
 
 ```text
 Authenticated User
         ↓
-Profile
-        ↓
-Main Role
+Profile Role
         ↓
 Staff Record
         ↓
-Unit / Responsibility
+Institutional Unit
         ↓
 Allowed Operation
 ```
 
-For payment review, the relevant user must be:
+For payment review, the accepted authorization path is:
 
 ```text
 Administrator
@@ -132,7 +134,7 @@ Non-Academic Staff
 Bursary Unit
 ```
 
-This means:
+So:
 
 ```text
 Logged in ≠ Authorized
@@ -144,50 +146,29 @@ and:
 Staff ≠ Authorized for every staff operation
 ```
 
-<!-- IMAGE PLACEHOLDER: authorization guard -->
-
-![Authorization Guard](./assets/screenshots/authorization-guard.png)
-
----
-
 ## 401 vs 403
 
-I also keep authentication and authorization failures distinct.
-
-### 401 Unauthorized
-
-The system cannot establish a valid authenticated identity.
+The API keeps authentication and authorization failures distinct.
 
 ```text
-Who are you?
-→ Unknown
+401
+→ no valid authenticated identity
+
+403
+→ authenticated identity exists, but the action is not permitted
 ```
 
-### 403 Forbidden
-
-The system knows who the user is, but they are not allowed to perform the requested operation.
-
-```text
-Who are you?
-→ Known
-
-Can you do this?
-→ No
-```
-
-That distinction makes both the API behaviour and debugging clearer.
+This makes failures easier to reason about and prevents access control from being reduced to a single generic error.
 
 ---
 
 # Validation at Multiple Layers
 
-Validation exists at several levels.
-
-Each level has a different purpose.
+Validation exists at different levels for different reasons.
 
 ## Frontend Validation
 
-Frontend validation exists mainly for user experience.
+Frontend validation mainly improves user experience.
 
 Examples:
 
@@ -197,29 +178,21 @@ Invalid input format
 Empty reversal reason
 ```
 
-The goal is to give the user immediate feedback.
-
-However, frontend validation is never treated as the final authority.
-
-A client can be modified or bypassed.
-
----
+It provides immediate feedback, but it is not treated as the final authority because browser-side logic can be modified or bypassed.
 
 ## API Validation
 
-The API validates the shape and intent of the request.
+The server validates the request before sensitive database logic runs.
 
 Examples include:
 
 - UUID format
+- required request fields
 - allowed actions
-- required rejection reasons
-- required reversal reasons
-- request-body structure
-
-The API can therefore reject malformed requests before they reach sensitive database logic.
-
----
+- rejection reason requirements
+- reversal reason requirements
+- authenticated user presence
+- authorization for the requested operation
 
 ## Database Validation
 
@@ -227,97 +200,87 @@ The database protects the final state.
 
 Examples include:
 
-- unique registrations
+- one student registration per student/session
+- one fee account per student registration
+- one course enrolment per student/course offering
+- valid foreign-key relationships
 - valid payment states
 - valid financial amounts
-- required foreign-key relationships
-- one fee account per student registration
 
-The model I use is:
+The model is:
 
 ```text
 Frontend
-→ Friendly validation
+→ friendly feedback
 
-API
-→ Request and authorization validation
+API / Server
+→ request, authentication, and authorization checks
 
 Database
-→ Final integrity protection
+→ final integrity guarantees
 ```
 
 ---
 
 # Database Constraints
 
-One of the biggest changes in my thinking during the project was treating database constraints as part of application design.
+Database constraints are part of the application design, not just schema decoration.
 
-The database is not just where the application stores information.
+They protect invariants even when the request does not pass through the expected UI.
 
-It can also guarantee that certain invalid states cannot exist.
+## Application Uniqueness
 
----
-
-## Unique Constraints
-
-Unique constraints are used where a business record should logically exist only once.
-
-Examples include:
-
-### Application uniqueness
+The same admission request should not be created more than once.
 
 ```text
-Applicant Identity
+NIN
 +
 Programme
 +
 Academic Session
 ```
 
-This protects against duplicate applications for the same logical admission request.
+## Student Session Registration
 
----
-
-### Student session registration
+A student is registered once per academic session.
 
 ```text
-Student
+Student ID
 +
-Academic Session
+Session ID
 ```
 
-A student should not be registered twice for the same academic year.
+## Student Fee Account
 
----
-
-### Student fee account
+A student registration has one fee account.
 
 ```text
 Student Registration
-→ One Fee Account
+        ↓
+One Fee Account
 ```
 
-A unique constraint on the registration relationship protects against duplicate fee accounts.
+## Course Enrolment
 
----
+The same student should not be enrolled more than once in the same course offering.
 
-### Course enrolment
+```text
+Student ID
++
+Course Offering ID
+```
 
-The same student should not be enrolled repeatedly into the same course offering.
+## Financial Check Constraints
 
----
+Financial records also need valid values and states.
 
-## Check Constraints
-
-Check constraints protect valid state inside individual records.
-
-For financial records, examples include:
+Examples include:
 
 ```text
 amount > 0
 ```
 
-and restricting status values to known states such as:
+and known status values such as:
 
 ```text
 pending
@@ -326,104 +289,81 @@ rejected
 reversed
 ```
 
-They can also protect state-specific rules.
+Where state-specific audit requirements are enforced, the database should reject combinations that do not make sense.
 
-For example:
+The principle is:
 
-```text
-Approved
-→ approved amount must exist
-→ verifier must exist
-→ verified timestamp must exist
-```
-
-while:
-
-```text
-Rejected
-→ approved amount must not exist
-→ rejection audit data must exist
-```
-
-This prevents impossible combinations from being stored accidentally.
+> The API explains the rule. The database guarantees the invariant.
 
 ---
 
 # Transactional Operations
 
-Some workflows involve several database changes that together represent **one business operation**.
+Some actions involve several related writes that represent one business operation.
 
-These should not be handled as unrelated requests.
-
-For example, approving a payment can involve:
+For example, payment approval can require:
 
 ```text
-Update payment
-+
-Recalculate approved total
-+
-Update balance
-+
+Validate payment state
+        ↓
 Update payment status
-+
-Record reviewer information
+        ↓
+Recalculate approved total
+        ↓
+Update account balance
+        ↓
+Update account payment status
+        ↓
+Write reviewer audit fields
 ```
 
-If these happen independently, this failure is possible:
+If those steps happen as unrelated requests, partial failure can leave the platform inconsistent.
+
+Example:
 
 ```text
 Payment marked approved ✅
-
 Account balance update fails ❌
 ```
 
-The database is now inconsistent.
-
----
+That is not an acceptable final state.
 
 ## Atomicity
 
-Critical workflows are therefore handled transactionally.
-
-Conceptually:
+Critical multi-step workflows are therefore executed transactionally.
 
 ```text
 BEGIN
 
-Validate current state
-
-Lock required records
-
-Perform related changes
-
-Recalculate dependent values
-
-Write audit information
+Validate Current State
+        ↓
+Lock Shared State if Required
+        ↓
+Perform Related Changes
+        ↓
+Recalculate Dependent Values
+        ↓
+Write Audit Data
 
 COMMIT
 ```
 
-If any required step fails:
+If a required step fails:
 
 ```text
 ROLLBACK
 ```
 
-The business operation either completes or does not happen.
-
-That is atomicity.
-
----
+The business operation either completes or does not.
 
 ## PostgreSQL Functions / RPCs
 
-For workflows requiring strong transactional behaviour, important logic is placed inside PostgreSQL functions.
+Transactional PostgreSQL functions are used where strong consistency is more important than keeping the entire workflow in application code.
 
 Examples include:
 
-- applicant conversion
-- session registration
-- fee-account creation
+- applicant-to-student conversion
+- session registration with fee-account creation
 - payment review
 - payment reversal
 
@@ -431,23 +371,25 @@ The API remains responsible for:
 
 ```text
 Authentication
+        ↓
 Authorization
-Request validation
-Calling the operation
-Returning an HTTP response
+        ↓
+Request Validation
+        ↓
+Call Transactional Operation
+        ↓
+Return Controlled Response
 ```
 
-while the database function controls the atomic data changes.
-
-This avoids implementing one financial operation as several independent database calls.
+The database function controls the atomic data changes.
 
 ---
 
 # Race Condition Protection
 
-Transactions alone do not automatically solve every concurrency problem.
+Transactions do not automatically solve every concurrency problem.
 
-A race condition occurs when multiple operations interact with the same state at nearly the same time and the result depends on execution order.
+A race condition occurs when multiple operations interact with the same state at nearly the same time and the final result depends on execution order.
 
 For example:
 
@@ -455,234 +397,167 @@ For example:
 Remaining Balance = 1,000
 ```
 
-Two reviewers process financial events at almost the same moment.
+Two reviewers may both read that value before either transaction updates it.
 
-Both could read:
-
-```text
-Balance = 1,000
-```
-
-before either one updates it.
-
-Without concurrency protection, they could each calculate a new balance from the same old value.
-
----
+Without concurrency control, both operations could make decisions based on the same stale state.
 
 ## Row Locking
 
-For important shared state, PostgreSQL row locking is used:
+For sensitive shared state, PostgreSQL row locking is used:
 
 ```sql
 SELECT ...
 FOR UPDATE;
 ```
 
-This means:
-
-```text
-Transaction A
-→ locks row
-
-Transaction B
-→ attempts same row
-→ waits
-
-Transaction A
-→ completes
-
-Transaction B
-→ continues using the new state
-```
-
-This became particularly important in payment review.
-
-The workflow can lock:
-
-- the payment record
-- the related fee account
-
-before changing financial state.
-
-<!-- IMAGE PLACEHOLDER -->
-
-![Row Locking](./assets/diagrams/row-locking.png)
-
----
-
-## Why the Lock Happens Inside the Database
-
-Trying to solve this only in the frontend would not be enough.
-
-For example:
-
-```text
-Disable Approve Button
-```
-
-might stop one user from clicking twice.
-
-It does not stop:
-
-```text
-Reviewer A on Computer 1
-
-and
-
-Reviewer B on Computer 2
-```
-
-from submitting at nearly the same time.
-
-Concurrency protection therefore belongs closer to the shared state itself.
-
----
-
-# Idempotency
-
-Idempotency is related to concurrency but solves a different problem.
-
-Race-condition protection asks:
-
-> What happens when multiple operations happen at the same time?
-
-Idempotency asks:
-
-> What happens when the same logical operation happens more than once?
-
-For example:
-
-```text
-User submits request
-        ↓
-Network timeout
-        ↓
-User retries
-```
-
-The system may receive the same logical request twice.
-
----
-
-## Database Uniqueness as Idempotency Protection
-
-Several platform workflows use business-level uniqueness to prevent repeated logical operations from creating duplicate records.
-
-Examples include:
-
-```text
-Applicant + Programme + Session
-```
-
-```text
-Student + Academic Session
-```
-
-```text
-Student + Course Offering
-```
-
-The database therefore protects the logical identity of the operation.
-
----
-
-## Payment Gateway Idempotency
-
-For payment-gateway integrations, the same principle would normally be applied using a unique provider transaction or event identifier.
-
 Conceptually:
 
 ```text
-Gateway Event
-     ↓
-Transaction Reference
-     ↓
-Already Processed?
-   ↙          ↘
- Yes          No
- ↓            ↓
-Return       Process
-Existing     Payment
-Result
+Reviewer A                     Reviewer B
+    │                              │
+    ▼                              ▼
+Lock Payment / Account       Request Same State
+    │                              │
+    ▼                              ▼
+Validate Current State             Wait
+    │                              │
+    ▼                              │
+Apply Changes                      │
+    │                              │
+    ▼                              │
+Commit / Release Lock ─────────────┘
+                                   ↓
+                           Re-read Current State
 ```
 
-A unique gateway reference prevents the same external financial event from being processed twice.
+![Payment Concurrency Control](./assets/diagrams/payment-concurrency-control.png)
 
-This becomes especially important because payment providers can legitimately retry webhook delivery.
+The lock is held inside the database because the database is where the shared state actually lives.
+
+Disabling a button in the frontend can prevent one user's accidental double-click, but it cannot stop two reviewers on different devices from submitting at nearly the same time.
 
 ---
 
 # Race Conditions vs Idempotency
 
-The difference can be summarized as:
+Race conditions and idempotency solve different problems.
 
 | Problem | Race Condition | Idempotency |
 |---|---|---|
-| Main concern | Concurrent operations | Repeated operation |
-| Example | Two reviewers approve simultaneously | Same payment webhook arrives twice |
+| Main concern | Concurrent operations | Repeated logical operation |
+| Example | Two reviewers process the same payment at once | The same request is retried |
 | Risk | Incorrect shared state | Duplicate processing |
-| Typical protection | Locks / concurrency control | Unique keys / idempotency keys |
-| Can happen together? | Yes | Yes |
+| Typical protection | Row locks / state checks | Unique constraints / idempotency keys |
+| Can both occur? | Yes | Yes |
 
-A reliable system may need both protections for the same workflow.
+A reliable workflow may need both.
+
+---
+
+# Idempotency and Duplicate Protection
+
+Idempotency asks:
+
+> What should happen when the same logical action is repeated?
+
+The platform currently relies on business-level uniqueness and state validation for several important workflows.
+
+Examples:
+
+```text
+NIN + Programme + Session
+```
+
+for applications,
+
+```text
+Student + Session
+```
+
+for academic registration, and
+
+```text
+Student + Course Offering
+```
+
+for course enrolment.
+
+This prevents repeated requests from creating duplicate business records.
+
+## Future Payment Gateway Idempotency
+
+External payment providers may retry events or webhook delivery.
+
+If a gateway is integrated later, the provider's transaction or event identifier should be stored with a unique constraint.
+
+```text
+Gateway Event
+     ↓
+Provider Transaction ID
+     ↓
+Already Processed?
+   ↙             ↘
+ Yes             No
+ ↓               ↓
+Return         Process
+Existing       Event
+Result
+```
+
+This is a future integration requirement, not a claim that gateway webhook processing is already implemented.
 
 ---
 
 # Financial State as Derived Data
 
-Another important decision was not blindly trusting stored financial totals.
+The platform does not treat stored financial totals as values that should be blindly incremented forever.
 
-Approved payment records represent the underlying financial events.
+Approved payment records are the underlying financial events.
 
-Values such as:
-
-```text
-total_paid_approved
-balance_due
-payment_status
-```
-
-are summaries of that underlying state.
-
-For important payment operations, approved totals can be recalculated from the currently approved payments rather than simply doing:
+Summary values such as:
 
 ```text
-old_total + new_payment
+Approved Paid
+Balance Due
+Payment Status
 ```
 
-This provides stronger protection against stale or inconsistent summary values.
+are derived from that history.
 
-Conceptually:
+For payment approval and reversal, the approved total is recalculated from payments that remain in the approved state.
 
 ```text
 Approved Payments
        ↓
-SUM(approved_amount)
+SUM(approved amounts)
        ↓
-Approved Total
+Approved Paid
        ↓
-Annual Fee - Approved Total
+Annual Fee - Approved Paid
        ↓
 Balance Due
+       ↓
+Payment Status
 ```
 
-The transaction records remain the stronger source of truth.
+This reduces the risk of stored totals drifting away from the payment history.
+
+![Payment Processing Flow](./assets/diagrams/payment-processing-flow.png)
 
 ---
 
 # Overpayment Protection
 
-The current financial workflow does not allow an approved payment to exceed the remaining balance.
+The current financial workflow does not support credit balances.
 
-For example:
+If:
 
 ```text
 Balance Due = 20,000
-
 Submitted Payment = 25,000
 ```
 
-The approval is rejected.
+the approval is rejected.
 
 Supporting overpayment properly would require additional business concepts such as:
 
@@ -690,32 +565,57 @@ Supporting overpayment properly would require additional business concepts such 
 - refunds
 - carry-forward rules
 - allocation rules
+- possibly a separate financial ledger model
 
-Rather than silently introducing those behaviours, the current workflow rejects the unsupported state.
+Rejecting overpayment is therefore a deliberate scope decision rather than silently introducing unsupported financial behaviour.
 
-This is a deliberate scope decision.
+---
+
+# Payment State Transitions
+
+Not every payment state can transition to every other state.
+
+The valid review path is:
+
+```text
+Pending
+  ├────────→ Approved
+  └────────→ Rejected
+
+Approved
+  ↓
+Reversed
+```
+
+Examples of invalid transitions include:
+
+```text
+Approved → Approved again
+Reversed → Reversed again
+Rejected → Approved through the original review action
+```
+
+The database operation validates the current state before changing it.
+
+This prevents an old or repeated request from silently applying a transition that is no longer valid.
 
 ---
 
 # Auditability
 
-Important workflows need more than a final status.
+Sensitive workflows need more than a final status.
 
-For sensitive actions, the system should be able to answer:
+The system should be able to answer:
 
 ```text
 Who performed this?
-
 When?
-
 Why?
-
-What happened before?
-
+What state did it come from?
 Was it later corrected?
 ```
 
-Financial records therefore preserve audit information such as:
+Financial records preserve audit fields such as:
 
 - `verified_by`
 - `verified_at`
@@ -726,16 +626,18 @@ Financial records therefore preserve audit information such as:
 - `reversed_at`
 - reversal reason
 
-The authenticated server-side user identity is used for these audit fields.
+The acting user is derived from the authenticated server-side identity for sensitive operations.
 
 ---
 
 # Controlled Reversal Instead of Deletion
 
-One of the strongest financial rules introduced during the hardening work was distinguishing between:
+An approved financial event should not disappear because it later needs correction.
+
+The platform distinguishes between:
 
 ```text
-Deleting an invalid record
+Removing a non-final record
 ```
 
 and:
@@ -744,30 +646,12 @@ and:
 Correcting historical financial state
 ```
 
-An approved payment should not simply disappear because someone made a mistake.
-
-Instead:
-
-```text
-Approved
-   ↓
-Correction Required
-   ↓
-Reversed
-```
-
-The original payment remains.
-
-The original approval remains.
-
-The reversal adds new history.
-
----
-
-## Reversal Flow
+Approved payments are corrected through reversal.
 
 ```text
 Approved Payment
+       ↓
+Correction Required
        ↓
 Validate Current State
        ↓
@@ -784,188 +668,42 @@ Recalculate Balance
 Store Reversal Audit
 ```
 
-<!-- IMAGE PLACEHOLDER -->
+The original payment remains.
 
-![Controlled Reversal](./assets/diagrams/payment-reversal.png)
+The original approval remains.
 
----
+The reversal adds new history.
 
 ## Deletion Rules
 
-Financial states are treated differently.
+Financial records are treated according to state.
 
 ```text
-Pending
-→ deletion can be allowed
-
-Rejected
-→ deletion can be allowed
-
-Approved
-→ ordinary deletion blocked
-
-Reversed
-→ ordinary deletion blocked
+Pending  → deletion may be allowed
+Rejected → deletion may be allowed
+Approved → ordinary deletion blocked
+Reversed → ordinary deletion blocked
 ```
 
-Approved and reversed records form part of the financial history.
+Approved and reversed records remain part of the financial history.
 
 ---
 
-# State Transitions
+# Server-Side Privileged Access
 
-Another hardening principle is that not every state should be able to transition to every other state.
+Sensitive administrative operations can require privileged Supabase access.
 
-For payment records:
-
-```text
-Pending
-  ├────────→ Approved
-  │
-  └────────→ Rejected
-
-Approved
-  ↓
-Reversed
-```
-
-Invalid operations are rejected.
-
-For example:
-
-```text
-Approved → Approved again
-```
-
-is not a valid review operation.
-
-Neither is:
-
-```text
-Reversed → Reversed again
-```
-
-The database functions validate the current state before performing the transition.
-
----
-
-# Server-Side Administrative Access
-
-Sensitive administrative operations use server-side database access.
-
-The Supabase service-role client is kept on the server and is never exposed through browser code or public environment variables.
-
-This matters because service-role access can bypass normal Row Level Security restrictions.
-
-The principle is:
+The service-role client belongs on the server and must never be exposed in browser code or a `NEXT_PUBLIC_...` environment variable.
 
 ```text
 Browser
-→ User-scoped access
+→ user-scoped access
 
 Server
-→ Privileged access where explicitly required
+→ privileged access where explicitly required
 ```
 
-Privileged server access must therefore be protected by authentication and authorization guards.
-
----
-
-# Row Level Security
-
-Row Level Security provides another database-level access boundary.
-
-RLS answers questions such as:
-
-> Which rows can this authenticated user read or modify?
-
-For example, a student-facing policy could conceptually restrict financial data to:
-
-```text
-Authenticated Student
-        ↓
-Own Student Record
-        ↓
-Own Registration
-        ↓
-Own Fee Account
-```
-
-rather than allowing access to every fee account.
-
----
-
-## Why RLS Should Not Be Enabled Blindly
-
-Enabling RLS without designing the policies first can immediately block legitimate application access.
-
-Likewise, enabling RLS while a client-side workflow still depends on unrestricted database access can break the application.
-
-The approach is therefore:
-
-```text
-Understand Current Access
-        ↓
-Move Sensitive Writes Behind Server APIs
-        ↓
-Define Policies
-        ↓
-Enable RLS
-        ↓
-Test Every Role
-```
-
-RLS complements API authorization.
-
-It does not replace it.
-
----
-
-# Storage Security
-
-Uploaded institutional documents can also contain sensitive information.
-
-The same access principles applied to database records should apply to files.
-
-For example:
-
-```text
-Application Document
-Financial Evidence
-Institutional Record
-```
-
-should not automatically become publicly accessible simply because a file URL exists.
-
-For sensitive files, the preferred direction is:
-
-```text
-Private Bucket
-      ↓
-Authorized Request
-      ↓
-Signed / Controlled Access
-```
-
-rather than permanent unrestricted public URLs.
-
----
-
-# Service Role Safety
-
-The service-role key is highly privileged.
-
-It should never appear in:
-
-```text
-NEXT_PUBLIC_...
-```
-
-or any client-side bundle.
-
-Service-role operations belong on the server.
-
-A server route using privileged access should first perform:
+Because the service role can bypass normal Row Level Security restrictions, a privileged route must first perform:
 
 ```text
 Authenticate
@@ -977,220 +715,263 @@ Validate
 Privileged Database Operation
 ```
 
-Privileged database access without authorization would simply move the security problem from the browser to the server.
+Moving privileged access to the server does not remove the need for authorization.
+
+---
+
+# Row Level Security
+
+Row Level Security can provide an additional database-level access boundary.
+
+For example, a student-facing policy could restrict financial access to:
+
+```text
+Authenticated Student
+        ↓
+Own Student Record
+        ↓
+Own Registration
+        ↓
+Own Fee Account
+```
+
+However, RLS coverage should not be described as complete where the current application still depends on client-side Supabase access or unrestricted policies.
+
+## Why RLS Should Not Be Enabled Blindly
+
+Enabling RLS before understanding the application's access paths can break legitimate workflows.
+
+A safer hardening sequence is:
+
+```text
+Understand Current Access Paths
+        ↓
+Move Sensitive Writes Behind Server APIs
+        ↓
+Define Policies
+        ↓
+Enable / Tighten RLS
+        ↓
+Test Every Role
+```
+
+RLS complements server-side authorization.
+
+It does not replace it.
+
+Full RLS coverage remains part of the platform's ongoing security hardening.
+
+---
+
+# Storage Security
+
+Uploaded files can contain sensitive institutional information.
+
+Examples include:
+
+- application documents
+- supporting documents
+- payment receipt evidence
+
+Possessing a file URL should not automatically grant access to a sensitive document.
+
+The preferred model for sensitive files is:
+
+```text
+Private Storage
+      ↓
+Authorized Request
+      ↓
+Signed / Controlled Access
+```
+
+rather than unrestricted public URLs.
+
+Storage policy remains an area that should continue to be reviewed as the platform is hardened.
 
 ---
 
 # Failure Cases Considered
 
-During the hardening review, I deliberately looked beyond the normal success path.
+Reliability work focused on failure paths, not only normal success cases.
 
-Some examples include:
-
-## Duplicate application
+## Duplicate Application
 
 ```text
-Same applicant
-Same programme
-Same session
+Same NIN
+Same Programme
+Same Session
 → duplicate rejected
 ```
 
----
-
-## Duplicate session registration
+## Duplicate Session Registration
 
 ```text
-Same student
-Same academic session
+Same Student
+Same Session
 → duplicate rejected
 ```
 
----
-
-## Missing fee plan during single registration
+## Missing Fee Plan During Single Registration
 
 ```text
-Fee plan missing
+Fee Plan Missing
 → registration fails
 → incomplete fee state avoided
 ```
 
----
-
-## Missing fee plan during bulk registration
+## Missing Fee Plan During Bulk Registration
 
 ```text
-Student skipped
-→ reason recorded
+Affected Student
+→ skipped
+→ reason returned
 → remaining valid students continue
 ```
 
----
-
-## Partial payment approval failure
+## Partial Payment Approval Failure
 
 ```text
-Receipt update succeeds
+Payment update succeeds
 Account update fails
 ```
 
-Prevented by making the workflow transactional.
+Prevented by keeping the financial review workflow inside one transaction.
 
----
-
-## Concurrent payment review
+## Concurrent Payment Review
 
 ```text
 Reviewer A
 +
 Reviewer B
-→ same payment
+→ same shared payment/account state
 ```
 
-Protected through database row locking and state validation.
+Protected through row locking and state validation.
 
----
-
-## Repeated approval
+## Repeated Approval
 
 ```text
-Approved payment
+Approved Payment
 → approve again
 ```
 
-Rejected because only pending records can be reviewed.
+Rejected because the payment is no longer pending.
 
----
-
-## Unsupported overpayment
+## Unsupported Overpayment
 
 ```text
-Submitted payment
+Submitted Amount
 >
-remaining balance
+Remaining Balance
 ```
 
-Rejected.
+Rejected by the current financial model.
 
----
-
-## Financial correction
+## Financial Correction
 
 ```text
-Approved payment was wrong
+Approved Payment
+→ later found incorrect
 ```
 
-Handled through controlled reversal rather than deletion.
-
----
-
-# Security Boundaries
-
-The final model can be summarized as:
-
-```text
-                    USER
-                      │
-                      ▼
-                Authentication
-                      │
-                      ▼
-                 Authorization
-                      │
-                      ▼
-                  API Validation
-                      │
-                      ▼
-             Transactional Workflow
-                      │
-                      ▼
-                Database Rules
-                      │
-        ┌─────────────┼─────────────┐
-        ▼             ▼             ▼
-   Constraints    Row Locks      Audit Data
-```
-
-<!-- IMAGE PLACEHOLDER -->
-
-![Security Boundaries](./assets/diagrams/security-boundaries.png)
-
-Each layer exists because the previous layer cannot guarantee everything.
+Handled through reversal rather than deletion.
 
 ---
 
 # Trade-offs
 
-The hardening work was not about moving every rule into PostgreSQL.
+The hardening work does not move every rule into PostgreSQL.
 
-That would make the application harder to understand and maintain.
+That would make ordinary application logic unnecessarily difficult to maintain.
 
-Likewise, leaving every rule in React or API routes would make important invariants easier to bypass.
+It also does not leave every rule in React or API routes, because application-layer checks alone cannot guarantee database consistency.
 
-The architecture therefore divides responsibility deliberately:
+Responsibility is split deliberately:
 
-```text
-Frontend
-→ User experience
+| Layer | Responsibility |
+|---|---|
+| Frontend | User experience and immediate feedback |
+| API / Server | Authentication, authorization, request validation |
+| Database Constraints | Permanent data invariants |
+| Transactional RPCs | Atomic multi-step operations |
+| Row Locks | Shared-state concurrency protection |
+| Audit Fields | Historical accountability |
+| Storage Policies | File-access boundaries |
 
-API
-→ Authentication, authorization and request validation
+The main trade-offs are:
 
-Database Constraints
-→ Permanent data invariants
+### Row locking vs optimistic concurrency
 
-Transactional RPCs
-→ Multi-step operations requiring atomicity
+Row locking is simpler to reason about and provides strong protection for low-frequency sensitive operations such as payment review.
 
-Row Locks
-→ Shared-state concurrency protection
+The cost is that competing transactions may wait.
 
-Audit Fields
-→ Historical accountability
-```
+That trade-off is acceptable here because correctness matters more than maximizing payment-review throughput.
 
-The trade-off is slightly more architectural complexity in exchange for stronger guarantees around important workflows.
+### Recalculation vs incremental totals
+
+Recalculating approved totals performs more database work than simply adding or subtracting from a stored total.
+
+The benefit is that the account summary remains tied to the approved payment history.
+
+### Reversal vs mutation
+
+Reversal creates more state than directly editing an approved payment.
+
+The benefit is that the historical approval remains traceable.
+
+### Overpayment rejection vs credit support
+
+Rejecting overpayment keeps the current model simpler.
+
+Supporting credits would require additional rules for refunds, carry-forward balances, allocation, and account settlement.
+
+### Database RPC vs application-layer transaction
+
+Transactional database functions place sensitive multi-step operations close to the data and make locking straightforward.
+
+The cost is that some business logic now lives in SQL rather than only in TypeScript.
+
+For workflows where atomicity and concurrency protection matter, that trade-off is intentional.
 
 ---
 
 # Remaining Security Considerations
 
-Hardening a system is not a one-time event.
-
-Some areas should continue to be reviewed as the platform evolves.
+The hardening phase improved the platform substantially, but several areas should continue to be reviewed.
 
 These include:
 
-- Full RLS policy coverage for user-facing data access
+- Full RLS coverage for user-facing data access
 - Private storage and controlled file access
 - Rate limiting on sensitive endpoints
-- Gateway webhook authentication and idempotency
-- Automated security and database tests
+- Gateway webhook authentication and idempotency if external payments are added
+- Automated authorization and database integrity tests
 - Monitoring and alerting
-- Structured audit/event logging
+- Structured security/audit event logging
 - Backup and recovery procedures
 - Secret rotation
-- Dependency/security scanning
+- Dependency and security scanning
 
-These are especially important if the platform moves from institutional use toward broader production deployment.
+These are remaining hardening areas, not features that should be presented as already complete.
 
 ---
 
 # Key Lessons
 
-The main lessons I took from the reliability and security review were:
+The main reliability and security lessons from the platform were:
 
-1. Authentication does not automatically mean authorization.
+1. Authentication does not imply authorization.
 2. Frontend validation cannot protect the database by itself.
 3. Database constraints are part of application design.
-4. Transactions protect business operations from partial failure.
+4. Transactions prevent partial multi-step business operations.
 5. Race conditions and idempotency solve different problems.
-6. Concurrency needs to be handled where shared state actually lives.
-7. Financial summaries should be derived from trustworthy underlying records.
-8. Important actions need an audit trail.
+6. Concurrency protection belongs close to shared state.
+7. Financial summaries should remain consistent with their underlying events.
+8. Sensitive operations need auditable actor and timestamp information.
 9. Financial corrections should preserve history.
-10. Security should exist in layers rather than depending on one mechanism.
+10. Security works best as a set of complementary layers.
 
 ---
 
@@ -1200,7 +981,7 @@ For the overall system design:
 
 [Architecture →](./architecture.md)
 
-For the actual business workflows:
+For the business workflows:
 
 [Core Workflows →](./workflows.md)
 
@@ -1209,24 +990,3 @@ For deeper engineering examples:
 - [Platform Hardening Case Study](./case-studies/platform-hardening.md)
 - [Registration Integrity Case Study](./case-studies/registration-integrity.md)
 - [Financial Workflow Case Study](./case-studies/financial-workflow.md)
-
----
-
-## Visual Placeholders
-
-The visuals referenced in this document can be added under:
-
-```text
-docs/
-└── assets/
-    ├── diagrams/
-    │   ├── security-layers.png
-    │   ├── row-locking.png
-    │   ├── payment-reversal.png
-    │   └── security-boundaries.png
-    │
-    └── screenshots/
-        └── authorization-guard.png
-```
-
-<!-- Delete this section once the final visuals are in place. -->
